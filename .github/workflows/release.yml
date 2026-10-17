@@ -1,0 +1,50 @@
+name: Release
+
+# Push a tag such as v0.2.0 to publish a release:
+#   git tag -a v0.2.0 -m "pingmock v0.2.0" && git push origin v0.2.0
+# Tags containing a hyphen (v0.2.0-rc.1) are published as prereleases.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test -race -count=1 ./...
+          go build -o pingmock .
+          sudo ./e2e_test.sh
+          rm pingmock
+
+      - name: Build binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.version=$VERSION" \
+              -o dist/pingmock-linux-$arch .
+          done
+          (cd dist && sha256sum pingmock-linux-* > SHA256SUMS && cat SHA256SUMS)
+          ./dist/pingmock-linux-amd64 -version
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=""
+          case "$TAG" in *-*) flags="--prerelease" ;; esac
+          gh release create "$TAG" dist/* --title "$TAG" --generate-notes --verify-tag $flags
