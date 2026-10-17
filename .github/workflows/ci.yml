@@ -51,3 +51,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Image and Compose example
         run: test/e2e-docker.sh
+      # The release publishes amd64 and arm64 images; build both here, so a
+      # problem shows up before a release does.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the release platforms
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
