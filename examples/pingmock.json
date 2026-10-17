@@ -12,6 +12,7 @@
       ],
       "repeat": true
     },
+    "10.99.0.5": "delay=50ms,unreachable=admin",
     "8.8.8.8": "timeout"
   }
 }

@@ -93,9 +93,9 @@ else
   near "IPv6 delay 40ms" "$(avg6 fd99::1 3)" 40 5
   near "IPv6 real address mocked through a route" "$(avg6 2001:db8::8888 2)" 25 5
   errors6() { ping -6 -c 2 -i 0.2 -W 2 "$1" 2>/dev/null | grep -c "$2" || true; }
-  same "IPv6 unreachable reports address unreachable" "$(errors6 fd99::2 'Address unreachable')" 2
-  same "IPv6 unreachable=net reports no route" "$(errors6 fd99::3 'No route')" 2
-  same "IPv6 unreachable=admin reports administratively prohibited" "$(errors6 fd99::4 'Administratively prohibited')" 2
+  same "IPv6 unreachable reports address unreachable" "$(errors6 fd99::2 'Destination unreachable: Address unreachable')" 2
+  same "IPv6 unreachable=net reports no route" "$(errors6 fd99::3 'Destination unreachable: No route')" 2
+  same "IPv6 unreachable=admin reports administratively prohibited" "$(errors6 fd99::4 'Destination unreachable: Administratively prohibited')" 2
   got6=$(ping -6 -c 6 -i 0.05 -W 1 fd99::5 2>/dev/null | grep 'bytes from' | grep -o 'icmp_seq=[0-9]*' | cut -d= -f2 | tr '\n' ' ' || true)
   same "IPv6 pattern ..x" "$got6" "1 2 4 5 "
   events=$(curl -sf "localhost:9100/history?target=fd99::/64" | grep -c '"dst": "fd99::' || true)
