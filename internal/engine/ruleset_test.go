@@ -235,3 +235,31 @@ func TestSeededSequenceIsStable(t *testing.T) {
 		t.Errorf("seeded sequence changed:\n got %s\nwant %s", s, want)
 	}
 }
+
+func TestIPv6Targets(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "1ms", 3)
+	rs.Set(netip.MustParsePrefix("fd99::/64"), mustScenario(t, "10ms"))
+	rs.Set(netip.MustParsePrefix("fd99::5/128"), mustScenario(t, "delay=20ms,pattern=.x"))
+	if d := rs.Decide(addr("fd99::1")); d.Delay != 10*time.Millisecond || d.Rule != "fd99::/64" {
+		t.Errorf("fd99::1: %+v", d)
+	}
+	if d := rs.Decide(addr("fd99::5")); d.Delay != 20*time.Millisecond || d.Rule != "fd99::5/128" {
+		t.Errorf("fd99::5: %+v", d)
+	}
+	if d := rs.Decide(addr("fd99::5")); d.Outcome != rule.Drop {
+		t.Errorf("fd99::5 second request: %+v", d)
+	}
+	// An IPv6 prefix never matches an IPv4 address, and the other way round.
+	rs.Set(netip.MustParsePrefix("0.0.0.0/0"), mustScenario(t, "30ms"))
+	if d := rs.Decide(addr("2001:db8::1")); d.Rule != "default" {
+		t.Errorf("IPv4 catch-all matched an IPv6 address: %+v", d)
+	}
+	if d := rs.Decide(addr("192.0.2.1")); d.Rule != "0.0.0.0/0" {
+		t.Errorf("192.0.2.1: %+v", d)
+	}
+	// Seeded streams differ between targets, including IPv6 ones.
+	a, _ := newTestRuleSet(t, "delay=50ms,jitter=50ms", 3)
+	if x, y := a.Decide(addr("fd99::1")), a.Decide(addr("fd99::2")); x.Delay == y.Delay {
+		t.Errorf("fd99::1 and fd99::2 got the same random delay %v", x.Delay)
+	}
+}

@@ -122,3 +122,41 @@ func TestServeDropsAndIgnoresOtherPackets(t *testing.T) {
 		t.Errorf("history = %+v", events)
 	}
 }
+
+func TestServeIPv6(t *testing.T) {
+	def, _ := rule.ParseScenario("delay=5ms,pattern=.u")
+	rs := engine.NewRuleSet(def, 1)
+	hist := engine.NewHistory(10)
+	dev := newFakeDevice()
+	done := make(chan error, 1)
+	go func() { done <- (&Responder{Rules: rs, History: hist}).Serve(dev) }()
+
+	client, target := netip.MustParseAddr("fd99::fe"), netip.MustParseAddr("fd99::1")
+	dev.in <- icmp.BuildEchoRequest(client, target, 3, 1, []byte("v6"))
+	dev.in <- icmp.BuildEchoRequest(client, target, 3, 2, []byte("v6"))
+	for i := 0; i < 2; i++ {
+		select {
+		case <-dev.wrote:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("only %d packets written", i)
+		}
+	}
+	close(dev.in)
+	<-done
+	dev.mu.Lock()
+	defer dev.mu.Unlock()
+	types := map[byte]bool{}
+	for _, w := range dev.writes {
+		if w.pkt[0]>>4 != 6 {
+			t.Fatalf("wrote a non-IPv6 packet: %x", w.pkt[:8])
+		}
+		types[w.pkt[40]] = true
+	}
+	if !types[129] || !types[1] {
+		t.Errorf("ICMPv6 types written %v, want an echo reply (129) and an unreachable (1)", types)
+	}
+	events, _ := hist.Events(nil, 0)
+	if len(events) != 2 || events[0].Dst != "fd99::1" || events[1].Result != "unreachable" {
+		t.Errorf("history = %+v", events)
+	}
+}

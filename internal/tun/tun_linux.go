@@ -60,25 +60,40 @@ func IP(args ...string) error {
 	return nil
 }
 
-// Router adds routes for targets outside the device subnet, so that real
+// Router adds routes for targets outside the device subnets, so that real
 // addresses can be mocked too. Routes vanish with the device on exit.
 type Router struct {
-	mu     sync.Mutex
-	dev    string
-	subnet netip.Prefix
-	routed map[netip.Prefix]bool
+	mu      sync.Mutex
+	dev     string
+	subnets []netip.Prefix
+	routed  map[netip.Prefix]bool
 }
 
 // NewRouter returns a router for targets of the device dev, whose own
-// subnet is already routed to it.
-func NewRouter(dev string, subnet netip.Prefix) *Router {
-	return &Router{dev: dev, subnet: subnet.Masked(), routed: map[netip.Prefix]bool{}}
+// subnets (at most one per address family) are already routed to it.
+func NewRouter(dev string, subnets ...netip.Prefix) *Router {
+	r := &Router{dev: dev, routed: map[netip.Prefix]bool{}}
+	for _, s := range subnets {
+		r.subnets = append(r.subnets, s.Masked())
+	}
+	return r
 }
 
-// Ensure routes p through the device unless it is already.
+// Ensure routes p through the device unless it is already. It fails for an
+// IPv6 target when the device has no IPv6 subnet.
 func (r *Router) Ensure(p netip.Prefix) error {
-	if r.subnet.Contains(p.Addr()) && p.Bits() >= r.subnet.Bits() {
-		return nil // already routed through the device subnet
+	family := false
+	for _, s := range r.subnets {
+		if s.Addr().Is4() != p.Addr().Is4() {
+			continue
+		}
+		family = true
+		if s.Contains(p.Addr()) && p.Bits() >= s.Bits() {
+			return nil // already routed through the device subnet
+		}
+	}
+	if !family {
+		return fmt.Errorf("cannot mock %s: IPv6 is not enabled on %s (see -addr6)", p, r.dev)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

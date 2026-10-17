@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check: run as root on Linux with iproute2, ping and curl.
 #   make e2e    (or: go build -o pingmock . && sudo test/e2e.sh)
+# The IPv6 checks are skipped when the kernel has no IPv6, unless
+# REQUIRE_IPV6=1 is set (as in CI), which makes that a failure.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -78,5 +80,27 @@ near "rule from config file" "$(avg 10.99.0.6 2)" 30 4
 near "flag overrides config file" "$(avg 10.99.0.7 2)" 60 5
 stop
 rm -f "$cfg"
+
+# IPv6.
+if [ ! -e /proc/net/if_inet6 ]; then
+  if [ "${REQUIRE_IPV6:-0}" = 1 ]; then fail "IPv6 is unavailable but REQUIRE_IPV6=1"; fi
+  echo "SKIP IPv6 checks: the kernel has no IPv6"
+else
+  start -addr6 fd99::fe/64 -rule fd99::1=40ms -rule fd99::2=unreachable \
+    -rule fd99::3=unreachable=net -rule fd99::4=unreachable=admin \
+    -rule 'fd99::5=delay=5ms,pattern=..x' -rule 2001:db8::8888=25ms
+  avg6() { ping -6 -c "$2" -i 0.2 -W 2 "$1" | awk -F'/' '/^rtt/ {print $5}'; }
+  near "IPv6 delay 40ms" "$(avg6 fd99::1 3)" 40 5
+  near "IPv6 real address mocked through a route" "$(avg6 2001:db8::8888 2)" 25 5
+  errors6() { ping -6 -c 2 -i 0.2 -W 2 "$1" 2>/dev/null | grep -c "$2" || true; }
+  same "IPv6 unreachable reports address unreachable" "$(errors6 fd99::2 'Address unreachable')" 2
+  same "IPv6 unreachable=net reports no route" "$(errors6 fd99::3 'No route')" 2
+  same "IPv6 unreachable=admin reports administratively prohibited" "$(errors6 fd99::4 'Administratively prohibited')" 2
+  got6=$(ping -6 -c 6 -i 0.05 -W 1 fd99::5 2>/dev/null | grep 'bytes from' | grep -o 'icmp_seq=[0-9]*' | cut -d= -f2 | tr '\n' ' ' || true)
+  same "IPv6 pattern ..x" "$got6" "1 2 4 5 "
+  events=$(curl -sf "localhost:9100/history?target=fd99::/64" | grep -o '"dst":"fd99::' | wc -l)
+  [ "$events" -gt 0 ] && pass "history filters IPv6 prefixes ($events events)" || fail "no IPv6 events in history"
+  stop
+fi
 
 echo "all checks passed"

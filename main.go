@@ -71,7 +71,8 @@ func parseRuleFlag(s string) (netip.Prefix, rule.Scenario, error) {
 func main() {
 	var (
 		devName = flag.String("dev", "pingmock0", "TUN device name")
-		addr    = flag.String("addr", "10.99.0.254/24", "address/prefix of the TUN device; other addresses in this subnet are mocked hosts")
+		addr    = flag.String("addr", "10.99.0.254/24", "IPv4 address/prefix of the TUN device; other addresses in this subnet are mocked hosts")
+		addr6   = flag.String("addr6", "fd99::fe/64", "IPv6 address/prefix of the TUN device (empty disables IPv6); if IPv6 is unavailable and this flag is not given, pingmock continues with IPv4 only")
 		defRule = flag.String("default", "0ms", "rule for targets without a matching -rule")
 		apiAddr = flag.String("api", "127.0.0.1:9100", "listen address of the HTTP control API (empty disables it)")
 		seed    = flag.Uint64("seed", 0, "seed for loss and jitter; the same seed reproduces the same sequence per target (default: random, printed at startup)")
@@ -81,9 +82,9 @@ func main() {
 		histLen = flag.Int("history", 1000, "number of recent requests kept for GET /history (0 disables)")
 		rules   ruleFlags
 	)
-	flag.Var(&rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, timeout, or phases such as \"50ms for 3 pings; timeout\"")
+	flag.Var(&rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, or phases such as \"50ms for 3 pings; timeout\"")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: sudo pingmock [flags]\n\nExamples:\n  sudo pingmock -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=300ms,jitter=50ms -rule '10.99.0.3=20ms for 5 pings; timeout'\n  sudo pingmock -config pingmock.json\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "Usage: sudo pingmock [flags]\n\nExamples:\n  sudo pingmock -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=300ms,jitter=50ms -rule '10.99.0.3=20ms for 5 pings; timeout'\n  sudo pingmock -rule fd99::1=30ms -rule 10.99.0.4=unreachable\n  sudo pingmock -config pingmock.json\n\nFlags:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -122,6 +123,10 @@ func main() {
 		if cfg.Addr != "" && !set["addr"] {
 			*addr = cfg.Addr
 		}
+		if cfg.Addr6 != nil && !set["addr6"] {
+			*addr6 = *cfg.Addr6
+			set["addr6"] = true // asked for explicitly: failing to set it up is an error
+		}
 		if cfg.API != nil && !set["api"] {
 			*apiAddr = *cfg.API
 		}
@@ -140,6 +145,13 @@ func main() {
 	devPrefix, err := netip.ParsePrefix(*addr)
 	if err != nil || !devPrefix.Addr().Is4() {
 		log.Fatalf("invalid -addr %q: need an IPv4 address with prefix, e.g. 10.99.0.254/24", *addr)
+	}
+	var devPrefix6 netip.Prefix
+	if *addr6 != "" {
+		devPrefix6, err = netip.ParsePrefix(*addr6)
+		if err != nil || !devPrefix6.Addr().Is6() || devPrefix6.Addr().Is4In6() {
+			log.Fatalf("invalid -addr6 %q: need an IPv6 address with prefix, e.g. fd99::fe/64", *addr6)
+		}
 	}
 	var def rule.Scenario
 	if cfgDefault != nil && !set["default"] {
@@ -173,7 +185,21 @@ func main() {
 	if err := tun.IP("link", "set", ifName, "up"); err != nil {
 		log.Fatal(err)
 	}
-	router := tun.NewRouter(ifName, devPrefix)
+	subnets := []netip.Prefix{devPrefix}
+	if devPrefix6.IsValid() {
+		// nodad: the address is usable at once instead of after duplicate
+		// address detection, which is pointless on a private TUN device.
+		if err := tun.IP("-6", "addr", "add", devPrefix6.String(), "dev", ifName, "nodad"); err != nil {
+			if set["addr6"] {
+				log.Fatalf("setting up IPv6: %v", err)
+			}
+			log.Printf("IPv6 is unavailable, continuing with IPv4 only (%v)", err)
+			devPrefix6 = netip.Prefix{}
+		} else {
+			subnets = append(subnets, devPrefix6)
+		}
+	}
+	router := tun.NewRouter(ifName, subnets...)
 	rs := engine.NewRuleSet(def, *seed)
 	hist := engine.NewHistory(*histLen)
 	for _, r := range initial {
@@ -184,6 +210,9 @@ func main() {
 	}
 	log.Printf("pingmock %s: device %s up with %s; ping any other address in %s (not %s itself, that one is local)",
 		buildVersion(), ifName, devPrefix, devPrefix.Masked(), devPrefix.Addr())
+	if devPrefix6.IsValid() {
+		log.Printf("IPv6: %s; ping any other address in %s", devPrefix6, devPrefix6.Masked())
+	}
 	log.Printf("seed %d (pass -seed %d to reproduce this run)", *seed, *seed)
 	log.Printf("default: %s", def)
 	for _, r := range initial {

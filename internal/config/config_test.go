@@ -53,14 +53,17 @@ func TestLoadExample(t *testing.T) {
 
 func TestLoadErrors(t *testing.T) {
 	cases := map[string]string{
-		`{"rulez": {}}`:                                           "unknown field",
-		`{"rules": {"::1": "5ms"}}`:                               "only IPv4",
-		`{"rules": {"10.99.0.1": "bogus"}}`:                       "invalid spec",
-		`{"rules": {"10.99.0.1": "5ms; 6ms"}}`:                    "needs a length",
-		`{"rules": {"10.0.0.1/24": "5ms", "10.0.0.7/24": "6ms"}}`: "same target",
-		`{"addr": "10.99.0.1"}`:                                   "invalid addr",
-		`{"seed": -1}`:                                            "cannot unmarshal",
-		`{`:                                                       "unexpected EOF",
+		`{"rulez": {}}`:                                            "unknown field",
+		`{"rules": {"fe80::1%eth0": "5ms"}}`:                       "zones are not supported",
+		`{"rules": {"10.99.0.1": "bogus"}}`:                        "invalid spec",
+		`{"rules": {"10.99.0.1": "5ms; 6ms"}}`:                     "needs a length",
+		`{"rules": {"10.0.0.1/24": "5ms", "10.0.0.7/24": "6ms"}}`:  "same target",
+		`{"addr": "10.99.0.1"}`:                                    "invalid addr",
+		`{"addr": "fd99::fe/64"}`:                                  "invalid addr",
+		`{"addr6": "10.99.0.254/24"}`:                              "invalid addr6",
+		`{"rules": {"10.0.0.1": "5ms", "::ffff:10.0.0.1": "6ms"}}`: "same target",
+		`{"seed": -1}`:                                             "cannot unmarshal",
+		`{`:                                                        "unexpected EOF",
 	}
 	for content, want := range cases {
 		_, _, err := Load(writeConfig(t, content))

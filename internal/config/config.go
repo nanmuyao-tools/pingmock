@@ -27,7 +27,8 @@ import (
 type Config struct {
 	Dev     string                   `json:"dev"`
 	Addr    string                   `json:"addr"`
-	API     *string                  `json:"api"` // pointer so "" can disable the API
+	Addr6   *string                  `json:"addr6"` // pointer so "" can disable IPv6
+	API     *string                  `json:"api"`   // pointer so "" can disable the API
 	Seed    *uint64                  `json:"seed"`
 	History *int                     `json:"history"`
 	Default *rule.Scenario           `json:"default"`
@@ -73,6 +74,11 @@ func Load(path string) (*Config, []Rule, error) {
 	}
 	if cfg.History != nil && *cfg.History < 0 {
 		return nil, nil, fmt.Errorf("%s: history must not be negative", path)
+	}
+	if cfg.Addr6 != nil && *cfg.Addr6 != "" {
+		if p, err := netip.ParsePrefix(*cfg.Addr6); err != nil || !p.Addr().Is6() || p.Addr().Is4In6() {
+			return nil, nil, fmt.Errorf("%s: invalid addr6 %q: need an IPv6 address with prefix, e.g. fd99::fe/64", path, *cfg.Addr6)
+		}
 	}
 	if cfg.Addr != "" {
 		if p, err := netip.ParsePrefix(cfg.Addr); err != nil || !p.Addr().Is4() {

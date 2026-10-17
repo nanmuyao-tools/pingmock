@@ -122,3 +122,89 @@ func TestBuildUnreachableTruncatesLargeRequests(t *testing.T) {
 		t.Error("quote is not the start of the request")
 	}
 }
+
+var (
+	client6 = netip.MustParseAddr("fd99::fe")
+	target6 = netip.MustParseAddr("fd99::3")
+)
+
+// valid6 reports whether the ICMPv6 checksum of an IPv6 packet verifies.
+func valid6(pkt []byte) bool {
+	return checksum6(pkt[8:24], pkt[24:40], pkt[ipv6Header:]) == 0
+}
+
+func TestParseEchoRequest6(t *testing.T) {
+	pkt := BuildEchoRequest(client6, target6, 9, 77, []byte("abc"))
+	if !valid6(pkt) {
+		t.Fatal("BuildEchoRequest produced a bad ICMPv6 checksum")
+	}
+	req, ok := ParseEchoRequest(pkt)
+	if !ok || req.Src != client6 || req.Dst != target6 || req.ID != 9 || req.Seq != 77 {
+		t.Fatalf("ParseEchoRequest = %+v, %v", req, ok)
+	}
+	cases := map[string]func([]byte) []byte{
+		"too short":       func(b []byte) []byte { return b[:30] },
+		"not ICMPv6":      func(b []byte) []byte { b[6] = 17; return b },
+		"echo reply":      func(b []byte) []byte { b[ipv6Header] = icmp6EchoReply; return b },
+		"payload too big": func(b []byte) []byte { binary.BigEndian.PutUint16(b[4:6], 500); return b },
+		"extension":       func(b []byte) []byte { b[6] = 0; return b }, // hop-by-hop options
+	}
+	for name, mutate := range cases {
+		if _, ok := ParseEchoRequest(mutate(append([]byte(nil), pkt...))); ok {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestBuildEchoReply6(t *testing.T) {
+	req := BuildEchoRequest(client6, target6, 9, 77, []byte("timestamp"))
+	reply := BuildEchoReply(req)
+	if len(reply) != len(req) || reply[0]>>4 != 6 || reply[7] != 64 {
+		t.Fatalf("bad header: %x", reply[:8])
+	}
+	if src, dst := netip.AddrFrom16([16]byte(reply[8:24])), netip.AddrFrom16([16]byte(reply[24:40])); src != target6 || dst != client6 {
+		t.Errorf("reply %s -> %s, want %s -> %s", src, dst, target6, client6)
+	}
+	msg := reply[ipv6Header:]
+	if msg[0] != icmp6EchoReply || msg[1] != 0 || !valid6(reply) {
+		t.Errorf("type %d code %d valid %v", msg[0], msg[1], valid6(reply))
+	}
+	if binary.BigEndian.Uint16(msg[4:6]) != 9 || binary.BigEndian.Uint16(msg[6:8]) != 77 || string(msg[8:]) != "timestamp" {
+		t.Error("id, seq or payload not preserved")
+	}
+	if req[ipv6Header] != icmp6EchoRequest {
+		t.Error("request was modified in place")
+	}
+}
+
+func TestBuildUnreachable6(t *testing.T) {
+	req := BuildEchoRequest(client6, target6, 9, 77, []byte("payload"))
+	for code, want := range map[rule.UnreachCode]byte{rule.UnreachNet: 0, rule.UnreachAdmin: 1, rule.UnreachHost: 3} {
+		out := BuildUnreachable(req, code)
+		if len(out) != ipv6Header+8+len(req) || int(binary.BigEndian.Uint16(out[4:6])) != 8+len(req) {
+			t.Fatalf("%v: length %d", code, len(out))
+		}
+		if out[6] != protoICMPv6 || out[ipv6Header] != icmp6Unreachable || out[ipv6Header+1] != want || !valid6(out) {
+			t.Errorf("%v: next header %d type %d code %d valid %v", code, out[6], out[ipv6Header], out[ipv6Header+1], valid6(out))
+		}
+		if src := netip.AddrFrom16([16]byte(out[8:24])); src != target6 {
+			t.Errorf("%v: from %s, want %s", code, src, target6)
+		}
+		if !bytes.Equal(out[ipv6Header+8:], req) {
+			t.Errorf("%v: request not quoted", code)
+		}
+	}
+	big := BuildEchoRequest(client6, target6, 1, 1, make([]byte, 1400))
+	if out := BuildUnreachable(big, rule.UnreachHost); len(out) != maxError6 || !valid6(out) {
+		t.Errorf("large request: length %d (want %d), valid %v", len(out), maxError6, valid6(out))
+	}
+}
+
+// TestChecksum6KnownValue checks checksum6 against a value computed by an
+// independent implementation of the RFC 8200 pseudo-header checksum.
+func TestChecksum6KnownValue(t *testing.T) {
+	pkt := BuildEchoRequest(netip.MustParseAddr("fd99::fe"), netip.MustParseAddr("fd99::1"), 0x1234, 1, []byte("pingmock"))
+	if got := binary.BigEndian.Uint16(pkt[ipv6Header+2 : ipv6Header+4]); got != 0xc1a1 {
+		t.Errorf("checksum %#04x, want 0xc1a1", got)
+	}
+}

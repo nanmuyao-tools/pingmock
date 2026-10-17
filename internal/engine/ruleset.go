@@ -127,10 +127,17 @@ func (rs *RuleSet) match(a netip.Addr) (*entry, string) {
 	return best, bestPrefix.String()
 }
 
+// rngFor returns the random stream of a target. IPv4 addresses hash their
+// four bytes, as in earlier versions, so seeded runs stay reproducible.
 func (rs *RuleSet) rngFor(a netip.Addr) *rand.Rand {
 	h := fnv.New64a()
-	b := a.As4()
-	h.Write(b[:])
+	if a.Is4() {
+		b := a.As4()
+		h.Write(b[:])
+	} else {
+		b := a.As16()
+		h.Write(b[:])
+	}
 	return rand.New(rand.NewPCG(rs.seed, h.Sum64()))
 }
 

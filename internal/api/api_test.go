@@ -83,6 +83,9 @@ func TestAPISetRuleTextAndJSON(t *testing.T) {
 	if len(f.routed) != 3 || f.routed[1].String() != "10.99.0.128/25" {
 		t.Errorf("ensureRoute calls: %v", f.routed)
 	}
+	if code := f.do("PUT", "/rules/fd99::7", "unreachable=admin", &resp); code != 200 || resp.Target != "fd99::7/128" || resp.Rule != "delay=0s,unreachable=admin" {
+		t.Errorf("PUT IPv6: %d %+v", code, resp)
+	}
 }
 
 func TestAPIRulesAndDelete(t *testing.T) {
@@ -135,12 +138,12 @@ func TestAPIErrors(t *testing.T) {
 		{"PUT", "/rules/10.99.0.1", "delay=abc", 400},
 		{"PUT", "/rules/10.99.0.1", "5ms; 6ms", 400},
 		{"PUT", "/rules/10.99.0.1", `{"delay":`, 400},
-		{"PUT", "/rules/::1", "5ms", 400},
+		{"PUT", "/rules/fe80::1%25eth0", "5ms", 400},
 		{"PUT", "/rules/not-an-ip", "5ms", 400},
 		{"PUT", "/default", "", 400},
 		{"DELETE", "/rules/nope", "", 400},
 		{"GET", "/history?limit=-1", "", 400},
-		{"GET", "/history?target=::1", "", 400},
+		{"GET", "/history?target=10.0.0.300", "", 400},
 		{"POST", "/rules", "", 405},
 	}
 	for _, c := range cases {
