@@ -38,6 +38,9 @@ func Single(sp Spec) Scenario { return Scenario{Phases: []Phase{{Spec: sp}}} }
 //	20ms for 5s; timeout for 2s; repeat
 func ParseScenario(s string) (Scenario, error) {
 	var sc Scenario
+	if strings.TrimSpace(s) == "" {
+		return Scenario{}, fmt.Errorf("empty rule")
+	}
 	parts := strings.Split(s, ";")
 	if last := strings.TrimSpace(parts[len(parts)-1]); strings.EqualFold(last, "repeat") {
 		sc.Repeat = true

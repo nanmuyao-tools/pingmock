@@ -26,6 +26,7 @@ type Config struct {
 	Addr    string              `json:"addr"`
 	API     *string             `json:"api"` // pointer so "" can disable the API
 	Seed    *uint64             `json:"seed"`
+	History *int                `json:"history"`
 	Default *Scenario           `json:"default"`
 	Rules   map[string]Scenario `json:"rules"`
 }
@@ -65,6 +66,9 @@ func LoadConfig(path string) (*Config, []configRule, error) {
 		}
 		seen[p] = k
 		rules = append(rules, configRule{p, cfg.Rules[k]})
+	}
+	if cfg.History != nil && *cfg.History < 0 {
+		return nil, nil, fmt.Errorf("%s: history must not be negative", path)
 	}
 	if cfg.Addr != "" {
 		if p, err := netip.ParsePrefix(cfg.Addr); err != nil || !p.Addr().Is4() {

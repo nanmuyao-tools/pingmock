@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 )
 
@@ -16,7 +17,9 @@ import (
 //	DELETE /rules/{target}    remove a rule
 //	PUT    /default           set the default rule
 //	DELETE /stats             reset counters
-func newAPI(rs *RuleSet, ensureRoute func(netip.Prefix) error) http.Handler {
+//	GET    /history           recent requests; ?target=IP-or-CIDR&limit=N
+//	DELETE /history           clear the history
+func newAPI(rs *RuleSet, hist *History, ensureRoute func(netip.Prefix) error) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rules", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, rs.Snapshot())
@@ -62,6 +65,32 @@ func newAPI(rs *RuleSet, ensureRoute func(netip.Prefix) error) http.Handler {
 	})
 	mux.HandleFunc("DELETE /stats", func(w http.ResponseWriter, r *http.Request) {
 		rs.ResetStats()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /history", func(w http.ResponseWriter, r *http.Request) {
+		var filter *netip.Prefix
+		if t := r.URL.Query().Get("target"); t != "" {
+			p, err := ParsePrefix(t)
+			if err != nil {
+				httpError(w, http.StatusBadRequest, err)
+				return
+			}
+			filter = &p
+		}
+		limit := 0
+		if l := r.URL.Query().Get("limit"); l != "" {
+			n, err := strconv.Atoi(l)
+			if err != nil || n < 0 {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid limit %q", l))
+				return
+			}
+			limit = n
+		}
+		events, total := hist.Events(filter, limit)
+		writeJSON(w, http.StatusOK, map[string]any{"events": events, "total": total, "capacity": hist.Capacity()})
+	})
+	mux.HandleFunc("DELETE /history", func(w http.ResponseWriter, r *http.Request) {
+		hist.Clear()
 		w.WriteHeader(http.StatusNoContent)
 	})
 	return mux

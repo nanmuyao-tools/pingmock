@@ -98,6 +98,7 @@ func main() {
 		verbose = flag.Bool("v", false, "log every request")
 		showVer = flag.Bool("version", false, "print the version and exit")
 		cfgPath = flag.String("config", "", "JSON configuration file; flags given on the command line override it")
+		histLen = flag.Int("history", 1000, "number of recent requests kept for GET /history (0 disables)")
 		rules   ruleFlags
 	)
 	flag.Var(&rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, timeout, or phases such as \"50ms for 3 pings; timeout\"")
@@ -144,12 +145,18 @@ func main() {
 		if cfg.API != nil && !set["api"] {
 			*apiAddr = *cfg.API
 		}
+		if cfg.History != nil && !set["history"] {
+			*histLen = *cfg.History
+		}
 		cfgDefault, cfgSeed = cfg.Default, cfg.Seed
 		for _, r := range cfgRules {
 			addRule(r.prefix, r.sc)
 		}
 	}
 
+	if *histLen < 0 {
+		log.Fatalf("invalid -history %d: must not be negative", *histLen)
+	}
 	devPrefix, err := netip.ParsePrefix(*addr)
 	if err != nil || !devPrefix.Addr().Is4() {
 		log.Fatalf("invalid -addr %q: need an IPv4 address with prefix, e.g. 10.99.0.254/24", *addr)
@@ -188,6 +195,7 @@ func main() {
 	}
 	router := &Router{dev: dev, subnet: devPrefix.Masked(), routed: map[netip.Prefix]bool{}}
 	rs := NewRuleSet(def, *seed)
+	hist := NewHistory(*histLen)
 	for _, r := range initial {
 		if err := router.Ensure(r.p); err != nil {
 			log.Fatal(err)
@@ -204,13 +212,13 @@ func main() {
 
 	var srv *http.Server
 	if *apiAddr != "" {
-		srv = &http.Server{Addr: *apiAddr, Handler: newAPI(rs, router.Ensure), ReadHeaderTimeout: 5 * time.Second}
+		srv = &http.Server{Addr: *apiAddr, Handler: newAPI(rs, hist, router.Ensure), ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatalf("API: %v", err)
 			}
 		}()
-		log.Printf("control API on http://%s (GET /rules, PUT /rules/{target}, PUT /default)", *apiAddr)
+		log.Printf("control API on http://%s (GET /rules, PUT /rules/{target}, PUT /default, GET /history)", *apiAddr)
 	}
 
 	sigs := make(chan os.Signal, 1)
@@ -226,11 +234,11 @@ func main() {
 		tun.Close()
 	}()
 
-	serve(tun, rs, *verbose)
+	serve(tun, rs, hist, *verbose)
 }
 
 // serve reads packets from the device and schedules replies.
-func serve(tun *os.File, rs *RuleSet, verbose bool) {
+func serve(tun *os.File, rs *RuleSet, hist *History, verbose bool) {
 	var wmu sync.Mutex
 	buf := make([]byte, 65536)
 	for {
@@ -247,6 +255,11 @@ func serve(tun *os.File, rs *RuleSet, verbose bool) {
 			continue
 		}
 		d := rs.Decide(req.dst)
+		ev := Event{Time: time.Now(), Src: req.src.String(), Dst: req.dst.String(), ID: req.id, Seq: req.seq, Reply: d.Reply, Rule: d.Rule, Phase: d.Phase + 1}
+		if d.Reply {
+			ev.Delay = d.Delay.String()
+		}
+		hist.Add(ev)
 		if !d.Reply {
 			if verbose {
 				log.Printf("%s -> %s id=%d seq=%d: dropped (rule %s, phase %d)", req.src, req.dst, req.id, req.seq, d.Rule, d.Phase+1)

@@ -210,7 +210,7 @@ func advance(t *target, sc Scenario, now time.Time) {
 type TargetState struct {
 	Stats
 	Rule  string `json:"rule"`
-	Phase int    `json:"phase"`
+	Phase int    `json:"phase"` // 1-based
 }
 
 // Snapshot returns a copy of the current state for the API.
@@ -229,9 +229,9 @@ func (rs *RuleSet) Snapshot() map[string]any {
 	targets := map[string]TargetState{}
 	for a, t := range rs.targets {
 		e, label := rs.match(a)
-		st := TargetState{Stats: t.stats, Rule: label}
+		st := TargetState{Stats: t.stats, Rule: label, Phase: 1}
 		if t.entryID == e.id {
-			st.Phase = t.phase
+			st.Phase = t.phase + 1
 		}
 		targets[a.String()] = st
 	}
