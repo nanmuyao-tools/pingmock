@@ -65,6 +65,7 @@ func TestScenarioJSON(t *testing.T) {
 		`"50ms for 3 pings; timeout"`:     "delay=50ms for 3 pings; timeout",
 		`{"delay":"20ms","pattern":".x"}`: "delay=20ms,pattern=.x",
 		`"10ms"`:                          "delay=10ms",
+		`25`:                              "delay=25ms",
 		`{"phases":[{"spec":"5ms","count":2},{"spec":{"delay":"9ms"},"for":"1s"}],"repeat":true}`: "delay=5ms for 2 pings; delay=9ms for 1s; repeat",
 	}
 	for in, want := range cases {
@@ -86,7 +87,7 @@ func TestScenarioJSON(t *testing.T) {
 		`{"phases":[{"spec":"5ms"},{"spec":"6ms"}]}`,
 		`{"phases":[{"spec":"5ms","for":"1s","count":2}]}`,
 		`{"phases":[{"spec":"5ms","for":"1s"}],"repaet":true}`,
-		`42`,
+		`true`,
 	} {
 		var sc Scenario
 		if err := json.Unmarshal([]byte(bad), &sc); err == nil {

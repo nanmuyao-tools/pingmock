@@ -163,14 +163,17 @@ type scenarioJSON struct {
 	Repeat bool        `json:"repeat,omitempty"`
 }
 
-// UnmarshalJSON accepts the text form as a string, a single spec object
-// ({"delay":"50ms"}) or a phases object:
+// UnmarshalJSON accepts the text form as a string, a number of
+// milliseconds, a single spec object ({"delay":"50ms"}) or a phases object:
 //
 //	{"phases":[{"spec":"50ms","count":3},{"spec":{"delay":"500ms"},"for":"10s"}],"repeat":true}
 func (sc *Scenario) UnmarshalJSON(b []byte) error {
 	b = bytes.TrimSpace(b)
 	var text string
-	if err := json.Unmarshal(b, &text); err == nil {
+	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
+		if err != nil {
+			text = string(b) // a bare number: milliseconds, as on the command line
+		}
 		out, err := ParseScenario(text)
 		if err != nil {
 			return err
@@ -180,7 +183,7 @@ func (sc *Scenario) UnmarshalJSON(b []byte) error {
 	}
 	var probe map[string]json.RawMessage
 	if err := json.Unmarshal(b, &probe); err != nil {
-		return fmt.Errorf("rule must be a string or an object: %w", err)
+		return fmt.Errorf("a rule must be a string, a number or an object: %w", err)
 	}
 	if _, ok := probe["phases"]; !ok {
 		var sp Spec

@@ -152,7 +152,22 @@ func TestSpecJSON(t *testing.T) {
 			t.Errorf("round trip of %s via %s: %+v (%v)", in, b, again, err)
 		}
 	}
-	for _, bad := range []string{`{"loss":2}`, `{"delay":"5ms","dealy":"6ms"}`, `{"loss":0.5,"pattern":".x"}`, `{"unreachable":"port"}`} {
+	numeric := map[string]Spec{
+		`20`:                           {Delay: 20 * time.Millisecond},
+		`1.5`:                          {Delay: 1500 * time.Microsecond},
+		`{"delay":50,"jitter":5}`:      {Delay: 50 * time.Millisecond, Jitter: 5 * time.Millisecond},
+		`{"delay":"50ms","loss":"5%"}`: {Delay: 50 * time.Millisecond, Loss: 0.05},
+		`{"loss":0.25}`:                {Loss: 0.25},
+		`{"delay":"1s","loss":"0.1"}`:  {Delay: time.Second, Loss: 0.1},
+	}
+	for in, want := range numeric {
+		var sp Spec
+		if err := json.Unmarshal([]byte(in), &sp); err != nil || sp != want {
+			t.Errorf("Unmarshal(%s) = %+v (%v), want %+v", in, sp, err, want)
+		}
+	}
+	for _, bad := range []string{`{"loss":2}`, `{"delay":"5ms","dealy":"6ms"}`, `{"loss":0.5,"pattern":".x"}`, `{"unreachable":"port"}`,
+		`-5`, `{"delay":-5}`, `{"loss":"150%"}`, `{"delay":true}`} {
 		if err := json.Unmarshal([]byte(bad), &out); err == nil {
 			t.Errorf("Unmarshal(%s): expected error", bad)
 		}

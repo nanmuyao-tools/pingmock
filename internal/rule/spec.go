@@ -249,17 +249,45 @@ func (sp Spec) Decide(idx int, rng *rand.Rand) (Outcome, UnreachCode, time.Durat
 
 // specJSON is the JSON object form of a Spec.
 type specJSON struct {
-	Delay       string  `json:"delay,omitempty"`
-	Jitter      string  `json:"jitter,omitempty"`
-	Loss        float64 `json:"loss,omitempty"`
-	Pattern     string  `json:"pattern,omitempty"`
-	Unreachable *string `json:"unreachable,omitempty"` // "host", "net", "admin" or "" for host
+	Delay       numOrString `json:"delay,omitempty"`  // "120ms", or a number of milliseconds
+	Jitter      numOrString `json:"jitter,omitempty"` // likewise
+	Loss        numOrString `json:"loss,omitempty"`   // a fraction (0.05) or a percentage ("5%")
+	Pattern     string      `json:"pattern,omitempty"`
+	Unreachable *string     `json:"unreachable,omitempty"` // "host", "net", "admin" or "" for host
+}
+
+// numOrString holds a JSON string or number as text. Configuration files,
+// YAML ones especially, often write durations and loss as bare numbers.
+type numOrString string
+
+func (n *numOrString) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*n = numOrString(s)
+		return nil
+	}
+	var f json.Number
+	if err := json.Unmarshal(b, &f); err != nil {
+		return fmt.Errorf("want a string or a number, got %s", b)
+	}
+	*n = numOrString(f)
+	return nil
+}
+
+// isJSONNumber reports whether b is a JSON number rather than a string or
+// an object.
+func isJSONNumber(b []byte) bool {
+	var n json.Number
+	return len(b) > 0 && b[0] != '"' && json.Unmarshal(b, &n) == nil
 }
 
 func (sp Spec) MarshalJSON() ([]byte, error) {
-	j := specJSON{Delay: sp.Delay.String(), Loss: sp.Loss, Pattern: sp.Pattern}
+	j := specJSON{Delay: numOrString(sp.Delay.String()), Pattern: sp.Pattern}
 	if sp.Jitter > 0 {
-		j.Jitter = sp.Jitter.String()
+		j.Jitter = numOrString(sp.Jitter.String())
+	}
+	if sp.Loss > 0 {
+		j.Loss = numOrString(strconv.FormatFloat(sp.Loss, 'g', -1, 64))
 	}
 	if sp.Unreachable != UnreachNone {
 		code := sp.Unreachable.String()
@@ -268,10 +296,14 @@ func (sp Spec) MarshalJSON() ([]byte, error) {
 	return json.Marshal(j)
 }
 
-// UnmarshalJSON accepts the object form or a string in the text form.
+// UnmarshalJSON accepts the object form, a string in the text form, or a
+// number, which is a delay in milliseconds as on the command line.
 func (sp *Spec) UnmarshalJSON(b []byte) error {
 	var text string
-	if err := json.Unmarshal(b, &text); err == nil {
+	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
+		if err != nil {
+			text = string(b)
+		}
 		out, err := ParseSpec(text)
 		if err != nil {
 			return err
@@ -288,16 +320,20 @@ func (sp *Spec) UnmarshalJSON(b []byte) error {
 	var out Spec
 	var err error
 	if j.Delay != "" {
-		if out.Delay, err = parseDuration(j.Delay); err != nil {
+		if out.Delay, err = parseDuration(string(j.Delay)); err != nil {
 			return err
 		}
 	}
 	if j.Jitter != "" {
-		if out.Jitter, err = parseDuration(j.Jitter); err != nil {
+		if out.Jitter, err = parseDuration(string(j.Jitter)); err != nil {
 			return err
 		}
 	}
-	out.Loss = j.Loss
+	if j.Loss != "" {
+		if out.Loss, err = parseLoss(string(j.Loss)); err != nil {
+			return err
+		}
+	}
 	if j.Pattern != "" {
 		if out.Pattern, err = parsePattern(j.Pattern); err != nil {
 			return err
