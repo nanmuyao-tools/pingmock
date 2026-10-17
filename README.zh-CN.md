@@ -31,7 +31,13 @@ chmod +x pingmock
 go install github.com/nanmuyao/pingmock@latest
 ```
 
-或者从源码构建：
+**容器镜像**（amd64 和 arm64），参见 [Docker](#docker)：
+
+```bash
+docker pull ghcr.io/nanmuyao/pingmock
+```
+
+**从源码构建：**
 
 ```bash
 git clone https://github.com/nanmuyao/pingmock.git
@@ -43,7 +49,12 @@ go build -o pingmock .
 
 ## 使用
 
-需要 root 权限（或 `CAP_NET_ADMIN`）。
+pingmock 有两种运行方式：
+
+- `sudo pingmock [参数]` 为整台机器模拟 ping，直到你停止它。本节其余部分介绍的就是这种方式。
+- `pingmock exec [参数] -- 命令` 在一个独立的网络里运行命令，该命令的 ping 会被模拟。这种方式**不需要 root**，也不影响宿主机的网络，最适合测试和 CI。参见[不用 root 运行](#不用-root-运行pingmock-exec)。
+
+第一种方式需要 root 权限（或 `CAP_NET_ADMIN`）。
 
 ```bash
 sudo ./pingmock \
@@ -196,6 +207,57 @@ sudo ./pingmock -config examples/pingmock.json
 | `-v` | `false` | 打印每个请求的处理日志 |
 | `-version` | | 打印版本号并退出 |
 
+## 不用 root 运行：pingmock exec
+
+```bash
+pingmock exec [参数] -- 命令 [参数...]
+```
+
+会在一个**独立的网络命名空间**里运行命令，pingmock 在其中模拟 ping，参数和前面完全相同：
+
+```bash
+pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
+```
+
+- **不需要 root。** 普通用户运行时，pingmock 还会创建一个用户命名空间，在其中设置网络；以 root 运行时，只创建网络命名空间。
+- **不影响宿主机网络。** 模拟 `8.8.8.8` 只对这个命令生效；多次运行可以同时进行，各自拥有独立的规则、网卡和 API 端口。
+- **准备就绪后才启动命令。** 命令开始运行时，ping 已经可以被回复，API 也已经在监听。命令可以从环境变量 `$PINGMOCK_API` 获取 API 地址。
+- **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
+- **不留残留进程。** 命令退出时，它在后台启动的进程也会被一并停止。
+
+在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问。
+
+### 系统要求
+
+普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间，并且 `/dev/net/tun` 允许所有人打开（`crw-rw-rw-`），大多数发行版默认如此。如果条件不满足，pingmock 会说明缺少什么以及如何解决。
+
+**Ubuntu 23.10 及以后的版本**会通过 AppArmor 限制非特权用户命名空间。建议不要为所有程序解除这个限制，而是用 [`contrib/apparmor/pingmock`](contrib/apparmor/pingmock) 中的配置只为 pingmock 放行，Ubuntu 对其他需要这项功能的程序也是这样处理的。如果 pingmock 没有安装在 `/usr/local/bin/pingmock`，先修改配置中的路径，然后：
+
+```bash
+sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
+sudo apparmor_parser -r /etc/apparmor.d/pingmock
+```
+
+在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事，参见本仓库的 [CI 配置](.github/workflows/ci.yml)。
+
+## Docker
+
+镜像 `ghcr.io/nanmuyao/pingmock` 需要 `NET_ADMIN` 权限和 TUN 设备。与它共享网络的容器发出的 ping 都会被模拟，并且可以通过 `127.0.0.1:9100` 访问 API：
+
+```bash
+docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
+  ghcr.io/nanmuyao/pingmock -rule 10.99.0.1=50ms
+docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
+```
+
+使用 Docker Compose 时，用 `network_mode: service:pingmock` 让被测程序加入 pingmock 的网络。[`examples/docker-compose.yml`](examples/docker-compose.yml) 是一个完整的示例，其中包含健康检查，确保 pingmock 就绪后才启动被测程序：
+
+```bash
+docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
+```
+
+不带参数时，镜像中的 API 监听所有地址，可以用 `-p 9100:9100` 映射出来。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
+
 ## 运行时控制 API
 
 测试过程中可以通过 HTTP 随时修改规则，修改立即生效。请求体可以是和 `-rule` 相同的文本格式，也可以是 JSON。
@@ -236,37 +298,91 @@ curl -X DELETE localhost:9100/history
 
 ## 在自动化测试中使用
 
-典型流程：用固定的种子启动 pingmock，让被测软件 ping 测试地址，在测试过程中改变网络状况，再检查软件的反应。
+最简单的方式是让测试本身运行在 `pingmock exec` 下：不需要 root，不需要启动和清理的代码，每次运行都相互隔离。建议固定种子，让随机的丢包和抖动每次都一样。
+
+### Go
+
+用 `go test -exec` 让测试程序运行在 pingmock 里，在测试中通过 [`client`](https://pkg.go.dev/github.com/nanmuyao/pingmock/client) 包控制 pingmock：
+
+```bash
+go test -exec 'pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
+```
+
+```go
+import "github.com/nanmuyao/pingmock/client"
+
+func TestPicksFastestServer(t *testing.T) {
+	pm, err := client.FromEnv()
+	if err != nil {
+		t.Skip(err) // 没有运行在 pingmock exec 下
+	}
+	ctx := context.Background()
+
+	if got := pickFastest("10.99.0.1", "10.99.0.2"); got != "10.99.0.1" {
+		t.Fatalf("picked %s", got)
+	}
+
+	// 网络状况变化：原来快的线路变慢了
+	if err := pm.SetRule(ctx, "10.99.0.1", "500ms"); err != nil {
+		t.Fatal(err)
+	}
+	if got := pickFastest("10.99.0.1", "10.99.0.2"); got != "10.99.0.2" {
+		t.Fatalf("picked %s after the slowdown", got)
+	}
+
+	// 重试逻辑：前两个 ping 丢失，之后线路恢复
+	pm.ClearHistory(ctx)
+	pm.SetRule(ctx, "10.99.0.3", "timeout for 2 pings; 30ms")
+	checkReachable("10.99.0.3")
+	events, _ := pm.History(ctx, "10.99.0.3", 0)
+	if len(events) != 3 || events[2].Result != "reply" {
+		t.Errorf("history = %+v", events)
+	}
+}
+```
+
+客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则，详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。
+
+### 其他语言
+
+让测试命令运行在 `pingmock exec` 下，通过 `$PINGMOCK_API` 调用[控制 API](#运行时控制-api)。以 pytest 为例：
+
+```bash
+pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
+```
 
 ```python
-import subprocess, time, requests
+import os, requests
 
-API = "http://127.0.0.1:9100"
-pm = subprocess.Popen(["sudo", "./pingmock", "-seed", "42",
-                       "-rule", "10.99.0.1=20ms", "-rule", "10.99.0.2=200ms"])
-time.sleep(1)
-try:
+API = os.environ["PINGMOCK_API"]
+
+def test_picks_fastest_server():
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.1"
 
     # 网络状况变化：原来快的线路变慢了
-    requests.put(f"{API}/rules/10.99.0.1", data="500ms")
+    requests.put(f"{API}/rules/10.99.0.1", data="500ms").raise_for_status()
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.2"
 
-    # 重试逻辑：前两个 ping 丢失，之后线路恢复
+def test_retries():
+    # 前两个 ping 丢失，之后线路恢复
     requests.delete(f"{API}/history")
     requests.put(f"{API}/rules/10.99.0.3", data="timeout for 2 pings; 30ms")
     assert my_app.check_reachable("10.99.0.3")
     events = requests.get(f"{API}/history", params={"target": "10.99.0.3"}).json()["events"]
-    assert [e["reply"] for e in events] == [False, False, True]
-finally:
-    pm.terminate()
+    assert [e["result"] for e in events] == ["drop", "drop", "reply"]
 ```
 
-单元测试不需要 root，[`test/e2e.sh`](test/e2e.sh) 中的端到端测试需要：
+如果测试无法运行在 `pingmock exec` 下，可以改为在测试前启动 `sudo pingmock`，或者使用[容器镜像](#docker)。
+
+### 本仓库的测试
+
+单元测试不需要 root；[`test/`](test/) 中的端到端测试大多需要：
 
 ```bash
-make test   # go vet 和带竞态检测的单元测试
-make e2e    # 编译 pingmock，并用 sudo 运行 test/e2e.sh
+make test         # go vet 和带竞态检测的单元测试
+make e2e          # 编译 pingmock，并用 sudo 运行 test/e2e.sh
+make e2e-exec     # pingmock exec，分别以普通用户和 root 运行
+make e2e-docker   # 容器镜像和 Compose 示例
 ```
 
 代码的组织方式参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
@@ -276,6 +392,7 @@ make e2e    # 编译 pingmock，并用 sudo 运行 test/e2e.sh
 - 只模拟 ping（ICMP 和 ICMPv6 Echo）。发往模拟地址的 TCP、UDP 流量不会得到响应。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
 - 不支持分片的请求（例如 `ping -s 2000`）和带扩展头的 IPv6 请求，这类请求会被忽略。
+- 只支持 Linux。普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。
 
 ## 许可证
 

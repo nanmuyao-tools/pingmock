@@ -31,6 +31,12 @@ chmod +x pingmock
 go install github.com/nanmuyao/pingmock@latest
 ```
 
+**Container image** (amd64 and arm64), see [Docker](#docker):
+
+```bash
+docker pull ghcr.io/nanmuyao/pingmock
+```
+
 **Build from source:**
 
 ```bash
@@ -43,7 +49,12 @@ Programs installed with `go install` live in `$(go env GOPATH)/bin`. Since pingm
 
 ## Usage
 
-pingmock needs root privileges (or `CAP_NET_ADMIN`).
+pingmock runs in one of two ways:
+
+- `sudo pingmock [flags]` mocks pings for the whole machine until you stop it. This is what the rest of this section describes.
+- `pingmock exec [flags] -- CMD` runs a command in a private network where its pings are mocked. It needs **no root** and leaves the host network alone, which makes it the best fit for tests and CI. See [Running without root](#running-without-root-pingmock-exec).
+
+In the first mode, pingmock needs root privileges (or `CAP_NET_ADMIN`).
 
 ```bash
 sudo ./pingmock \
@@ -196,6 +207,57 @@ A rule is either the same text as `-rule` or a JSON object. The file can also se
 | `-v` | `false` | Log every request |
 | `-version` | | Print the version and exit |
 
+## Running without root: pingmock exec
+
+```bash
+pingmock exec [flags] -- CMD [ARGS...]
+```
+
+runs `CMD` in a **private network namespace** in which pingmock answers pings, with the same flags as above:
+
+```bash
+pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
+```
+
+- **No root needed.** As an unprivileged user, pingmock also creates a user namespace in which it may set up the network. As root, it creates only the network namespace.
+- **The host network is not touched.** Mocking `8.8.8.8` affects only `CMD`, and several runs can happen at once, each with its own rules, device and API port.
+- **Ready before CMD starts.** Pings are answered and the API listens as soon as `CMD` runs. `CMD` finds the API address in `$PINGMOCK_API`.
+- **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, or `127` if it was not found. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
+- **Nothing is left behind.** When `CMD` exits, processes it started in the background are stopped too.
+
+Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access.
+
+### Requirements
+
+`pingmock exec` without root needs unprivileged user namespaces and a `/dev/net/tun` that everyone may open (`crw-rw-rw-`), which is the default on most distributions. If something is missing, pingmock says what and how to fix it.
+
+**Ubuntu 23.10 and later** restrict unprivileged user namespaces with AppArmor. Rather than lifting the restriction for every program, allow it for pingmock alone with the profile in [`contrib/apparmor/pingmock`](contrib/apparmor/pingmock), the way Ubuntu does for other programs that need it. Edit the path in it if pingmock is not installed as `/usr/local/bin/pingmock`, then:
+
+```bash
+sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
+sudo apparmor_parser -r /etc/apparmor.d/pingmock
+```
+
+On GitHub Actions' Ubuntu runners, do the same in a step before running tests; see this repository's [CI workflow](.github/workflows/ci.yml).
+
+## Docker
+
+The image `ghcr.io/nanmuyao/pingmock` needs `NET_ADMIN` and the TUN device. Containers that share its network get their pings mocked and reach the API at `127.0.0.1:9100`:
+
+```bash
+docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
+  ghcr.io/nanmuyao/pingmock -rule 10.99.0.1=50ms
+docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
+```
+
+With Docker Compose, put the code under test in pingmock's network with `network_mode: service:pingmock`. [`examples/docker-compose.yml`](examples/docker-compose.yml) shows a complete setup, including a health check so that the app starts only once pingmock is ready:
+
+```bash
+docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
+```
+
+Without arguments, the image listens on all addresses so the API can be published with `-p 9100:9100`. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
+
 ## Runtime control API
 
 Rules can be changed over HTTP at any time during a test, and changes take effect immediately. The request body may use the same text format as `-rule`, or JSON.
@@ -236,37 +298,91 @@ Each history event looks like this. `result` is `reply`, `drop` or `unreachable`
 
 ## Using it in automated tests
 
-A typical flow: start pingmock with a fixed seed, let the software under test ping the mocked addresses, change the network conditions in the middle of the test, and check how the software reacts.
+The easiest way is to run the tests themselves under `pingmock exec`: no root, no setup or teardown code, and every run is isolated. Fix the seed so random loss and jitter are the same on every run.
+
+### Go
+
+Run the test binary inside pingmock with `go test -exec`, and control pingmock from the tests with the [`client`](https://pkg.go.dev/github.com/nanmuyao/pingmock/client) package:
+
+```bash
+go test -exec 'pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
+```
+
+```go
+import "github.com/nanmuyao/pingmock/client"
+
+func TestPicksFastestServer(t *testing.T) {
+	pm, err := client.FromEnv()
+	if err != nil {
+		t.Skip(err) // not running under pingmock exec
+	}
+	ctx := context.Background()
+
+	if got := pickFastest("10.99.0.1", "10.99.0.2"); got != "10.99.0.1" {
+		t.Fatalf("picked %s", got)
+	}
+
+	// Network conditions change: the fast link becomes slow.
+	if err := pm.SetRule(ctx, "10.99.0.1", "500ms"); err != nil {
+		t.Fatal(err)
+	}
+	if got := pickFastest("10.99.0.1", "10.99.0.2"); got != "10.99.0.2" {
+		t.Fatalf("picked %s after the slowdown", got)
+	}
+
+	// Retry logic: the first two pings are lost, then the link answers.
+	pm.ClearHistory(ctx)
+	pm.SetRule(ctx, "10.99.0.3", "timeout for 2 pings; 30ms")
+	checkReachable("10.99.0.3")
+	events, _ := pm.History(ctx, "10.99.0.3", 0)
+	if len(events) != 3 || events[2].Result != "reply" {
+		t.Errorf("history = %+v", events)
+	}
+}
+```
+
+The client also reads statistics (`Stats`), deletes rules and changes the default; see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client).
+
+### Other languages
+
+Run the test command under `pingmock exec` and call the [control API](#runtime-control-api) at `$PINGMOCK_API`, for example with pytest:
+
+```bash
+pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
+```
 
 ```python
-import subprocess, time, requests
+import os, requests
 
-API = "http://127.0.0.1:9100"
-pm = subprocess.Popen(["sudo", "./pingmock", "-seed", "42",
-                       "-rule", "10.99.0.1=20ms", "-rule", "10.99.0.2=200ms"])
-time.sleep(1)
-try:
+API = os.environ["PINGMOCK_API"]
+
+def test_picks_fastest_server():
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.1"
 
     # Network conditions change: the fast link becomes slow
-    requests.put(f"{API}/rules/10.99.0.1", data="500ms")
+    requests.put(f"{API}/rules/10.99.0.1", data="500ms").raise_for_status()
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.2"
 
-    # Retry logic: the first two pings are lost, then the link answers
+def test_retries():
+    # The first two pings are lost, then the link answers
     requests.delete(f"{API}/history")
     requests.put(f"{API}/rules/10.99.0.3", data="timeout for 2 pings; 30ms")
     assert my_app.check_reachable("10.99.0.3")
     events = requests.get(f"{API}/history", params={"target": "10.99.0.3"}).json()["events"]
-    assert [e["reply"] for e in events] == [False, False, True]
-finally:
-    pm.terminate()
+    assert [e["result"] for e in events] == ["drop", "drop", "reply"]
 ```
 
-The unit tests do not need root, the end-to-end checks in [`test/e2e.sh`](test/e2e.sh) do:
+If the tests cannot run under `pingmock exec`, start `sudo pingmock` before them instead, or use the [container image](#docker).
+
+### This repository's tests
+
+The unit tests do not need root; the end-to-end checks in [`test/`](test/) mostly do:
 
 ```bash
-make test   # go vet and unit tests with the race detector
-make e2e    # builds pingmock and runs test/e2e.sh with sudo
+make test         # go vet and unit tests with the race detector
+make e2e          # builds pingmock and runs test/e2e.sh with sudo
+make e2e-exec     # pingmock exec, rootless and as root
+make e2e-docker   # the container image and the Compose example
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how the code is organized.
@@ -276,6 +392,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how the code is organized.
 - Only ping (ICMP and ICMPv6 Echo) is mocked. TCP and UDP traffic to mocked addresses gets no response.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.
+- Linux only. `pingmock exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).
 
 ## License
 
