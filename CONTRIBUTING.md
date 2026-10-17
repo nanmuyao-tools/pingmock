@@ -55,10 +55,10 @@ Code under `internal/` is not part of the public API and may change at any time.
 
 ## Releasing
 
-Maintainers publish a release by pushing an annotated tag. Its message becomes the release notes: the first line is the title, the rest is the body.
+Maintainers publish a release by pushing an annotated tag. The release is titled with the tag name, and the tag message, after its first line, becomes the release notes. The first line is the tag's own summary and is not published. `--cleanup=whitespace` keeps Markdown headings: without it, git drops every line that starts with `#` as a comment.
 
 ```bash
-git tag -a v0.3.0 -F notes.txt
+git tag -a v0.3.0 --cleanup=whitespace -F notes.txt
 git push origin v0.3.0
 ```
 

@@ -1,8 +1,8 @@
 name: Release
 
-# Push an annotated tag to publish a release. The tag message becomes the
-# release notes: its first line is the title, the rest is the body.
-#   git tag -a v0.3.0 -F notes.txt && git push origin v0.3.0
+# Push an annotated tag to publish a release, titled with the tag name.
+# The tag message after its first line becomes the release notes.
+#   git tag -a v0.3.0 --cleanup=whitespace -F notes.txt && git push origin v0.3.0
 # Tags containing a hyphen (v0.3.0-rc.1) are published as prereleases.
 on:
   push:
