@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func ev(dst string, seq uint16) Event { return Event{Dst: dst, Seq: seq} }
+func ev(dst string, seq uint16) Event { return Event{Dst: netip.MustParseAddr(dst), Seq: seq} }
 
 func seqs(events []Event) string {
 	s := ""

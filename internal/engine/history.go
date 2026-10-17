@@ -8,17 +8,17 @@ import (
 
 // Event records how one echo request was handled.
 type Event struct {
-	Time   time.Time `json:"time"`
-	Src    string    `json:"src"`
-	Dst    string    `json:"dst"`
-	ID     uint16    `json:"id"`
-	Seq    uint16    `json:"seq"`
-	Result string    `json:"result"`          // "reply", "drop" or "unreachable"
-	Code   string    `json:"code,omitempty"`  // unreachable code: "host", "net" or "admin"
-	Reply  bool      `json:"reply"`           // true for echo replies; kept for compatibility
-	Delay  string    `json:"delay,omitempty"` // for replies and unreachable messages
-	Rule   string    `json:"rule"`
-	Phase  int       `json:"phase"` // 1-based
+	Time   time.Time  `json:"time"`
+	Src    netip.Addr `json:"src"`
+	Dst    netip.Addr `json:"dst"`
+	ID     uint16     `json:"id"`
+	Seq    uint16     `json:"seq"`
+	Result string     `json:"result"`          // "reply", "drop" or "unreachable"
+	Code   string     `json:"code,omitempty"`  // unreachable code: "host", "net" or "admin"
+	Reply  bool       `json:"reply"`           // true for echo replies; kept for compatibility
+	Delay  string     `json:"delay,omitempty"` // for replies and unreachable messages
+	Rule   string     `json:"rule"`
+	Phase  int        `json:"phase"` // 1-based
 }
 
 // History keeps the most recent events in a fixed-size ring buffer.
@@ -60,11 +60,8 @@ func (h *History) Events(filter *netip.Prefix, limit int) ([]Event, uint64) {
 	ordered = append(ordered, h.buf[:h.next]...)
 	out := ordered[:0:0]
 	for _, e := range ordered {
-		if filter != nil {
-			a, err := netip.ParseAddr(e.Dst)
-			if err != nil || !filter.Contains(a) {
-				continue
-			}
+		if filter != nil && !filter.Contains(e.Dst) {
+			continue
 		}
 		out = append(out, e)
 	}

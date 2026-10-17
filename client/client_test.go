@@ -103,9 +103,9 @@ func TestHistory(t *testing.T) {
 	c, _, hist := serve(t)
 	ctx := context.Background()
 	at := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
-	hist.Add(engine.Event{Time: at, Dst: "10.99.0.1", Seq: 1, Result: "reply", Reply: true, Delay: "5ms", Rule: "default", Phase: 1})
-	hist.Add(engine.Event{Time: at, Dst: "10.99.0.1", Seq: 2, Result: "unreachable", Code: "host", Delay: "5ms", Rule: "default", Phase: 1})
-	hist.Add(engine.Event{Time: at, Dst: "fd99::1", Seq: 3, Result: "drop", Rule: "default", Phase: 1})
+	hist.Add(engine.Event{Time: at, Dst: netip.MustParseAddr("10.99.0.1"), Seq: 1, Result: "reply", Reply: true, Delay: "5ms", Rule: "default", Phase: 1})
+	hist.Add(engine.Event{Time: at, Dst: netip.MustParseAddr("10.99.0.1"), Seq: 2, Result: "unreachable", Code: "host", Delay: "5ms", Rule: "default", Phase: 1})
+	hist.Add(engine.Event{Time: at, Dst: netip.MustParseAddr("fd99::1"), Seq: 3, Result: "drop", Rule: "default", Phase: 1})
 
 	all, err := c.History(ctx, "", 0)
 	if err != nil || len(all) != 3 {

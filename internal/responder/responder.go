@@ -72,8 +72,8 @@ func (r *Responder) handle(pkt []byte) ([]byte, time.Duration) {
 // record adds the request to the history and logs it if asked to.
 func (r *Responder) record(req icmp.EchoRequest, d engine.Decision, answered bool) {
 	ev := engine.Event{
-		Time: time.Now(), Src: req.Src.String(), Dst: req.Dst.String(), ID: req.ID, Seq: req.Seq,
-		Result: d.Outcome.String(), Reply: d.Outcome == rule.Reply, Rule: d.Rule, Phase: d.Phase + 1,
+		Time: time.Now(), Src: req.Src, Dst: req.Dst, ID: req.ID, Seq: req.Seq,
+		Result: d.Outcome.String(), Reply: d.Outcome == rule.Reply, Rule: d.Rule, Phase: d.Phase,
 	}
 	if d.Outcome == rule.Unreachable {
 		ev.Code = d.Code.String()

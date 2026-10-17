@@ -156,7 +156,7 @@ func TestServeIPv6(t *testing.T) {
 		t.Errorf("ICMPv6 types written %v, want an echo reply (129) and an unreachable (1)", types)
 	}
 	events, _ := hist.Events(nil, 0)
-	if len(events) != 2 || events[0].Dst != "fd99::1" || events[1].Result != "unreachable" {
+	if len(events) != 2 || events[0].Dst.String() != "fd99::1" || events[1].Result != "unreachable" {
 		t.Errorf("history = %+v", events)
 	}
 }

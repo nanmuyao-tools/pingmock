@@ -47,7 +47,7 @@ type Decision struct {
 	Code    rule.UnreachCode // set when Outcome is rule.Unreachable
 	Delay   time.Duration    // before the reply or unreachable message
 	Rule    string           // matching prefix, or "default"
-	Phase   int              // zero-based index of the phase that applied
+	Phase   int              // the phase that applied, counting from 1
 }
 
 // RuleSet maps targets to scenarios. The most specific matching prefix
@@ -169,7 +169,7 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 	case rule.Unreachable:
 		t.stats.Unreachable++
 	}
-	return Decision{Outcome: out, Code: code, Delay: delay, Rule: label, Phase: t.phase}
+	return Decision{Outcome: out, Code: code, Delay: delay, Rule: label, Phase: t.phase + 1}
 }
 
 // advance moves t past every phase of sc that has ended by now.

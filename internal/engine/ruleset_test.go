@@ -117,7 +117,7 @@ func TestCountPhases(t *testing.T) {
 		phase int
 	}
 	ms := time.Millisecond
-	want := []step{{rule.Reply, 10 * ms, 0}, {rule.Reply, 10 * ms, 0}, {rule.Reply, 20 * ms, 1}, {rule.Drop, 0, 1}, {rule.Reply, 30 * ms, 2}, {rule.Reply, 30 * ms, 2}}
+	want := []step{{rule.Reply, 10 * ms, 1}, {rule.Reply, 10 * ms, 1}, {rule.Reply, 20 * ms, 2}, {rule.Drop, 0, 2}, {rule.Reply, 30 * ms, 3}, {rule.Reply, 30 * ms, 3}}
 	for i, d := range outcomes(rs, "10.99.0.1", len(want)) {
 		if d.Outcome != want[i].out || d.Delay != want[i].delay || d.Phase != want[i].phase {
 			t.Errorf("request %d: got %+v, want %+v", i, d, want[i])
@@ -154,7 +154,7 @@ func TestTimePhasesStartWhenRuleIsSet(t *testing.T) {
 	rs, clock := newTestRuleSet(t, "0ms", 1)
 	rs.Set(netip.MustParsePrefix("10.99.0.1/32"), mustScenario(t, "10ms for 1s; timeout"))
 	clock.advance(2 * time.Second) // first request arrives after the first phase ended
-	if d := rs.Decide(addr("10.99.0.1")); d.Outcome != rule.Drop || d.Phase != 1 {
+	if d := rs.Decide(addr("10.99.0.1")); d.Outcome != rule.Drop || d.Phase != 2 {
 		t.Errorf("got %+v, want a drop in phase 2", d)
 	}
 }
@@ -172,7 +172,7 @@ func TestRuleChangeRestartsScenario(t *testing.T) {
 			t.Fatalf("request %d: %+v after reinstalling the rule, want %+v", i, second[i], first[i])
 		}
 	}
-	if first[3].Phase != 1 {
+	if first[3].Phase != 2 {
 		t.Errorf("4th request should be in phase 2, got %+v", first[3])
 	}
 }

@@ -168,9 +168,9 @@ func TestAPIErrors(t *testing.T) {
 func TestAPIHistory(t *testing.T) {
 	f := newAPIFixture(t)
 	for i := uint16(1); i <= 3; i++ {
-		f.hist.Add(engine.Event{Dst: "10.99.0.1", Seq: i, Reply: true, Delay: "5ms", Rule: "default", Phase: 1})
+		f.hist.Add(engine.Event{Dst: netip.MustParseAddr("10.99.0.1"), Seq: i, Reply: true, Delay: "5ms", Rule: "default", Phase: 1})
 	}
-	f.hist.Add(engine.Event{Dst: "10.99.0.2", Seq: 9})
+	f.hist.Add(engine.Event{Dst: netip.MustParseAddr("10.99.0.2"), Seq: 9})
 	var resp struct {
 		Events   []engine.Event
 		Total    uint64
