@@ -1,0 +1,17 @@
+{
+  "seed": 42,
+  "default": "1ms",
+  "rules": {
+    "10.99.0.1": "20ms",
+    "10.99.0.2": "delay=120ms,jitter=15ms,loss=2%",
+    "10.99.0.3": "30ms for 10 pings; timeout for 5s; 30ms",
+    "10.99.0.4": {
+      "phases": [
+        {"spec": "delay=40ms,pattern=....x", "for": "20s"},
+        {"spec": {"delay": "400ms", "jitter": "100ms"}, "for": "10s"}
+      ],
+      "repeat": true
+    },
+    "8.8.8.8": "timeout"
+  }
+}

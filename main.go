@@ -97,11 +97,12 @@ func main() {
 		seed    = flag.Uint64("seed", 0, "seed for loss and jitter; the same seed reproduces the same sequence per target (default: random, printed at startup)")
 		verbose = flag.Bool("v", false, "log every request")
 		showVer = flag.Bool("version", false, "print the version and exit")
+		cfgPath = flag.String("config", "", "JSON configuration file; flags given on the command line override it")
 		rules   ruleFlags
 	)
 	flag.Var(&rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, timeout, or phases such as \"50ms for 3 pings; timeout\"")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: sudo pingmock [flags]\n\nExample:\n  sudo pingmock -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=300ms,jitter=50ms -rule '10.99.0.3=20ms for 5 pings; timeout'\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "Usage: sudo pingmock [flags]\n\nExamples:\n  sudo pingmock -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=300ms,jitter=50ms -rule '10.99.0.3=20ms for 5 pings; timeout'\n  sudo pingmock -config pingmock.json\n\nFlags:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -109,30 +110,68 @@ func main() {
 		fmt.Println("pingmock", buildVersion())
 		return
 	}
-	seedSet := false
-	flag.Visit(func(f *flag.Flag) { seedSet = seedSet || f.Name == "seed" })
+	set := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
-	devPrefix, err := netip.ParsePrefix(*addr)
-	if err != nil || !devPrefix.Addr().Is4() {
-		log.Fatalf("invalid -addr %q: need an IPv4 address with prefix, e.g. 10.99.0.254/24", *addr)
-	}
-	def, err := ParseScenario(*defRule)
-	if err != nil {
-		log.Fatalf("invalid -default: %v", err)
-	}
+	// Configuration file first; explicitly set flags override it.
+	var cfgDefault *Scenario
+	var cfgSeed *uint64
+	ruleIndex := map[netip.Prefix]int{}
 	type pending struct {
 		p  netip.Prefix
 		sc Scenario
 	}
 	var initial []pending
+	addRule := func(p netip.Prefix, sc Scenario) {
+		if i, ok := ruleIndex[p]; ok {
+			initial[i].sc = sc
+			return
+		}
+		ruleIndex[p] = len(initial)
+		initial = append(initial, pending{p, sc})
+	}
+	if *cfgPath != "" {
+		cfg, cfgRules, err := LoadConfig(*cfgPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if cfg.Dev != "" && !set["dev"] {
+			*devName = cfg.Dev
+		}
+		if cfg.Addr != "" && !set["addr"] {
+			*addr = cfg.Addr
+		}
+		if cfg.API != nil && !set["api"] {
+			*apiAddr = *cfg.API
+		}
+		cfgDefault, cfgSeed = cfg.Default, cfg.Seed
+		for _, r := range cfgRules {
+			addRule(r.prefix, r.sc)
+		}
+	}
+
+	devPrefix, err := netip.ParsePrefix(*addr)
+	if err != nil || !devPrefix.Addr().Is4() {
+		log.Fatalf("invalid -addr %q: need an IPv4 address with prefix, e.g. 10.99.0.254/24", *addr)
+	}
+	var def Scenario
+	if cfgDefault != nil && !set["default"] {
+		def = *cfgDefault
+	} else if def, err = ParseScenario(*defRule); err != nil {
+		log.Fatalf("invalid -default: %v", err)
+	}
 	for _, r := range rules {
 		p, sc, err := parseRuleFlag(r)
 		if err != nil {
 			log.Fatal(err)
 		}
-		initial = append(initial, pending{p, sc})
+		addRule(p, sc)
 	}
-	if !seedSet {
+	switch {
+	case set["seed"]:
+	case cfgSeed != nil:
+		*seed = *cfgSeed
+	default:
 		*seed = rand.Uint64()
 	}
 
