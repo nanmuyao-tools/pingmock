@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 )
 
 // newAPI returns the HTTP control API:
 //
 //	GET    /rules             current default, rules and per-target stats
-//	PUT    /rules/{target}    set a rule; body is a spec string or JSON
+//	PUT    /rules/{target}    set a rule; body is the text form or JSON
 //	DELETE /rules/{target}    remove a rule
-//	PUT    /default           set the default spec
+//	PUT    /default           set the default rule
 //	DELETE /stats             reset counters
-func newAPI(rs *RuleSet, router *Router) http.Handler {
+func newAPI(rs *RuleSet, ensureRoute func(netip.Prefix) error) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rules", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, rs.Snapshot())
@@ -26,17 +27,17 @@ func newAPI(rs *RuleSet, router *Router) http.Handler {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		sp, err := readSpec(r)
+		sc, err := readScenario(r)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		if err := router.Ensure(p); err != nil {
+		if err := ensureRoute(p); err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		rs.Set(p, sp)
-		writeJSON(w, http.StatusOK, map[string]any{"target": p.String(), "spec": sp})
+		rs.Set(p, sc)
+		writeJSON(w, http.StatusOK, map[string]any{"target": p.String(), "rule": sc})
 	})
 	mux.HandleFunc("DELETE /rules/{target...}", func(w http.ResponseWriter, r *http.Request) {
 		p, err := ParsePrefix(r.PathValue("target"))
@@ -51,13 +52,13 @@ func newAPI(rs *RuleSet, router *Router) http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("PUT /default", func(w http.ResponseWriter, r *http.Request) {
-		sp, err := readSpec(r)
+		sc, err := readScenario(r)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		rs.SetDefault(sp)
-		writeJSON(w, http.StatusOK, map[string]any{"default": sp})
+		rs.SetDefault(sc)
+		writeJSON(w, http.StatusOK, map[string]any{"default": sc})
 	})
 	mux.HandleFunc("DELETE /stats", func(w http.ResponseWriter, r *http.Request) {
 		rs.ResetStats()
@@ -66,22 +67,22 @@ func newAPI(rs *RuleSet, router *Router) http.Handler {
 	return mux
 }
 
-// readSpec accepts either JSON ({"delay":"120ms","jitter":"10ms","loss":0.05})
-// or the same text form as the -rule flag ("delay=120ms,loss=5%").
-func readSpec(r *http.Request) (Spec, error) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 4096))
+// readScenario accepts the text form used by the -rule flag
+// ("delay=120ms,loss=5%", "50ms for 3 pings; timeout") or JSON.
+func readScenario(r *http.Request) (Scenario, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
 	if err != nil {
-		return Spec{}, err
+		return Scenario{}, err
 	}
 	text := strings.TrimSpace(string(body))
 	if strings.HasPrefix(text, "{") {
-		var sp Spec
-		if err := json.Unmarshal([]byte(text), &sp); err != nil {
-			return Spec{}, fmt.Errorf("invalid JSON spec: %w", err)
+		var sc Scenario
+		if err := json.Unmarshal([]byte(text), &sc); err != nil {
+			return Scenario{}, fmt.Errorf("invalid JSON rule: %w", err)
 		}
-		return sp, nil
+		return sc, nil
 	}
-	return ParseSpec(text)
+	return ParseScenario(text)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

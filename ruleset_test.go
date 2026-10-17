@@ -1,0 +1,214 @@
+package main
+
+import (
+	"net/netip"
+	"testing"
+	"time"
+)
+
+// fakeClock lets tests move time forward explicitly.
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time          { return c.t }
+func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
+
+func newTestRuleSet(t *testing.T, def string, seed uint64) (*RuleSet, *fakeClock) {
+	t.Helper()
+	clock := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	rs := NewRuleSet(mustScenario(t, def), seed)
+	rs.now = clock.now
+	rs.def = rs.newEntry(mustScenario(t, def))
+	return rs, clock
+}
+
+func mustScenario(t *testing.T, s string) Scenario {
+	t.Helper()
+	sc, err := ParseScenario(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sc
+}
+
+func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
+
+func TestMostSpecificRuleWins(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "1ms", 1)
+	rs.Set(netip.MustParsePrefix("10.99.0.0/24"), mustScenario(t, "10ms"))
+	rs.Set(netip.MustParsePrefix("10.99.0.128/25"), mustScenario(t, "20ms"))
+	rs.Set(netip.MustParsePrefix("10.99.0.200/32"), mustScenario(t, "30ms"))
+	cases := map[string]struct {
+		delay time.Duration
+		rule  string
+	}{
+		"10.99.0.5":   {10 * time.Millisecond, "10.99.0.0/24"},
+		"10.99.0.150": {20 * time.Millisecond, "10.99.0.128/25"},
+		"10.99.0.200": {30 * time.Millisecond, "10.99.0.200/32"},
+		"192.0.2.1":   {time.Millisecond, "default"},
+	}
+	for ip, want := range cases {
+		d := rs.Decide(addr(ip))
+		if d.Delay != want.delay || d.Rule != want.rule {
+			t.Errorf("%s: got %v via %s, want %v via %s", ip, d.Delay, d.Rule, want.delay, want.rule)
+		}
+	}
+	rs.Delete(netip.MustParsePrefix("10.99.0.200/32"))
+	if d := rs.Decide(addr("10.99.0.200")); d.Delay != 20*time.Millisecond {
+		t.Errorf("after delete, delay = %v, want 20ms", d.Delay)
+	}
+}
+
+// outcomes records the decisions for one target as a comparable string.
+func outcomes(rs *RuleSet, ip string, n int) []Decision {
+	out := make([]Decision, n)
+	for i := range out {
+		out[i] = rs.Decide(addr(ip))
+	}
+	return out
+}
+
+func TestSameSeedSameSequencePerTarget(t *testing.T) {
+	const rule = "delay=100ms,jitter=50ms,loss=30%"
+	a, _ := newTestRuleSet(t, rule, 42)
+	b, _ := newTestRuleSet(t, rule, 42)
+
+	// Interleave requests differently: a sees A,B,A,B...; b sees all B then all A.
+	var aA, aB []Decision
+	for i := 0; i < 50; i++ {
+		aA = append(aA, a.Decide(addr("10.99.0.1")))
+		aB = append(aB, a.Decide(addr("10.99.0.2")))
+	}
+	bB := outcomes(b, "10.99.0.2", 50)
+	bA := outcomes(b, "10.99.0.1", 50)
+	for i := range aA {
+		if aA[i] != bA[i] || aB[i] != bB[i] {
+			t.Fatalf("request %d differs between runs with the same seed", i)
+		}
+	}
+
+	c, _ := newTestRuleSet(t, rule, 43)
+	cA := outcomes(c, "10.99.0.1", 50)
+	same := true
+	for i := range aA {
+		same = same && aA[i] == cA[i]
+	}
+	if same {
+		t.Error("different seeds produced identical sequences")
+	}
+}
+
+func TestPatternPerTarget(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "delay=1ms,pattern=..x", 1)
+	want := []bool{true, true, false, true, true, false}
+	for _, ip := range []string{"10.99.0.1", "10.99.0.2"} {
+		for i, d := range outcomes(rs, ip, len(want)) {
+			if d.Reply != want[i] {
+				t.Errorf("%s request %d: reply=%v, want %v", ip, i, d.Reply, want[i])
+			}
+		}
+	}
+}
+
+func TestCountPhases(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "10ms for 2 pings; delay=20ms,pattern=.x for 2 pings; 30ms", 1)
+	type step struct {
+		reply bool
+		delay time.Duration
+		phase int
+	}
+	ms := time.Millisecond
+	want := []step{{true, 10 * ms, 0}, {true, 10 * ms, 0}, {true, 20 * ms, 1}, {false, 0, 1}, {true, 30 * ms, 2}, {true, 30 * ms, 2}}
+	for i, d := range outcomes(rs, "10.99.0.1", len(want)) {
+		if d.Reply != want[i].reply || d.Delay != want[i].delay || d.Phase != want[i].phase {
+			t.Errorf("request %d: got %+v, want %+v", i, d, want[i])
+		}
+	}
+}
+
+func TestTimePhasesRepeat(t *testing.T) {
+	rs, clock := newTestRuleSet(t, "10ms for 1s; 20ms for 1s; repeat", 1)
+	ms := time.Millisecond
+	steps := []struct {
+		at   time.Duration // absolute offset from the rule being set
+		want time.Duration
+	}{
+		{0, 10 * ms},
+		{900 * ms, 10 * ms},
+		{1500 * ms, 20 * ms},
+		{2200 * ms, 10 * ms},
+		{3999 * ms, 20 * ms},
+		{1000*time.Second + 500*ms, 10 * ms}, // long idle gap: whole cycles are skipped
+		{1001*time.Second + 500*ms, 20 * ms},
+	}
+	var elapsed time.Duration
+	for _, s := range steps {
+		clock.advance(s.at - elapsed)
+		elapsed = s.at
+		if d := rs.Decide(addr("10.99.0.1")); d.Delay != s.want {
+			t.Errorf("at %v: delay %v, want %v", s.at, d.Delay, s.want)
+		}
+	}
+}
+
+func TestTimePhasesStartWhenRuleIsSet(t *testing.T) {
+	rs, clock := newTestRuleSet(t, "0ms", 1)
+	rs.Set(netip.MustParsePrefix("10.99.0.1/32"), mustScenario(t, "10ms for 1s; timeout"))
+	clock.advance(2 * time.Second) // first request arrives after the first phase ended
+	if d := rs.Decide(addr("10.99.0.1")); d.Reply || d.Phase != 1 {
+		t.Errorf("got %+v, want a drop in phase 2", d)
+	}
+}
+
+func TestRuleChangeRestartsScenario(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "0ms", 7)
+	p := netip.MustParsePrefix("10.99.0.1/32")
+	rule := "delay=50ms,jitter=40ms,loss=40% for 3 pings; 5ms"
+	rs.Set(p, mustScenario(t, rule))
+	first := outcomes(rs, "10.99.0.1", 5)
+	rs.Set(p, mustScenario(t, rule))
+	second := outcomes(rs, "10.99.0.1", 5)
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("request %d: %+v after reinstalling the rule, want %+v", i, second[i], first[i])
+		}
+	}
+	if first[3].Phase != 1 {
+		t.Errorf("4th request should be in phase 2, got %+v", first[3])
+	}
+}
+
+func TestStatsAndSnapshot(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "delay=1ms,pattern=.x", 9)
+	outcomes(rs, "10.99.0.1", 4)
+	snap := rs.Snapshot()
+	st := snap["stats"].(map[string]TargetState)["10.99.0.1"]
+	if st.Requests != 4 || st.Replied != 2 || st.Dropped != 2 || st.Rule != "default" {
+		t.Errorf("stats = %+v", st)
+	}
+	if snap["seed"].(uint64) != 9 {
+		t.Errorf("seed = %v", snap["seed"])
+	}
+	rs.ResetStats()
+	st = rs.Snapshot()["stats"].(map[string]TargetState)["10.99.0.1"]
+	if st.Requests != 0 {
+		t.Errorf("after reset: %+v", st)
+	}
+	// Resetting counters must not restart the pattern: the 5th request is a reply.
+	if d := rs.Decide(addr("10.99.0.1")); !d.Reply {
+		t.Error("ResetStats restarted the scenario")
+	}
+}
+
+func TestParsePrefix(t *testing.T) {
+	if p, err := ParsePrefix("8.8.8.8"); err != nil || p.String() != "8.8.8.8/32" {
+		t.Errorf("single address: %v %v", p, err)
+	}
+	if p, err := ParsePrefix("10.99.0.130/25"); err != nil || p.String() != "10.99.0.128/25" {
+		t.Errorf("CIDR should be masked: %v %v", p, err)
+	}
+	for _, bad := range []string{"::1", "2001:db8::/32", "nope"} {
+		if _, err := ParsePrefix(bad); err == nil {
+			t.Errorf("ParsePrefix(%q): expected error", bad)
+		}
+	}
+}

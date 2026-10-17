@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"net/http"
 	"net/netip"
 	"os"
@@ -69,19 +70,38 @@ func (r *Router) Ensure(p netip.Prefix) error {
 	return nil
 }
 
+// parseRuleFlag splits "TARGET=RULE" at the first '=' that follows the
+// target, since rules themselves contain '=' (delay=50ms).
+func parseRuleFlag(s string) (netip.Prefix, Scenario, error) {
+	target, rule, ok := strings.Cut(s, "=")
+	if !ok {
+		return netip.Prefix{}, Scenario{}, fmt.Errorf("invalid -rule %q: want TARGET=RULE", s)
+	}
+	p, err := ParsePrefix(target)
+	if err != nil {
+		return netip.Prefix{}, Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
+	}
+	sc, err := ParseScenario(rule)
+	if err != nil {
+		return netip.Prefix{}, Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
+	}
+	return p, sc, nil
+}
+
 func main() {
 	var (
 		devName = flag.String("dev", "pingmock0", "TUN device name")
 		addr    = flag.String("addr", "10.99.0.254/24", "address/prefix of the TUN device; other addresses in this subnet are mocked hosts")
-		defSpec = flag.String("default", "0ms", "spec for targets without a rule")
+		defRule = flag.String("default", "0ms", "rule for targets without a matching -rule")
 		apiAddr = flag.String("api", "127.0.0.1:9100", "listen address of the HTTP control API (empty disables it)")
+		seed    = flag.Uint64("seed", 0, "seed for loss and jitter; the same seed reproduces the same sequence per target (default: random, printed at startup)")
 		verbose = flag.Bool("v", false, "log every request")
 		showVer = flag.Bool("version", false, "print the version and exit")
 		rules   ruleFlags
 	)
-	flag.Var(&rules, "rule", "TARGET=SPEC, repeatable. TARGET is an IPv4 address or CIDR; SPEC is e.g. 120ms or delay=120ms,jitter=10ms,loss=5% or timeout")
+	flag.Var(&rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, timeout, or phases such as \"50ms for 3 pings; timeout\"")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: sudo pingmock [flags]\n\nExample:\n  sudo pingmock -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=300ms,jitter=50ms -rule 8.8.8.8=timeout\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "Usage: sudo pingmock [flags]\n\nExample:\n  sudo pingmock -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=300ms,jitter=50ms -rule '10.99.0.3=20ms for 5 pings; timeout'\n\nFlags:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -89,36 +109,31 @@ func main() {
 		fmt.Println("pingmock", buildVersion())
 		return
 	}
+	seedSet := false
+	flag.Visit(func(f *flag.Flag) { seedSet = seedSet || f.Name == "seed" })
 
 	devPrefix, err := netip.ParsePrefix(*addr)
 	if err != nil || !devPrefix.Addr().Is4() {
 		log.Fatalf("invalid -addr %q: need an IPv4 address with prefix, e.g. 10.99.0.254/24", *addr)
 	}
-	def, err := ParseSpec(*defSpec)
+	def, err := ParseScenario(*defRule)
 	if err != nil {
 		log.Fatalf("invalid -default: %v", err)
 	}
-	rs := NewRuleSet(def)
-
 	type pending struct {
 		p  netip.Prefix
-		sp Spec
+		sc Scenario
 	}
 	var initial []pending
 	for _, r := range rules {
-		target, spec, ok := strings.Cut(r, "=")
-		if !ok {
-			log.Fatalf("invalid -rule %q: want TARGET=SPEC", r)
-		}
-		p, err := ParsePrefix(target)
+		p, sc, err := parseRuleFlag(r)
 		if err != nil {
-			log.Fatalf("invalid -rule %q: %v", r, err)
+			log.Fatal(err)
 		}
-		sp, err := ParseSpec(spec)
-		if err != nil {
-			log.Fatalf("invalid -rule %q: %v", r, err)
-		}
-		initial = append(initial, pending{p, sp})
+		initial = append(initial, pending{p, sc})
+	}
+	if !seedSet {
+		*seed = rand.Uint64()
 	}
 
 	tun, dev, err := openTUN(*devName)
@@ -133,22 +148,24 @@ func main() {
 		log.Fatal(err)
 	}
 	router := &Router{dev: dev, subnet: devPrefix.Masked(), routed: map[netip.Prefix]bool{}}
+	rs := NewRuleSet(def, *seed)
 	for _, r := range initial {
 		if err := router.Ensure(r.p); err != nil {
 			log.Fatal(err)
 		}
-		rs.Set(r.p, r.sp)
+		rs.Set(r.p, r.sc)
 	}
-	log.Printf("device %s up with %s; ping any other address in %s (not %s itself, that one is local)",
-		dev, devPrefix, devPrefix.Masked(), devPrefix.Addr())
+	log.Printf("pingmock %s: device %s up with %s; ping any other address in %s (not %s itself, that one is local)",
+		buildVersion(), dev, devPrefix, devPrefix.Masked(), devPrefix.Addr())
+	log.Printf("seed %d (pass -seed %d to reproduce this run)", *seed, *seed)
 	log.Printf("default: %s", def)
 	for _, r := range initial {
-		log.Printf("rule %s: %s", r.p, r.sp)
+		log.Printf("rule %s: %s", r.p, r.sc)
 	}
 
 	var srv *http.Server
 	if *apiAddr != "" {
-		srv = &http.Server{Addr: *apiAddr, Handler: newAPI(rs, router), ReadHeaderTimeout: 5 * time.Second}
+		srv = &http.Server{Addr: *apiAddr, Handler: newAPI(rs, router.Ensure), ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatalf("API: %v", err)
@@ -190,19 +207,18 @@ func serve(tun *os.File, rs *RuleSet, verbose bool) {
 		if !ok {
 			continue
 		}
-		delay, reply := rs.Lookup(req.dst).sample()
-		rs.record(req.dst, reply)
-		if !reply {
+		d := rs.Decide(req.dst)
+		if !d.Reply {
 			if verbose {
-				log.Printf("%s -> %s id=%d seq=%d: dropped", req.src, req.dst, req.id, req.seq)
+				log.Printf("%s -> %s id=%d seq=%d: dropped (rule %s, phase %d)", req.src, req.dst, req.id, req.seq, d.Rule, d.Phase+1)
 			}
 			continue
 		}
 		out := buildEchoReply(pkt)
 		if verbose {
-			log.Printf("%s -> %s id=%d seq=%d: reply in %s", req.src, req.dst, req.id, req.seq, delay)
+			log.Printf("%s -> %s id=%d seq=%d: reply in %s (rule %s, phase %d)", req.src, req.dst, req.id, req.seq, d.Delay, d.Rule, d.Phase+1)
 		}
-		time.AfterFunc(delay, func() {
+		time.AfterFunc(d.Delay, func() {
 			wmu.Lock()
 			defer wmu.Unlock()
 			if _, err := tun.Write(out); err != nil && !errors.Is(err, os.ErrClosed) {
