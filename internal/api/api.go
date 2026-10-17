@@ -15,90 +15,104 @@ import (
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
-// NewHandler returns the HTTP control API:
-//
-//	GET    /rules             current default, rules and per-target stats
-//	PUT    /rules/{target}    set a rule; body is the text form or JSON
-//	DELETE /rules/{target}    remove a rule
-//	PUT    /default           set the default rule
-//	DELETE /stats             reset counters
-//	GET    /history           recent requests; ?target=IP-or-CIDR&limit=N
-//	DELETE /history           clear the history
+// NewHandler returns the HTTP control API. ensureRoute is called before a
+// rule is installed, so that pings to its target reach pingmock.
 func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error) http.Handler {
+	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /rules", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, rs.Snapshot())
-	})
-	mux.HandleFunc("PUT /rules/{target...}", func(w http.ResponseWriter, r *http.Request) {
-		p, err := rule.ParsePrefix(r.PathValue("target"))
-		if err != nil {
-			httpError(w, http.StatusBadRequest, err)
-			return
-		}
-		sc, err := readScenario(r)
-		if err != nil {
-			httpError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := ensureRoute(p); err != nil {
-			httpError(w, http.StatusInternalServerError, err)
-			return
-		}
-		rs.Set(p, sc)
-		writeJSON(w, http.StatusOK, map[string]any{"target": p.String(), "rule": sc})
-	})
-	mux.HandleFunc("DELETE /rules/{target...}", func(w http.ResponseWriter, r *http.Request) {
-		p, err := rule.ParsePrefix(r.PathValue("target"))
-		if err != nil {
-			httpError(w, http.StatusBadRequest, err)
-			return
-		}
-		if !rs.Delete(p) {
-			httpError(w, http.StatusNotFound, fmt.Errorf("no rule for %s", p))
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("PUT /default", func(w http.ResponseWriter, r *http.Request) {
-		sc, err := readScenario(r)
-		if err != nil {
-			httpError(w, http.StatusBadRequest, err)
-			return
-		}
-		rs.SetDefault(sc)
-		writeJSON(w, http.StatusOK, map[string]any{"default": sc})
-	})
-	mux.HandleFunc("DELETE /stats", func(w http.ResponseWriter, r *http.Request) {
-		rs.ResetStats()
-		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("GET /history", func(w http.ResponseWriter, r *http.Request) {
-		var filter *netip.Prefix
-		if t := r.URL.Query().Get("target"); t != "" {
-			p, err := rule.ParsePrefix(t)
-			if err != nil {
-				httpError(w, http.StatusBadRequest, err)
-				return
-			}
-			filter = &p
-		}
-		limit := 0
-		if l := r.URL.Query().Get("limit"); l != "" {
-			n, err := strconv.Atoi(l)
-			if err != nil || n < 0 {
-				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid limit %q", l))
-				return
-			}
-			limit = n
-		}
-		events, total := hist.Events(filter, limit)
-		writeJSON(w, http.StatusOK, map[string]any{"events": events, "total": total, "capacity": hist.Capacity()})
-	})
-	mux.HandleFunc("DELETE /history", func(w http.ResponseWriter, r *http.Request) {
-		hist.Clear()
-		w.WriteHeader(http.StatusNoContent)
-	})
+	mux.HandleFunc("GET /rules", h.getRules)                  // default, rules and per-target stats
+	mux.HandleFunc("PUT /rules/{target...}", h.setRule)       // body: the text form or JSON
+	mux.HandleFunc("DELETE /rules/{target...}", h.deleteRule) // the default applies again
+	mux.HandleFunc("PUT /default", h.setDefault)              // body: the text form or JSON
+	mux.HandleFunc("DELETE /stats", h.resetStats)             // zero all counters
+	mux.HandleFunc("GET /history", h.getHistory)              // ?target=IP-or-CIDR&limit=N
+	mux.HandleFunc("DELETE /history", h.clearHistory)         // forget recorded requests
 	return mux
+}
+
+type handler struct {
+	rules       *engine.RuleSet
+	history     *engine.History
+	ensureRoute func(netip.Prefix) error
+}
+
+func (h *handler) getRules(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.rules.Snapshot())
+}
+
+func (h *handler) setRule(w http.ResponseWriter, r *http.Request) {
+	p, err := rule.ParsePrefix(r.PathValue("target"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	sc, err := readScenario(r)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.ensureRoute(p); err != nil {
+		httpError(w, http.StatusInternalServerError, err)
+		return
+	}
+	h.rules.Set(p, sc)
+	writeJSON(w, http.StatusOK, map[string]any{"target": p.String(), "rule": sc})
+}
+
+func (h *handler) deleteRule(w http.ResponseWriter, r *http.Request) {
+	p, err := rule.ParsePrefix(r.PathValue("target"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.rules.Delete(p) {
+		httpError(w, http.StatusNotFound, fmt.Errorf("no rule for %s", p))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) setDefault(w http.ResponseWriter, r *http.Request) {
+	sc, err := readScenario(r)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	h.rules.SetDefault(sc)
+	writeJSON(w, http.StatusOK, map[string]any{"default": sc})
+}
+
+func (h *handler) resetStats(w http.ResponseWriter, r *http.Request) {
+	h.rules.ResetStats()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) getHistory(w http.ResponseWriter, r *http.Request) {
+	var filter *netip.Prefix
+	if t := r.URL.Query().Get("target"); t != "" {
+		p, err := rule.ParsePrefix(t)
+		if err != nil {
+			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		filter = &p
+	}
+	limit := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		n, err := strconv.Atoi(l)
+		if err != nil || n < 0 {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("invalid limit %q", l))
+			return
+		}
+		limit = n
+	}
+	events, total := h.history.Events(filter, limit)
+	writeJSON(w, http.StatusOK, map[string]any{"events": events, "total": total, "capacity": h.history.Capacity()})
+}
+
+func (h *handler) clearHistory(w http.ResponseWriter, r *http.Request) {
+	h.history.Clear()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // readScenario accepts the text form used by the -rule flag
