@@ -388,7 +388,7 @@ make e2e-exec     # pingmock exec，分别以普通用户和 root 运行
 make e2e-docker   # 容器镜像和 Compose 示例
 ```
 
-代码的组织方式参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+[代码导读](docs/architecture.zh-CN.md)介绍了代码的组织方式和阅读顺序，[CONTRIBUTING.md](CONTRIBUTING.md) 说明了如何参与贡献。
 
 ## 限制
 

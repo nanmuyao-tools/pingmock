@@ -388,7 +388,7 @@ make e2e-exec     # pingmock exec, rootless and as root
 make e2e-docker   # the container image and the Compose example
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how the code is organized.
+[docs/architecture.md](docs/architecture.md) is a tour of the code, and [CONTRIBUTING.md](CONTRIBUTING.md) explains how to contribute.
 
 ## Limitations
 

@@ -19,38 +19,29 @@ CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks 
 
 ## How the code is organized
 
+[docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. In short:
+
 ```
-main.go                  dispatches to the server mode or to exec
-options.go               flags and configuration files, merged into settings
-instance.go              starts and stops one pingmock (device, responder, API)
-exec_linux.go            pingmock exec: namespaces, the command, signals
-client/                  public Go client for the control API
+main.go                  entry point; calls internal/app
 internal/
-  rule/                  rule types and parsing: Spec, Scenario, targets
-  engine/                per-target state, decisions, statistics, history
-  icmp/                  parsing echo requests and building replies (IPv4 and IPv6)
+  app/                   the command: flags and configuration, starting up, pingmock exec
+  tun/                   TUN device, addresses and routes (Linux only)
   responder/             reads packets from the device and answers them
+  icmp/                  parsing echo requests and building replies (IPv4 and IPv6)
+  engine/                per-target state, decisions, statistics, history
+  rule/                  rule types and their text and JSON forms
   api/                   HTTP control API
   config/                YAML configuration files (-config)
-  tun/                   TUN device, addresses and routes (Linux only)
+client/                  public Go client for the control API
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
+docs/                    the code tour
 examples/                example configuration and Compose file
 test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-docker.sh
 scripts/release-notes.sh release notes from an annotated tag
 Dockerfile               the container image
 ```
 
-A request flows through the packages like this:
-
-```
-tun device ──► responder ──► icmp.ParseEchoRequest
-                  │
-                  ├──► engine.RuleSet.Decide   (which rule, which phase, reply or drop, delay)
-                  ├──► engine.History.Add
-                  └──► icmp.BuildEchoReply ──► written to the device after the delay
-```
-
-Everything except `tun`, `instance.go` and `exec_linux.go` can be tested without root. `responder` takes any `io.ReadWriter`, so its tests feed it packets directly, and `engine` accepts a fake clock through `engine.WithClock`.
+Everything except `tun`, `app/instance.go` and `app/exec_linux.go` can be tested without root. `responder` takes any `io.ReadWriter`, so its tests feed it packets directly, and `engine` accepts a fake clock through `engine.WithClock`.
 
 Code under `internal/` is not part of the public API and may change at any time. `client/` is public: keep it compatible, and test it against the real API handler as its tests do.
 
