@@ -71,16 +71,45 @@ ping 10.99.0.9   # 没有规则，使用默认值（立即回复）
 
 **目标**是 IPv4 地址或网段，如 `10.99.0.1`、`10.99.0.128/25`。多条规则匹配时，**网段最精确的那条生效**。
 
-**规则**可以是：
+**规则**由以下设置组成：
 
 | 写法 | 含义 |
 |---|---|
 | `120ms`、`120`、`1.5s` | 固定延迟（纯数字表示毫秒） |
 | `delay=200ms,jitter=30ms` | 延迟在 170–230ms 之间均匀随机 |
-| `loss=5%` 或 `loss=0.05` | 5% 的请求不回复 |
+| `loss=5%` 或 `loss=0.05` | 每个请求有 5% 的概率不回复 |
+| `pattern=..x` | 确定性丢包：`.` 回复，`x` 丢弃，按顺序循环（这里是每 3 个请求丢第 3 个） |
 | `timeout` | 全部不回复，等同于 `loss=100%` |
 
-各项可以组合，例如 `delay=80ms,jitter=10ms,loss=2%`。
+各项可以组合，例如 `delay=80ms,jitter=10ms,loss=2%`。`loss` 和 `pattern` 不能同时使用。
+
+### 场景：随时间变化的规则
+
+一条规则可以由多个**阶段**组成，用 `;` 分隔。每个阶段持续一段时间（`for 10s`）或一定数量的请求（`for 5 pings`），最后一个阶段会一直保持。如果以 `repeat` 结尾，则会从头循环：
+
+```bash
+# 前 10 个 ping 正常，然后断网 5 秒，然后恢复
+sudo ./pingmock -rule '10.99.0.1=30ms for 10 pings; timeout for 5s; 30ms'
+
+# 线路时好时坏：好 20 秒，差 10 秒，一直循环
+sudo ./pingmock -rule '10.99.0.2=40ms for 20s; delay=400ms,jitter=100ms for 10s; repeat'
+```
+
+按时间切换的阶段从规则设置的那一刻开始计时；按请求数切换的阶段，对每个目标地址分别计数。重新设置规则（例如通过 API）会让它从第一个阶段重新开始。
+
+如果测试要求每次结果都一样，优先使用按请求数切换的阶段（`for 5 pings`），因为它不受测试运行快慢的影响。
+
+### 可复现的随机性
+
+`loss` 和 `jitter` 是随机的，但可以复现。每个目标地址有自己独立的随机序列，由**种子**和地址共同决定。所以发往某个地址的请求，无论和发往其他地址的请求怎样交错，得到的结果都相同。
+
+不指定 `-seed` 时，pingmock 会随机选一个种子，并在启动时打印出来：
+
+```
+seed 4871203317 (pass -seed 4871203317 to reproduce this run)
+```
+
+测试失败时，用这个种子重新运行，就能得到完全相同的丢包和延迟。在 CI 里建议固定种子（例如 `-seed 42`），让每次运行的行为都一致。
 
 ### 模拟真实地址
 
@@ -94,15 +123,48 @@ pingmock 会把这个地址路由到虚拟网卡上。**注意：在 pingmock �
 
 如果软件 ping 的是域名，可以在 `/etc/hosts` 里把域名指向测试网段的地址，例如 `10.99.0.1 api.example.com`。
 
+### 配置文件
+
+规则较多时，用 JSON 文件更容易维护，还可以和测试代码放在一起。参见 [`examples/pingmock.json`](examples/pingmock.json)：
+
+```json
+{
+  "seed": 42,
+  "default": "1ms",
+  "rules": {
+    "10.99.0.1": "20ms",
+    "10.99.0.2": "delay=120ms,jitter=15ms,loss=2%",
+    "10.99.0.3": "30ms for 10 pings; timeout for 5s; 30ms",
+    "10.99.0.4": {
+      "phases": [
+        {"spec": "delay=40ms,pattern=....x", "for": "20s"},
+        {"spec": {"delay": "400ms", "jitter": "100ms"}, "for": "10s"}
+      ],
+      "repeat": true
+    },
+    "8.8.8.8": "timeout"
+  }
+}
+```
+
+```bash
+sudo ./pingmock -config examples/pingmock.json
+```
+
+每条规则可以写成和 `-rule` 相同的文本，也可以写成 JSON 对象。配置文件还可以设置 `dev`、`addr`、`api` 和 `history`。命令行参数会覆盖配置文件，所以一个配置文件可以用于多个测试：`-config base.json -rule 10.99.0.1=500ms` 只替换这一条规则。配置文件中出现未知的字段会直接报错，拼写错误在启动时就能发现。
+
 ### 命令行参数
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
 | `-rule` | | `目标=规则`，可重复 |
 | `-default` | `0ms` | 没有匹配规则时使用的规则 |
+| `-config` | | JSON 配置文件 |
+| `-seed` | 随机 | `loss` 和 `jitter` 的随机种子，相同的种子会复现相同的运行结果 |
 | `-addr` | `10.99.0.254/24` | 虚拟网卡的地址和网段。网段内**除这个地址本身外**的地址都是模拟主机 |
 | `-dev` | `pingmock0` | 虚拟网卡名称 |
 | `-api` | `127.0.0.1:9100` | 控制 API 的监听地址，设为空字符串则关闭 |
+| `-history` | `1000` | `GET /history` 保留的最近请求数，`0` 表示关闭 |
 | `-v` | `false` | 打印每个请求的处理日志 |
 | `-version` | | 打印版本号并退出 |
 
@@ -111,12 +173,13 @@ pingmock 会把这个地址路由到虚拟网卡上。**注意：在 pingmock �
 测试过程中可以通过 HTTP 随时修改规则，修改立即生效。请求体可以是和 `-rule` 相同的文本格式，也可以是 JSON。
 
 ```bash
-# 查看当前规则和每个目标的统计（请求数、回复数、丢弃数）
+# 查看种子、规则和每个目标的统计（请求数、回复数、丢弃数、当前阶段）
 curl localhost:9100/rules
 
 # 设置或修改规则
 curl -X PUT localhost:9100/rules/10.99.0.1 -d 300ms
-curl -X PUT localhost:9100/rules/10.99.0.1 -d 'delay=300ms,loss=10%'
+curl -X PUT localhost:9100/rules/10.99.0.1 -d 'delay=300ms,pattern=.x'
+curl -X PUT localhost:9100/rules/10.99.0.1 -d '50ms for 3 pings; timeout'
 curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5ms","loss":0.02}'
 
 # 删除规则（回到默认值）
@@ -127,27 +190,45 @@ curl -X PUT localhost:9100/default -d timeout
 
 # 清零统计
 curl -X DELETE localhost:9100/stats
+
+# 最近的请求，按时间从早到晚排列；可以按地址或网段过滤，只保留最后 N 条
+curl 'localhost:9100/history?target=10.99.0.1&limit=20'
+
+# 清空历史
+curl -X DELETE localhost:9100/history
+```
+
+每条历史记录的格式如下（`phase` 从 1 开始计数，`delay` 只在回复时出现）：
+
+```json
+{"time": "2026-10-17T11:16:10.113Z", "src": "10.99.0.254", "dst": "10.99.0.1",
+ "id": 4242, "seq": 3, "reply": true, "delay": "40ms", "rule": "10.99.0.1/32", "phase": 2}
 ```
 
 ## 在自动化测试中使用
 
-典型流程：启动 pingmock，让被测软件 ping 测试地址，在测试过程中通过 API 改变延迟，再检查软件的反应。
+典型流程：用固定的种子启动 pingmock，让被测软件 ping 测试地址，在测试过程中改变网络状况，再检查软件的反应。
 
 ```python
 import subprocess, time, requests
 
-pm = subprocess.Popen(["sudo", "./pingmock", "-rule", "10.99.0.1=20ms", "-rule", "10.99.0.2=200ms"])
+API = "http://127.0.0.1:9100"
+pm = subprocess.Popen(["sudo", "./pingmock", "-seed", "42",
+                       "-rule", "10.99.0.1=20ms", "-rule", "10.99.0.2=200ms"])
 time.sleep(1)
 try:
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.1"
 
     # 网络状况变化：原来快的线路变慢了
-    requests.put("http://127.0.0.1:9100/rules/10.99.0.1", data="500ms")
+    requests.put(f"{API}/rules/10.99.0.1", data="500ms")
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.2"
 
-    # 统计可以用来确认软件确实发出了 ping
-    stats = requests.get("http://127.0.0.1:9100/rules").json()["stats"]
-    assert stats["10.99.0.1"]["requests"] > 0
+    # 重试逻辑：前两个 ping 丢失，之后线路恢复
+    requests.delete(f"{API}/history")
+    requests.put(f"{API}/rules/10.99.0.3", data="timeout for 2 pings; 30ms")
+    assert my_app.check_reachable("10.99.0.3")
+    events = requests.get(f"{API}/history", params={"target": "10.99.0.3"}).json()["events"]
+    assert [e["reply"] for e in events] == [False, False, True]
 finally:
     pm.terminate()
 ```
