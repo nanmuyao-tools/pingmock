@@ -1,0 +1,39 @@
+# Example pingmock configuration. Run it with:
+#   sudo pingmock -config examples/pingmock.yaml
+# or, without root:
+#   pingmock exec -config examples/pingmock.yaml -- ./my-app
+#
+# Every setting is optional, and flags given on the command line override
+# this file. examples/pingmock.json is the same configuration in JSON.
+
+# Same seed, same random loss and jitter on every run.
+seed: 42
+
+# Targets that no rule matches answer after 1ms.
+default: 1ms
+
+rules:
+  # A fast, stable link.
+  10.99.0.1: 20ms
+
+  # A slower link with jitter and 2% random loss.
+  10.99.0.2: delay=120ms,jitter=15ms,loss=2%
+
+  # Works for 10 pings, goes down for 5 seconds, then recovers.
+  10.99.0.3: 30ms for 10 pings; timeout for 5s; 30ms
+
+  # Flaps forever: 20 seconds of every fifth ping lost, then 10 seconds slow.
+  10.99.0.4:
+    phases:
+      - spec: delay=40ms,pattern=....x
+        for: 20s
+      - spec: {delay: 400ms, jitter: 100ms}
+        for: 10s
+    repeat: true
+
+  # A firewall rejects pings to this host after 50ms.
+  10.99.0.5: delay=50ms,unreachable=admin
+
+  # A real address, mocked: nothing on this machine reaches the real 8.8.8.8
+  # while pingmock runs.
+  8.8.8.8: timeout

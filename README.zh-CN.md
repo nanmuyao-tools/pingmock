@@ -25,7 +25,7 @@ curl -L -o pingmock https://github.com/nanmuyao/pingmock/releases/latest/downloa
 chmod +x pingmock
 ```
 
-**用 Go 安装**（需要 Go 1.22+，只依赖标准库）：
+**用 Go 安装**（需要 Go 1.22+）：
 
 ```bash
 go install github.com/nanmuyao/pingmock@latest
@@ -162,34 +162,37 @@ pingmock 会把这个地址路由到虚拟网卡上。**注意：在 pingmock �
 
 ### 配置文件
 
-规则较多时，用 JSON 文件更容易维护，还可以和测试代码放在一起。参见 [`examples/pingmock.json`](examples/pingmock.json)：
+规则较多时，用配置文件更容易维护，还可以和测试代码放在一起。YAML 格式最易读，而且可以写注释。参见 [`examples/pingmock.yaml`](examples/pingmock.yaml)：
 
-```json
-{
-  "seed": 42,
-  "default": "1ms",
-  "rules": {
-    "10.99.0.1": "20ms",
-    "10.99.0.2": "delay=120ms,jitter=15ms,loss=2%",
-    "10.99.0.3": "30ms for 10 pings; timeout for 5s; 30ms",
-    "10.99.0.4": {
-      "phases": [
-        {"spec": "delay=40ms,pattern=....x", "for": "20s"},
-        {"spec": {"delay": "400ms", "jitter": "100ms"}, "for": "10s"}
-      ],
-      "repeat": true
-    },
-    "10.99.0.5": "delay=50ms,unreachable=admin",
-    "8.8.8.8": "timeout"
-  }
-}
+```yaml
+seed: 42           # 每次运行的随机丢包和抖动都相同
+default: 1ms       # 没有匹配规则的目标使用这个规则
+
+rules:
+  10.99.0.1: 20ms
+  10.99.0.2: delay=120ms,jitter=15ms,loss=2%
+  10.99.0.3: 30ms for 10 pings; timeout for 5s; 30ms   # 断开一会儿，然后恢复
+  10.99.0.4:                                           # 一直时好时坏
+    phases:
+      - spec: delay=40ms,pattern=....x
+        for: 20s
+      - spec: {delay: 400ms, jitter: 100ms}
+        for: 10s
+    repeat: true
+  10.99.0.5: delay=50ms,unreachable=admin
+  fd99::1: 30ms                                        # IPv6 地址不需要加引号
+  8.8.8.8: timeout
 ```
 
 ```bash
-sudo ./pingmock -config examples/pingmock.json
+sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-每条规则可以写成和 `-rule` 相同的文本，也可以写成 JSON 对象。配置文件还可以设置 `dev`、`addr`、`addr6`、`api` 和 `history`。命令行参数会覆盖配置文件，所以一个配置文件可以用于多个测试：`-config base.json -rule 10.99.0.1=500ms` 只替换这一条规则。配置文件中出现未知的字段会直接报错，拼写错误在启动时就能发现。
+每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern` 和 `unreachable`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api` 和 `history`。
+
+扩展名为 `.yaml` 或 `.yml` 的文件按 YAML 读取，其他文件按 JSON 读取；[`examples/pingmock.json`](examples/pingmock.json) 是同一份配置的 JSON 版本。YAML 文件出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。
+
+命令行参数会覆盖配置文件，所以一个配置文件可以用于多个测试：`-config base.yaml -rule 10.99.0.1=500ms` 只替换这一条规则。
 
 ### 命令行参数
 
@@ -197,7 +200,7 @@ sudo ./pingmock -config examples/pingmock.json
 |---|---|---|
 | `-rule` | | `目标=规则`，可重复 |
 | `-default` | `0ms` | 没有匹配规则时使用的规则 |
-| `-config` | | JSON 配置文件 |
+| `-config` | | YAML 或 JSON 配置文件 |
 | `-seed` | 随机 | `loss` 和 `jitter` 的随机种子，相同的种子会复现相同的运行结果 |
 | `-addr` | `10.99.0.254/24` | 虚拟网卡的 IPv4 地址和网段。网段内**除这个地址本身外**的地址都是模拟主机 |
 | `-addr6` | `fd99::fe/64` | 虚拟网卡的 IPv6 地址和网段，设为空字符串则关闭 IPv6 |

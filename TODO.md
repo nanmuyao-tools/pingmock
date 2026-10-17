@@ -12,7 +12,7 @@ v0.2–v0.4 的规划已经全部完成（见 [Releases](https://github.com/nanm
 然后发到这些社区，**每个社区先读一遍发帖规则**：
 
 - [ ] **V2EX**：「分享创造」节点，用中文介绍
-- [ ] **Reddit r/golang**：英文，强调 Go 实现、只依赖标准库、`go test -exec` 的用法
+- [ ] **Reddit r/golang**：英文，强调 Go 实现、依赖极少、`go test -exec` 的用法
 - [ ] **Hacker News**：标题用 `Show HN: Pingmock – mock ping latency, loss and unreachable errors on Linux` 这样的格式；发帖后在评论区回答问题
 - [ ] （可选）掘金、Go 中文社区、Twitter / X
 

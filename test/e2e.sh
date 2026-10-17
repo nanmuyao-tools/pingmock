@@ -81,6 +81,15 @@ near "flag overrides config file" "$(avg 10.99.0.7 2)" 60 5
 stop
 rm -f "$cfg"
 
+# A YAML configuration file, with a comment and a bare number of milliseconds.
+cfg=$(mktemp --suffix=.yaml)
+printf 'seed: 3\nrules:\n  10.99.0.6: 35   # milliseconds\n  10.99.0.7: unreachable\n' >"$cfg"
+start -config "$cfg"
+near "rule from a YAML config file" "$(avg 10.99.0.6 2)" 35 4
+same "unreachable rule from a YAML config file" "$(ping -c 1 -W 2 10.99.0.7 2>/dev/null | grep -c 'Destination Host Unreachable' || true)" 1
+stop
+rm -f "$cfg"
+
 # IPv6.
 if [ ! -e /proc/net/if_inet6 ]; then
   if [ "${REQUIRE_IPV6:-0}" = 1 ]; then fail "IPv6 is unavailable but REQUIRE_IPV6=1"; fi

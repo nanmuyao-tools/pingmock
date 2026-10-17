@@ -57,7 +57,7 @@ Code under `internal/` is not part of the public API and may change at any time.
 ## Guidelines
 
 - Keep pull requests focused on one change, and include tests for it. Bug fixes should come with a test that fails without the fix.
-- pingmock uses only the Go standard library; please discuss before adding a dependency.
+- pingmock depends only on the Go standard library and `go.yaml.in/yaml/v3` (for YAML configuration files, in `internal/config`); please discuss before adding a dependency. The `client` package uses the standard library alone, so programs that import it pull in nothing else.
 - Update both `README.md` and `README.zh-CN.md` when behavior visible to users changes. If you can only write one of them, say so in the pull request and the other will be updated.
 - Seeded random sequences are part of the behavior users rely on: with the same seed and rules, a target must keep getting the same results across versions. Changes that alter them need a good reason and a note in the release.
 

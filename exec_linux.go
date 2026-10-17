@@ -41,7 +41,7 @@ network access other than the mocked targets.
 Examples:
   pingmock exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
   pingmock exec -seed 42 -rule 8.8.8.8=120ms -- ./my-app
-  go test -exec 'pingmock exec -config pingmock.json --' ./...
+  go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 
 Flags:
 `)

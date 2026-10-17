@@ -75,3 +75,5 @@ func TestLoadErrors(t *testing.T) {
 		t.Error("missing file: expected error")
 	}
 }
+
+func writeBytes(path, content string) error { return os.WriteFile(path, []byte(content), 0o644) }

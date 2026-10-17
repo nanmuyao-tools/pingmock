@@ -1,4 +1,5 @@
-// Package config loads the JSON configuration file given with -config.
+// Package config loads the YAML or JSON configuration file given with
+// -config. Files ending in .yaml or .yml are YAML; any other is JSON.
 package config
 
 import (
@@ -12,18 +13,16 @@ import (
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
-// Config is the JSON configuration file loaded with -config. Every field
-// is optional; flags given on the command line take precedence.
+// Config is the configuration file loaded with -config. Every field is
+// optional; flags given on the command line take precedence.
 //
-//	{
-//	  "seed": 42,
-//	  "default": "0ms",
-//	  "rules": {
-//	    "10.99.0.1": "50ms",
-//	    "10.99.0.2": "20ms for 5 pings; timeout",
-//	    "10.99.0.128/25": {"delay": "80ms", "jitter": "10ms"}
-//	  }
-//	}
+//	seed: 42
+//	default: 0ms
+//	rules:
+//	  10.99.0.1: 50ms
+//	  10.99.0.2: 20ms for 5 pings; timeout
+//	  10.99.0.128/25: {delay: 80ms, jitter: 10ms}
+//	  fd99::1: unreachable
 type Config struct {
 	Dev     string                   `json:"dev"`
 	Addr    string                   `json:"addr"`
@@ -47,6 +46,11 @@ func Load(path string) (*Config, []Rule, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
+	}
+	if isYAML(path) {
+		if data, err = yamlToJSON(data, path); err != nil {
+			return nil, nil, err
+		}
 	}
 	var cfg Config
 	dec := json.NewDecoder(bytes.NewReader(data))

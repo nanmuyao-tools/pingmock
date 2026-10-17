@@ -25,7 +25,7 @@ curl -L -o pingmock https://github.com/nanmuyao/pingmock/releases/latest/downloa
 chmod +x pingmock
 ```
 
-**Install with Go** (Go 1.22+, standard library only):
+**Install with Go** (Go 1.22+):
 
 ```bash
 go install github.com/nanmuyao/pingmock@latest
@@ -162,34 +162,37 @@ If the software pings a hostname, point that name at an address in the test subn
 
 ### Configuration file
 
-With many rules, a JSON file is easier to maintain, and it can live next to the tests that use it. See [`examples/pingmock.json`](examples/pingmock.json):
+With many rules, a configuration file is easier to maintain, and it can live next to the tests that use it. YAML is the most readable choice and allows comments. See [`examples/pingmock.yaml`](examples/pingmock.yaml):
 
-```json
-{
-  "seed": 42,
-  "default": "1ms",
-  "rules": {
-    "10.99.0.1": "20ms",
-    "10.99.0.2": "delay=120ms,jitter=15ms,loss=2%",
-    "10.99.0.3": "30ms for 10 pings; timeout for 5s; 30ms",
-    "10.99.0.4": {
-      "phases": [
-        {"spec": "delay=40ms,pattern=....x", "for": "20s"},
-        {"spec": {"delay": "400ms", "jitter": "100ms"}, "for": "10s"}
-      ],
-      "repeat": true
-    },
-    "10.99.0.5": "delay=50ms,unreachable=admin",
-    "8.8.8.8": "timeout"
-  }
-}
+```yaml
+seed: 42           # same random loss and jitter on every run
+default: 1ms       # for targets that no rule matches
+
+rules:
+  10.99.0.1: 20ms
+  10.99.0.2: delay=120ms,jitter=15ms,loss=2%
+  10.99.0.3: 30ms for 10 pings; timeout for 5s; 30ms   # goes down, then recovers
+  10.99.0.4:                                           # flaps forever
+    phases:
+      - spec: delay=40ms,pattern=....x
+        for: 20s
+      - spec: {delay: 400ms, jitter: 100ms}
+        for: 10s
+    repeat: true
+  10.99.0.5: delay=50ms,unreachable=admin
+  fd99::1: 30ms                                        # IPv6 needs no quotes
+  8.8.8.8: timeout
 ```
 
 ```bash
-sudo ./pingmock -config examples/pingmock.json
+sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-A rule is either the same text as `-rule` or a JSON object. The file can also set `dev`, `addr`, `addr6`, `api` and `history`. Flags given on the command line override the file, so one file can serve many tests: `-config base.json -rule 10.99.0.1=500ms` replaces just that rule. Unknown keys are rejected, so typos are caught at startup.
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern` and `unreachable`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api` and `history`.
+
+Files ending in `.yaml` or `.yml` are read as YAML, anything else as JSON; [`examples/pingmock.json`](examples/pingmock.json) is the same configuration in JSON. Mistakes are reported with their line in YAML files, and unknown keys are rejected, so typos are caught at startup.
+
+Flags given on the command line override the file, so one file can serve many tests: `-config base.yaml -rule 10.99.0.1=500ms` replaces just that rule.
 
 ### Command-line flags
 
@@ -197,7 +200,7 @@ A rule is either the same text as `-rule` or a JSON object. The file can also se
 |---|---|---|
 | `-rule` | | `TARGET=RULE`, repeatable |
 | `-default` | `0ms` | Rule used for targets without a matching rule |
-| `-config` | | JSON configuration file |
+| `-config` | | YAML or JSON configuration file |
 | `-seed` | random | Seed for `loss` and `jitter`; the same seed reproduces the same run |
 | `-addr` | `10.99.0.254/24` | IPv4 address and prefix of the virtual device. Every address in the subnet **except this one** is a mocked host |
 | `-addr6` | `fd99::fe/64` | IPv6 address and prefix of the virtual device; an empty string disables IPv6 |
