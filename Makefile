@@ -1,7 +1,7 @@
 # Common development tasks. The end-to-end checks need root.
 GO ?= go
 
-.PHONY: build test e2e lint clean
+.PHONY: build test e2e e2e-exec lint clean
 
 build:
 	$(GO) build -o pingmock .
@@ -12,6 +12,11 @@ test:
 
 e2e: build
 	sudo test/e2e.sh
+
+# pingmock exec, rootless as the current user and then as root.
+e2e-exec: build
+	test/e2e-exec.sh
+	sudo test/e2e-exec.sh
 
 lint:
 	@test -z "$$(gofmt -l .)" || (echo "gofmt needed:"; gofmt -l .; exit 1)
