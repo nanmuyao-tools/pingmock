@@ -1,8 +1,6 @@
 package rule
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -148,72 +146,4 @@ func (sc Scenario) String() string {
 		parts = append(parts, "repeat")
 	}
 	return strings.Join(parts, "; ")
-}
-
-func (sc Scenario) MarshalJSON() ([]byte, error) { return json.Marshal(sc.String()) }
-
-type phaseJSON struct {
-	Spec  Spec   `json:"spec"`
-	For   string `json:"for,omitempty"`
-	Count int    `json:"count,omitempty"`
-}
-
-type scenarioJSON struct {
-	Phases []phaseJSON `json:"phases"`
-	Repeat bool        `json:"repeat,omitempty"`
-}
-
-// UnmarshalJSON accepts the text form as a string, a number of
-// milliseconds, a single spec object ({"delay":"50ms"}) or a phases object:
-//
-//	{"phases":[{"spec":"50ms","count":3},{"spec":{"delay":"500ms"},"for":"10s"}],"repeat":true}
-func (sc *Scenario) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	var text string
-	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
-		if err != nil {
-			text = string(b) // a bare number: milliseconds, as on the command line
-		}
-		out, err := ParseScenario(text)
-		if err != nil {
-			return err
-		}
-		*sc = out
-		return nil
-	}
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(b, &probe); err != nil {
-		return fmt.Errorf("a rule must be a string, a number or an object: %w", err)
-	}
-	if _, ok := probe["phases"]; !ok {
-		var sp Spec
-		if err := json.Unmarshal(b, &sp); err != nil {
-			return err
-		}
-		*sc = Single(sp)
-		return nil
-	}
-	var j scenarioJSON
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&j); err != nil {
-		return err
-	}
-	out := Scenario{Repeat: j.Repeat}
-	for _, pj := range j.Phases {
-		p := Phase{Spec: pj.Spec, Count: pj.Count}
-		if pj.For != "" {
-			d, err := time.ParseDuration(pj.For)
-			if err != nil || d <= 0 {
-				return fmt.Errorf("invalid phase length %q", pj.For)
-			}
-			p.For = d
-		}
-		out.Phases = append(out.Phases, p)
-	}
-	if err := out.validate(); err != nil {
-		return err
-	}
-	*sc = out
-	return nil
 }

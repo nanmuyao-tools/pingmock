@@ -1,61 +1,12 @@
-// Package rule defines how pingmock answers requests: specs (delay, jitter,
-// loss, pattern), scenarios made of phases, and their text and JSON forms.
 package rule
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
 )
-
-// Outcome is how a single echo request is answered.
-type Outcome uint8
-
-const (
-	Reply       Outcome = iota // echo reply after the delay
-	Drop                       // no answer at all
-	Unreachable                // ICMP destination unreachable after the delay
-)
-
-func (o Outcome) String() string {
-	switch o {
-	case Drop:
-		return "drop"
-	case Unreachable:
-		return "unreachable"
-	}
-	return "reply"
-}
-
-// UnreachCode is the reason given in a destination unreachable message.
-type UnreachCode uint8
-
-const (
-	UnreachNone  UnreachCode = iota
-	UnreachHost              // host unreachable (IPv6: address unreachable)
-	UnreachNet               // network unreachable (IPv6: no route to destination)
-	UnreachAdmin             // administratively prohibited, as sent by firewalls
-)
-
-var unreachNames = map[UnreachCode]string{UnreachHost: "host", UnreachNet: "net", UnreachAdmin: "admin"}
-
-func (c UnreachCode) String() string { return unreachNames[c] }
-
-func parseUnreachCode(s string) (UnreachCode, error) {
-	s = strings.ToLower(strings.TrimSpace(s))
-	if s == "" {
-		return UnreachHost, nil
-	}
-	for c, name := range unreachNames {
-		if s == name {
-			return c, nil
-		}
-	}
-	return UnreachNone, fmt.Errorf("unknown unreachable code %q: want host, net or admin", s)
-}
 
 // Spec describes how the mock answers a single echo request.
 type Spec struct {
@@ -245,108 +196,4 @@ func (sp Spec) Decide(idx int, rng *rand.Rand) (Outcome, UnreachCode, time.Durat
 		d = 0
 	}
 	return out, code, d
-}
-
-// specJSON is the JSON object form of a Spec.
-type specJSON struct {
-	Delay       numOrString `json:"delay,omitempty"`  // "120ms", or a number of milliseconds
-	Jitter      numOrString `json:"jitter,omitempty"` // likewise
-	Loss        numOrString `json:"loss,omitempty"`   // a fraction (0.05) or a percentage ("5%")
-	Pattern     string      `json:"pattern,omitempty"`
-	Unreachable *string     `json:"unreachable,omitempty"` // "host", "net", "admin" or "" for host
-}
-
-// numOrString holds a JSON string or number as text. Configuration files,
-// YAML ones especially, often write durations and loss as bare numbers.
-type numOrString string
-
-func (n *numOrString) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err == nil {
-		*n = numOrString(s)
-		return nil
-	}
-	var f json.Number
-	if err := json.Unmarshal(b, &f); err != nil {
-		return fmt.Errorf("want a string or a number, got %s", b)
-	}
-	*n = numOrString(f)
-	return nil
-}
-
-// isJSONNumber reports whether b is a JSON number rather than a string or
-// an object.
-func isJSONNumber(b []byte) bool {
-	var n json.Number
-	return len(b) > 0 && b[0] != '"' && json.Unmarshal(b, &n) == nil
-}
-
-func (sp Spec) MarshalJSON() ([]byte, error) {
-	j := specJSON{Delay: numOrString(sp.Delay.String()), Pattern: sp.Pattern}
-	if sp.Jitter > 0 {
-		j.Jitter = numOrString(sp.Jitter.String())
-	}
-	if sp.Loss > 0 {
-		j.Loss = numOrString(strconv.FormatFloat(sp.Loss, 'g', -1, 64))
-	}
-	if sp.Unreachable != UnreachNone {
-		code := sp.Unreachable.String()
-		j.Unreachable = &code
-	}
-	return json.Marshal(j)
-}
-
-// UnmarshalJSON accepts the object form, a string in the text form, or a
-// number, which is a delay in milliseconds as on the command line.
-func (sp *Spec) UnmarshalJSON(b []byte) error {
-	var text string
-	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
-		if err != nil {
-			text = string(b)
-		}
-		out, err := ParseSpec(text)
-		if err != nil {
-			return err
-		}
-		*sp = out
-		return nil
-	}
-	var j specJSON
-	dec := json.NewDecoder(strings.NewReader(string(b)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&j); err != nil {
-		return err
-	}
-	var out Spec
-	var err error
-	if j.Delay != "" {
-		if out.Delay, err = parseDuration(string(j.Delay)); err != nil {
-			return err
-		}
-	}
-	if j.Jitter != "" {
-		if out.Jitter, err = parseDuration(string(j.Jitter)); err != nil {
-			return err
-		}
-	}
-	if j.Loss != "" {
-		if out.Loss, err = parseLoss(string(j.Loss)); err != nil {
-			return err
-		}
-	}
-	if j.Pattern != "" {
-		if out.Pattern, err = parsePattern(j.Pattern); err != nil {
-			return err
-		}
-	}
-	if j.Unreachable != nil {
-		if out.Unreachable, err = parseUnreachCode(*j.Unreachable); err != nil {
-			return err
-		}
-	}
-	if err := out.validate(); err != nil {
-		return err
-	}
-	*sp = out
-	return nil
 }
