@@ -31,7 +31,7 @@ internal/
   icmp/                  parsing echo requests and building replies (IPv4 and IPv6)
   responder/             reads packets from the device and answers them
   api/                   HTTP control API
-  config/                JSON configuration files (-config)
+  config/                YAML configuration files (-config)
   tun/                   TUN device, addresses and routes (Linux only)
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
 examples/                example configuration and Compose file
@@ -57,7 +57,7 @@ Code under `internal/` is not part of the public API and may change at any time.
 ## Guidelines
 
 - Keep pull requests focused on one change, and include tests for it. Bug fixes should come with a test that fails without the fix.
-- pingmock depends only on the Go standard library and `go.yaml.in/yaml/v3` (for YAML configuration files, in `internal/config`); please discuss before adding a dependency. The `client` package uses the standard library alone, so programs that import it pull in nothing else.
+- pingmock depends only on the Go standard library and `go.yaml.in/yaml/v3` (for configuration files, in `internal/config`); please discuss before adding a dependency. The `client` package uses the standard library alone, so programs that import it pull in nothing else.
 - Update both `README.md` and `README.zh-CN.md` when behavior visible to users changes. If you can only write one of them, say so in the pull request and the other will be updated.
 - Seeded random sequences are part of the behavior users rely on: with the same seed and rules, a target must keep getting the same results across versions. Changes that alter them need a good reason and a note in the release.
 

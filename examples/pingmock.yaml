@@ -4,7 +4,7 @@
 #   pingmock exec -config examples/pingmock.yaml -- ./my-app
 #
 # Every setting is optional, and flags given on the command line override
-# this file. examples/pingmock.json is the same configuration in JSON.
+# this file.
 
 # Same seed, same random loss and jitter on every run.
 seed: 42

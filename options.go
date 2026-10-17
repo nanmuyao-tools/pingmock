@@ -55,7 +55,7 @@ func parseSettings(name string, args []string, usage func(io.Writer, *flag.FlagS
 		apiAddr = fs.String("api", "127.0.0.1:9100", "listen address of the HTTP control API (empty disables it)")
 		seed    = fs.Uint64("seed", 0, "seed for loss and jitter; the same seed reproduces the same sequence per target (default: random, printed at startup)")
 		verbose = fs.Bool("v", false, "log every request")
-		cfgPath = fs.String("config", "", "YAML (.yaml, .yml) or JSON configuration file; flags given on the command line override it")
+		cfgPath = fs.String("config", "", "YAML configuration file; flags given on the command line override it")
 		histLen = fs.Int("history", 1000, "number of recent requests kept for GET /history (0 disables)")
 		rules   ruleFlags
 	)

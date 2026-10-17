@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
-	"path/filepath"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -14,24 +13,15 @@ import (
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
-// isYAML reports whether path names a YAML file, by its extension.
-func isYAML(path string) bool {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".yaml", ".yml":
-		return true
-	}
-	return false
-}
-
 // knownFields are the top-level keys of a configuration file.
 var knownFields = map[string]bool{
 	"dev": true, "addr": true, "addr6": true, "api": true,
 	"seed": true, "history": true, "default": true, "rules": true,
 }
 
-// yamlToJSON converts a YAML configuration into the equivalent JSON, so
-// that both formats go through the same decoding and validation. Mistakes
-// that are easy to make are reported first, with their line number.
+// yamlToJSON converts a YAML configuration into the equivalent JSON, which
+// the rule types decode and validate. Mistakes that are easy to make are
+// reported first, with their line number.
 func yamlToJSON(data []byte, path string) ([]byte, error) {
 	dec := yaml.NewDecoder(strings.NewReader(string(data)))
 	var root yaml.Node

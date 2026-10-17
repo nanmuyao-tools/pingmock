@@ -162,7 +162,7 @@ If the software pings a hostname, point that name at an address in the test subn
 
 ### Configuration file
 
-With many rules, a configuration file is easier to maintain, and it can live next to the tests that use it. YAML is the most readable choice and allows comments. See [`examples/pingmock.yaml`](examples/pingmock.yaml):
+With many rules, a configuration file is easier to maintain, and it can live next to the tests that use it. Configuration files are YAML, so they can have comments. See [`examples/pingmock.yaml`](examples/pingmock.yaml):
 
 ```yaml
 seed: 42           # same random loss and jitter on every run
@@ -190,7 +190,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 
 A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern` and `unreachable`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api` and `history`.
 
-Files ending in `.yaml` or `.yml` are read as YAML, anything else as JSON; [`examples/pingmock.json`](examples/pingmock.json) is the same configuration in JSON. Mistakes are reported with their line in YAML files, and unknown keys are rejected, so typos are caught at startup.
+Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 
 Flags given on the command line override the file, so one file can serve many tests: `-config base.yaml -rule 10.99.0.1=500ms` replaces just that rule.
 
@@ -200,7 +200,7 @@ Flags given on the command line override the file, so one file can serve many te
 |---|---|---|
 | `-rule` | | `TARGET=RULE`, repeatable |
 | `-default` | `0ms` | Rule used for targets without a matching rule |
-| `-config` | | YAML or JSON configuration file |
+| `-config` | | YAML configuration file |
 | `-seed` | random | Seed for `loss` and `jitter`; the same seed reproduces the same run |
 | `-addr` | `10.99.0.254/24` | IPv4 address and prefix of the virtual device. Every address in the subnet **except this one** is a mocked host |
 | `-addr6` | `fd99::fe/64` | IPv6 address and prefix of the virtual device; an empty string disables IPv6 |

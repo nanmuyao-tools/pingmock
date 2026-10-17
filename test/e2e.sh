@@ -72,21 +72,14 @@ second=$(received 10.99.0.5 20)
 stop
 same "same seed reproduces random loss ($first)" "$second" "$first"
 
-# A configuration file, with a flag overriding one of its rules.
-cfg=$(mktemp)
-echo '{"seed": 3, "rules": {"10.99.0.6": "30ms", "10.99.0.7": "timeout"}}' >"$cfg"
-start -config "$cfg" -rule 10.99.0.7=60ms
-near "rule from config file" "$(avg 10.99.0.6 2)" 30 4
-near "flag overrides config file" "$(avg 10.99.0.7 2)" 60 5
-stop
-rm -f "$cfg"
-
-# A YAML configuration file, with a comment and a bare number of milliseconds.
+# A configuration file, with a comment, a bare number of milliseconds and
+# a flag overriding one of its rules.
 cfg=$(mktemp --suffix=.yaml)
-printf 'seed: 3\nrules:\n  10.99.0.6: 35   # milliseconds\n  10.99.0.7: unreachable\n' >"$cfg"
-start -config "$cfg"
-near "rule from a YAML config file" "$(avg 10.99.0.6 2)" 35 4
-same "unreachable rule from a YAML config file" "$(ping -c 1 -W 2 10.99.0.7 2>/dev/null | grep -c 'Destination Host Unreachable' || true)" 1
+printf 'seed: 3\nrules:\n  10.99.0.6: 30   # milliseconds\n  10.99.0.7: timeout\n  10.99.0.8: unreachable\n' >"$cfg"
+start -config "$cfg" -rule 10.99.0.7=60ms
+near "rule from the config file" "$(avg 10.99.0.6 2)" 30 4
+near "flag overrides the config file" "$(avg 10.99.0.7 2)" 60 5
+same "unreachable rule from the config file" "$(ping -c 1 -W 2 10.99.0.8 2>/dev/null | grep -c 'Destination Host Unreachable' || true)" 1
 stop
 rm -f "$cfg"
 

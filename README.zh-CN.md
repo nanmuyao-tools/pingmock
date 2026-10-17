@@ -162,7 +162,7 @@ pingmock 会把这个地址路由到虚拟网卡上。**注意：在 pingmock �
 
 ### 配置文件
 
-规则较多时，用配置文件更容易维护，还可以和测试代码放在一起。YAML 格式最易读，而且可以写注释。参见 [`examples/pingmock.yaml`](examples/pingmock.yaml)：
+规则较多时，用配置文件更容易维护，还可以和测试代码放在一起。配置文件使用 YAML 格式，可以写注释。参见 [`examples/pingmock.yaml`](examples/pingmock.yaml)：
 
 ```yaml
 seed: 42           # 每次运行的随机丢包和抖动都相同
@@ -190,7 +190,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 
 每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern` 和 `unreachable`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api` 和 `history`。
 
-扩展名为 `.yaml` 或 `.yml` 的文件按 YAML 读取，其他文件按 JSON 读取；[`examples/pingmock.json`](examples/pingmock.json) 是同一份配置的 JSON 版本。YAML 文件出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。
+出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。早期版本使用的 JSON 配置文件无需修改即可继续使用，因为 JSON 本身就是合法的 YAML。
 
 命令行参数会覆盖配置文件，所以一个配置文件可以用于多个测试：`-config base.yaml -rule 10.99.0.1=500ms` 只替换这一条规则。
 
@@ -200,7 +200,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 |---|---|---|
 | `-rule` | | `目标=规则`，可重复 |
 | `-default` | `0ms` | 没有匹配规则时使用的规则 |
-| `-config` | | YAML 或 JSON 配置文件 |
+| `-config` | | YAML 配置文件 |
 | `-seed` | 随机 | `loss` 和 `jitter` 的随机种子，相同的种子会复现相同的运行结果 |
 | `-addr` | `10.99.0.254/24` | 虚拟网卡的 IPv4 地址和网段。网段内**除这个地址本身外**的地址都是模拟主机 |
 | `-addr6` | `fd99::fe/64` | 虚拟网卡的 IPv6 地址和网段，设为空字符串则关闭 IPv6 |

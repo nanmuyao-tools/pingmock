@@ -1,5 +1,5 @@
-// Package config loads the YAML or JSON configuration file given with
-// -config. Files ending in .yaml or .yml are YAML; any other is JSON.
+// Package config loads the YAML configuration file given with -config.
+// Since JSON is a subset of YAML, JSON files load as well.
 package config
 
 import (
@@ -47,10 +47,10 @@ func Load(path string) (*Config, []Rule, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	if isYAML(path) {
-		if data, err = yamlToJSON(data, path); err != nil {
-			return nil, nil, err
-		}
+	// YAML is converted to JSON, which the types in package rule decode
+	// and validate (the HTTP API sends them JSON too).
+	if data, err = yamlToJSON(data, path); err != nil {
+		return nil, nil, err
 	}
 	var cfg Config
 	dec := json.NewDecoder(bytes.NewReader(data))
