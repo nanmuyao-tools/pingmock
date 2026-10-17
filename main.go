@@ -17,11 +17,26 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
+
+// version is set at build time with -ldflags "-X main.version=v0.1.0".
+// When empty, the module version recorded by "go install" is used.
+var version string
+
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "devel"
+}
 
 type ruleFlags []string
 
@@ -61,6 +76,7 @@ func main() {
 		defSpec = flag.String("default", "0ms", "spec for targets without a rule")
 		apiAddr = flag.String("api", "127.0.0.1:9100", "listen address of the HTTP control API (empty disables it)")
 		verbose = flag.Bool("v", false, "log every request")
+		showVer = flag.Bool("version", false, "print the version and exit")
 		rules   ruleFlags
 	)
 	flag.Var(&rules, "rule", "TARGET=SPEC, repeatable. TARGET is an IPv4 address or CIDR; SPEC is e.g. 120ms or delay=120ms,jitter=10ms,loss=5% or timeout")
@@ -69,6 +85,10 @@ func main() {
 		flag.PrintDefaults()
 	}
 	flag.Parse()
+	if *showVer {
+		fmt.Println("pingmock", buildVersion())
+		return
+	}
 
 	devPrefix, err := netip.ParsePrefix(*addr)
 	if err != nil || !devPrefix.Addr().Is4() {
