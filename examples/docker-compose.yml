@@ -1,0 +1,27 @@
+# Runs the code under test in pingmock's network with Docker Compose:
+#
+#   docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
+#
+# Replace the app service with your own. It shares pingmock's network, so
+# the addresses it pings are mocked and the control API is at
+# http://127.0.0.1:9100.
+services:
+  pingmock:
+    image: ${PINGMOCK_IMAGE:-ghcr.io/nanmuyao/pingmock:latest}
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun]
+    command: ["-seed", "42", "-rule", "10.99.0.1=50ms", "-rule", "8.8.8.8=delay=120ms,jitter=10ms"]
+    # Start the app only once pings are answered.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9100/rules"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  app:
+    image: alpine:3.22
+    network_mode: service:pingmock
+    depends_on:
+      pingmock:
+        condition: service_healthy
+    command: ["sh", "-c", "ping -c 3 10.99.0.1 && ping -c 3 8.8.8.8"]

@@ -44,3 +44,10 @@ jobs:
           grep -q -- '--- PASS: TestUnderPingmockExec' test.out
       - name: pingmock exec, as root
         run: sudo test/e2e-exec.sh
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image and Compose example
+        run: test/e2e-docker.sh
