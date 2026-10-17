@@ -2,3 +2,4 @@
 /pingmock
 *.test
 *.out
+test.out

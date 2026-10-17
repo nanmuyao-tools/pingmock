@@ -36,5 +36,11 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/pingmock
       - name: pingmock exec, rootless
         run: test/e2e-exec.sh
+      # The way users test Go code: the whole test binary runs inside
+      # pingmock exec. Require a PASS, since outside exec the test skips.
+      - name: go test -exec 'pingmock exec', rootless
+        run: |
+          go test -count=1 -v -exec "$PWD/pingmock exec -addr6= --" -run TestUnderPingmockExec ./client | tee test.out
+          grep -q -- '--- PASS: TestUnderPingmockExec' test.out
       - name: pingmock exec, as root
         run: sudo test/e2e-exec.sh
