@@ -45,7 +45,7 @@ same "pattern ..x drops every third request" "$(received 10.99.0.3 9)" "1 2 4 5 
 near "count phase 1 (10ms for 2 pings)" "$(avg 10.99.0.4 2)" 10 3
 near "count phase 2 (120ms afterwards)" "$(avg 10.99.0.4 2)" 120 5
 
-events=$(curl -sf "localhost:9100/history?target=10.99.0.3" | grep -o '"seq"' | wc -l)
+events=$(curl -sf "localhost:9100/history?target=10.99.0.3" | grep -c '"seq":' || true)
 same "history records every request" "$events" 9
 stop
 
@@ -98,7 +98,7 @@ else
   same "IPv6 unreachable=admin reports administratively prohibited" "$(errors6 fd99::4 'Administratively prohibited')" 2
   got6=$(ping -6 -c 6 -i 0.05 -W 1 fd99::5 2>/dev/null | grep 'bytes from' | grep -o 'icmp_seq=[0-9]*' | cut -d= -f2 | tr '\n' ' ' || true)
   same "IPv6 pattern ..x" "$got6" "1 2 4 5 "
-  events=$(curl -sf "localhost:9100/history?target=fd99::/64" | grep -o '"dst":"fd99::' | wc -l)
+  events=$(curl -sf "localhost:9100/history?target=fd99::/64" | grep -c '"dst": "fd99::' || true)
   [ "$events" -gt 0 ] && pass "history filters IPv6 prefixes ($events events)" || fail "no IPv6 events in history"
   stop
 fi
