@@ -12,6 +12,7 @@ import (
 
 	"github.com/nanmuyao/pingmock/internal/engine"
 	"github.com/nanmuyao/pingmock/internal/icmp"
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 // Responder answers echo requests read from a device.
@@ -40,20 +41,34 @@ func (r *Responder) Serve(dev io.ReadWriter) error {
 			continue
 		}
 		d := r.Rules.Decide(req.Dst)
-		ev := engine.Event{Time: time.Now(), Src: req.Src.String(), Dst: req.Dst.String(), ID: req.ID, Seq: req.Seq, Reply: d.Reply, Rule: d.Rule, Phase: d.Phase + 1}
-		if d.Reply {
+		ev := engine.Event{
+			Time: time.Now(), Src: req.Src.String(), Dst: req.Dst.String(), ID: req.ID, Seq: req.Seq,
+			Result: d.Outcome.String(), Reply: d.Outcome == rule.Reply, Rule: d.Rule, Phase: d.Phase + 1,
+		}
+		var out []byte
+		switch d.Outcome {
+		case rule.Reply:
+			out = icmp.BuildEchoReply(pkt)
+		case rule.Unreachable:
+			out = icmp.BuildUnreachable(pkt, d.Code)
+			ev.Code = d.Code.String()
+		}
+		if out != nil {
 			ev.Delay = d.Delay.String()
 		}
 		r.History.Add(ev)
-		if !d.Reply {
-			if r.Verbose {
-				log.Printf("%s -> %s id=%d seq=%d: dropped (rule %s, phase %d)", req.Src, req.Dst, req.ID, req.Seq, d.Rule, d.Phase+1)
-			}
-			continue
-		}
-		out := icmp.BuildEchoReply(pkt)
 		if r.Verbose {
-			log.Printf("%s -> %s id=%d seq=%d: reply in %s (rule %s, phase %d)", req.Src, req.Dst, req.ID, req.Seq, d.Delay, d.Rule, d.Phase+1)
+			what := d.Outcome.String()
+			if out != nil {
+				what += " in " + d.Delay.String()
+			}
+			if ev.Code != "" {
+				what += " (" + ev.Code + ")"
+			}
+			log.Printf("%s -> %s id=%d seq=%d: %s [rule %s, phase %d]", req.Src, req.Dst, req.ID, req.Seq, what, d.Rule, d.Phase+1)
+		}
+		if out == nil {
+			continue
 		}
 		time.AfterFunc(d.Delay, func() {
 			wmu.Lock()

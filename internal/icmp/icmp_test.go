@@ -1,9 +1,12 @@
 package icmp
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net/netip"
 	"testing"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 func TestParseEchoRequest(t *testing.T) {
@@ -74,5 +77,48 @@ func TestChecksumOddLength(t *testing.T) {
 	full := append([]byte{0x45, 0x00, 0x01, 0x00}, byte(sum>>8), byte(sum))
 	if Checksum(full) != 0 {
 		t.Errorf("odd-length checksum does not verify")
+	}
+}
+
+func TestBuildUnreachable(t *testing.T) {
+	client, target := netip.MustParseAddr("10.99.0.254"), netip.MustParseAddr("10.99.0.3")
+	req := BuildEchoRequest(client, target, 7, 42, []byte("payload"))
+	for code, want := range map[rule.UnreachCode]byte{rule.UnreachHost: 1, rule.UnreachNet: 0, rule.UnreachAdmin: 13} {
+		out := BuildUnreachable(req, code)
+		if len(out) != 20+8+len(req) || int(binary.BigEndian.Uint16(out[2:4])) != len(out) {
+			t.Fatalf("%v: length %d, header says %d, want %d", code, len(out), binary.BigEndian.Uint16(out[2:4]), 20+8+len(req))
+		}
+		if Checksum(out[:20]) != 0 || Checksum(out[20:]) != 0 {
+			t.Errorf("%v: bad checksum", code)
+		}
+		if out[9] != 1 || out[20] != 3 || out[21] != want {
+			t.Errorf("%v: protocol %d type %d code %d, want 1/3/%d", code, out[9], out[20], out[21], want)
+		}
+		if src := netip.AddrFrom4([4]byte(out[12:16])); src != target {
+			t.Errorf("%v: from %s, want the target %s", code, src, target)
+		}
+		if dst := netip.AddrFrom4([4]byte(out[16:20])); dst != client {
+			t.Errorf("%v: to %s, want the client %s", code, dst, client)
+		}
+		if !bytes.Equal(out[28:], req) {
+			t.Errorf("%v: the original request is not quoted in full", code)
+		}
+		if _, ok := ParseEchoRequest(out); ok {
+			t.Errorf("%v: parsed as an echo request", code)
+		}
+	}
+}
+
+func TestBuildUnreachableTruncatesLargeRequests(t *testing.T) {
+	req := BuildEchoRequest(netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2"), 1, 1, make([]byte, 1400))
+	out := BuildUnreachable(req, rule.UnreachHost)
+	if len(out) != 576 {
+		t.Errorf("length %d, want 576", len(out))
+	}
+	if Checksum(out[20:]) != 0 {
+		t.Error("bad ICMP checksum")
+	}
+	if !bytes.Equal(out[28:], req[:548]) {
+		t.Error("quote is not the start of the request")
 	}
 }

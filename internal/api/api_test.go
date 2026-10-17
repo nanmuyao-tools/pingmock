@@ -77,7 +77,7 @@ func TestAPISetRuleTextAndJSON(t *testing.T) {
 	if code := f.do("PUT", "/rules/10.99.0.2", `{"phases":[{"spec":"5ms","count":1},{"spec":"timeout"}]}`, &resp); code != 200 || resp.Rule != "delay=5ms for 1 ping; timeout" {
 		t.Errorf("PUT JSON phases: %d %+v", code, resp)
 	}
-	if d := f.rs.Decide(netip.MustParseAddr("10.99.0.200")); d.Rule != "10.99.0.128/25" || !d.Reply {
+	if d := f.rs.Decide(netip.MustParseAddr("10.99.0.200")); d.Rule != "10.99.0.128/25" || d.Outcome != rule.Reply {
 		t.Errorf("rule not applied: %+v", d)
 	}
 	if len(f.routed) != 3 || f.routed[1].String() != "10.99.0.128/25" {
@@ -121,7 +121,7 @@ func TestAPIDefault(t *testing.T) {
 	if code := f.do("PUT", "/default", "timeout", nil); code != 200 {
 		t.Fatalf("PUT /default: %d", code)
 	}
-	if d := f.rs.Decide(netip.MustParseAddr("10.99.0.42")); d.Reply {
+	if d := f.rs.Decide(netip.MustParseAddr("10.99.0.42")); d.Outcome != rule.Drop {
 		t.Error("default timeout not applied")
 	}
 }

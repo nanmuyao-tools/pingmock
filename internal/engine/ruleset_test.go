@@ -2,6 +2,7 @@ package engine
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,8 +102,8 @@ func TestPatternPerTarget(t *testing.T) {
 	want := []bool{true, true, false, true, true, false}
 	for _, ip := range []string{"10.99.0.1", "10.99.0.2"} {
 		for i, d := range outcomes(rs, ip, len(want)) {
-			if d.Reply != want[i] {
-				t.Errorf("%s request %d: reply=%v, want %v", ip, i, d.Reply, want[i])
+			if (d.Outcome == rule.Reply) != want[i] {
+				t.Errorf("%s request %d: %v, want reply=%v", ip, i, d.Outcome, want[i])
 			}
 		}
 	}
@@ -111,14 +112,14 @@ func TestPatternPerTarget(t *testing.T) {
 func TestCountPhases(t *testing.T) {
 	rs, _ := newTestRuleSet(t, "10ms for 2 pings; delay=20ms,pattern=.x for 2 pings; 30ms", 1)
 	type step struct {
-		reply bool
+		out   rule.Outcome
 		delay time.Duration
 		phase int
 	}
 	ms := time.Millisecond
-	want := []step{{true, 10 * ms, 0}, {true, 10 * ms, 0}, {true, 20 * ms, 1}, {false, 0, 1}, {true, 30 * ms, 2}, {true, 30 * ms, 2}}
+	want := []step{{rule.Reply, 10 * ms, 0}, {rule.Reply, 10 * ms, 0}, {rule.Reply, 20 * ms, 1}, {rule.Drop, 0, 1}, {rule.Reply, 30 * ms, 2}, {rule.Reply, 30 * ms, 2}}
 	for i, d := range outcomes(rs, "10.99.0.1", len(want)) {
-		if d.Reply != want[i].reply || d.Delay != want[i].delay || d.Phase != want[i].phase {
+		if d.Outcome != want[i].out || d.Delay != want[i].delay || d.Phase != want[i].phase {
 			t.Errorf("request %d: got %+v, want %+v", i, d, want[i])
 		}
 	}
@@ -153,7 +154,7 @@ func TestTimePhasesStartWhenRuleIsSet(t *testing.T) {
 	rs, clock := newTestRuleSet(t, "0ms", 1)
 	rs.Set(netip.MustParsePrefix("10.99.0.1/32"), mustScenario(t, "10ms for 1s; timeout"))
 	clock.advance(2 * time.Second) // first request arrives after the first phase ended
-	if d := rs.Decide(addr("10.99.0.1")); d.Reply || d.Phase != 1 {
+	if d := rs.Decide(addr("10.99.0.1")); d.Outcome != rule.Drop || d.Phase != 1 {
 		t.Errorf("got %+v, want a drop in phase 2", d)
 	}
 }
@@ -193,7 +194,44 @@ func TestStatsAndSnapshot(t *testing.T) {
 		t.Errorf("after reset: %+v", st)
 	}
 	// Resetting counters must not restart the pattern: the 5th request is a reply.
-	if d := rs.Decide(addr("10.99.0.1")); !d.Reply {
+	if d := rs.Decide(addr("10.99.0.1")); d.Outcome != rule.Reply {
 		t.Error("ResetStats restarted the scenario")
+	}
+}
+
+func TestUnreachable(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "0ms", 1)
+	rs.Set(netip.MustParsePrefix("10.99.0.1/32"), mustScenario(t, "delay=15ms,unreachable=admin"))
+	rs.Set(netip.MustParsePrefix("10.99.0.2/32"), mustScenario(t, "delay=5ms,pattern=.ux"))
+	if d := rs.Decide(addr("10.99.0.1")); d.Outcome != rule.Unreachable || d.Code != rule.UnreachAdmin || d.Delay != 15*time.Millisecond {
+		t.Errorf("unreachable=admin: %+v", d)
+	}
+	want := []struct {
+		out  rule.Outcome
+		code rule.UnreachCode
+	}{{rule.Reply, rule.UnreachNone}, {rule.Unreachable, rule.UnreachHost}, {rule.Drop, rule.UnreachNone}}
+	for i, d := range outcomes(rs, "10.99.0.2", 3) {
+		if d.Outcome != want[i].out || d.Code != want[i].code {
+			t.Errorf("pattern .ux request %d: %+v, want %v/%v", i, d, want[i].out, want[i].code)
+		}
+	}
+	st := rs.Snapshot()["stats"].(map[string]TargetState)["10.99.0.2"]
+	if st.Replied != 1 || st.Unreachable != 1 || st.Dropped != 1 {
+		t.Errorf("stats = %+v", st)
+	}
+}
+
+// Seeded sequences are part of the behavior users rely on: the same seed
+// and rule must give the same results across versions. These values were
+// recorded with v0.2.0.
+func TestSeededSequenceIsStable(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "delay=100ms,jitter=50ms,loss=50%", 1234)
+	var got []string
+	for _, d := range outcomes(rs, "10.99.0.5", 8) {
+		got = append(got, d.Outcome.String()+"/"+d.Delay.String())
+	}
+	const want = "reply/80.783202ms drop/0s reply/105.683618ms drop/0s drop/0s reply/133.752918ms reply/122.480243ms drop/0s"
+	if s := strings.Join(got, " "); s != want {
+		t.Errorf("seeded sequence changed:\n got %s\nwant %s", s, want)
 	}
 }

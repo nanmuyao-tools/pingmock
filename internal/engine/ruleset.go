@@ -15,9 +15,10 @@ import (
 
 // Stats counts what happened to requests for one target address.
 type Stats struct {
-	Requests uint64 `json:"requests"`
-	Replied  uint64 `json:"replied"`
-	Dropped  uint64 `json:"dropped"`
+	Requests    uint64 `json:"requests"`
+	Replied     uint64 `json:"replied"`
+	Dropped     uint64 `json:"dropped"`
+	Unreachable uint64 `json:"unreachable"`
 }
 
 // entry is a scenario installed for a prefix (or as the default). Every
@@ -42,10 +43,11 @@ type target struct {
 
 // Decision is the outcome for one echo request.
 type Decision struct {
-	Reply bool
-	Delay time.Duration
-	Rule  string // matching prefix, or "default"
-	Phase int    // zero-based index of the phase that applied
+	Outcome rule.Outcome
+	Code    rule.UnreachCode // set when Outcome is rule.Unreachable
+	Delay   time.Duration    // before the reply or unreachable message
+	Rule    string           // matching prefix, or "default"
+	Phase   int              // zero-based index of the phase that applied
 }
 
 // RuleSet maps targets to scenarios. The most specific matching prefix
@@ -149,15 +151,18 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 		t.rng = rs.rngFor(dst)
 	}
 	advance(t, e.sc, now)
-	delay, reply := e.sc.Phases[t.phase].Spec.Decide(t.phaseReqs, t.rng)
+	out, code, delay := e.sc.Phases[t.phase].Spec.Decide(t.phaseReqs, t.rng)
 	t.phaseReqs++
 	t.stats.Requests++
-	if reply {
+	switch out {
+	case rule.Reply:
 		t.stats.Replied++
-	} else {
+	case rule.Drop:
 		t.stats.Dropped++
+	case rule.Unreachable:
+		t.stats.Unreachable++
 	}
-	return Decision{Reply: reply, Delay: delay, Rule: label, Phase: t.phase}
+	return Decision{Outcome: out, Code: code, Delay: delay, Rule: label, Phase: t.phase}
 }
 
 // advance moves t past every phase of sc that has ended by now.

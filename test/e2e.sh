@@ -15,7 +15,8 @@ stop() { kill "$PM" 2>/dev/null || true; wait "$PM" 2>/dev/null || true; PM=""; 
 trap stop EXIT
 
 avg() { ping -c "$2" -i 0.2 -W 2 "$1" | awk -F'/' '/^rtt/ {print $5}'; }
-received() { ping -c "$2" -i 0.05 -W 1 "$1" 2>/dev/null | grep -o 'icmp_seq=[0-9]*' | cut -d= -f2 | tr '\n' ' ' || true; }
+# Sequence numbers of the echo replies (not of error messages) ping received.
+received() { ping -c "$2" -i 0.05 -W 1 "$1" 2>/dev/null | grep 'bytes from' | grep -o 'icmp_seq=[0-9]*' | cut -d= -f2 | tr '\n' ' ' || true; }
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; exit 1; }
 near() { # name, actual avg ms, expected ms, tolerance ms
@@ -44,6 +45,20 @@ near "count phase 2 (120ms afterwards)" "$(avg 10.99.0.4 2)" 120 5
 
 events=$(curl -sf "localhost:9100/history?target=10.99.0.3" | grep -o '"seq"' | wc -l)
 same "history records every request" "$events" 9
+stop
+
+# Destination unreachable: ping must report each code, and fail fast.
+start -rule 10.99.0.8=unreachable -rule 10.99.0.9=unreachable=net \
+  -rule 10.99.0.10=unreachable=admin -rule '10.99.0.11=delay=5ms,pattern=..u'
+errors() { ping -c "$2" -i 0.2 -W 2 "$1" 2>/dev/null | grep -c "$3" || true; }
+same "unreachable reports host unreachable" "$(errors 10.99.0.8 2 'Destination Host Unreachable')" 2
+same "unreachable=net reports net unreachable" "$(errors 10.99.0.9 2 'Destination Net Unreachable')" 2
+same "unreachable=admin reports packet filtered" "$(errors 10.99.0.10 2 'Packet filtered')" 2
+same "pattern ..u answers every third with unreachable" "$(received 10.99.0.11 6)" "1 2 4 5 "
+start_ns=$(date +%s%N)
+ping -c 1 -W 3 10.99.0.8 >/dev/null 2>&1 || true
+elapsed_ms=$(( ($(date +%s%N) - start_ns) / 1000000 ))
+if [ "$elapsed_ms" -lt 1000 ]; then pass "unreachable fails fast (${elapsed_ms}ms, timeout 3s)"; else fail "unreachable took ${elapsed_ms}ms"; fi
 stop
 
 # The same seed must reproduce the same random losses across runs.

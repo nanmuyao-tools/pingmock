@@ -5,6 +5,8 @@ package icmp
 import (
 	"encoding/binary"
 	"net/netip"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 // EchoRequest describes an ICMPv4 echo request read from the TUN device.
@@ -65,6 +67,44 @@ func BuildEchoReply(req []byte) []byte {
 	icmp[2], icmp[3] = 0, 0
 	binary.BigEndian.PutUint16(icmp[2:4], Checksum(icmp))
 	return reply
+}
+
+// ICMPv4 destination unreachable codes (RFC 792, RFC 1812).
+var unreachCodes4 = map[rule.UnreachCode]byte{
+	rule.UnreachNet:   0,
+	rule.UnreachHost:  1,
+	rule.UnreachAdmin: 13, // communication administratively prohibited
+}
+
+// maxError4 is the largest ICMPv4 error message; RFC 1812 asks routers to
+// quote as much of the original datagram as fits within 576 bytes.
+const maxError4 = 576
+
+// BuildUnreachable answers a valid echo request with an ICMP destination
+// unreachable message. It appears to come from the target itself and
+// quotes the start of the request, which is how ping matches the error to
+// the request it sent.
+func BuildUnreachable(req []byte, code rule.UnreachCode) []byte {
+	total := int(binary.BigEndian.Uint16(req[2:4]))
+	quote := req[:total]
+	if len(quote) > maxError4-20-8 {
+		quote = quote[:maxError4-20-8]
+	}
+	out := make([]byte, 20+8+len(quote))
+	out[0] = 0x45
+	binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
+	out[8] = 64
+	out[9] = 1                   // ICMP
+	copy(out[12:16], req[16:20]) // from the target
+	copy(out[16:20], req[12:16]) // to the client
+	binary.BigEndian.PutUint16(out[10:12], Checksum(out[:20]))
+
+	msg := out[20:]
+	msg[0] = 3 // destination unreachable
+	msg[1] = unreachCodes4[code]
+	copy(msg[8:], quote)
+	binary.BigEndian.PutUint16(msg[2:4], Checksum(msg))
+	return out
 }
 
 // Checksum computes the Internet checksum (RFC 1071).

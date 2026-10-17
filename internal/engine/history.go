@@ -8,15 +8,17 @@ import (
 
 // Event records how one echo request was handled.
 type Event struct {
-	Time  time.Time `json:"time"`
-	Src   string    `json:"src"`
-	Dst   string    `json:"dst"`
-	ID    uint16    `json:"id"`
-	Seq   uint16    `json:"seq"`
-	Reply bool      `json:"reply"`
-	Delay string    `json:"delay,omitempty"` // only for replies
-	Rule  string    `json:"rule"`
-	Phase int       `json:"phase"` // 1-based
+	Time   time.Time `json:"time"`
+	Src    string    `json:"src"`
+	Dst    string    `json:"dst"`
+	ID     uint16    `json:"id"`
+	Seq    uint16    `json:"seq"`
+	Result string    `json:"result"`          // "reply", "drop" or "unreachable"
+	Code   string    `json:"code,omitempty"`  // unreachable code: "host", "net" or "admin"
+	Reply  bool      `json:"reply"`           // true for echo replies; kept for compatibility
+	Delay  string    `json:"delay,omitempty"` // for replies and unreachable messages
+	Rule   string    `json:"rule"`
+	Phase  int       `json:"phase"` // 1-based
 }
 
 // History keeps the most recent events in a fixed-size ring buffer.

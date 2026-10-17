@@ -11,19 +11,78 @@ import (
 	"time"
 )
 
+// Outcome is how a single echo request is answered.
+type Outcome uint8
+
+const (
+	Reply       Outcome = iota // echo reply after the delay
+	Drop                       // no answer at all
+	Unreachable                // ICMP destination unreachable after the delay
+)
+
+func (o Outcome) String() string {
+	switch o {
+	case Drop:
+		return "drop"
+	case Unreachable:
+		return "unreachable"
+	}
+	return "reply"
+}
+
+// UnreachCode is the reason given in a destination unreachable message.
+type UnreachCode uint8
+
+const (
+	UnreachNone  UnreachCode = iota
+	UnreachHost              // host unreachable (IPv6: address unreachable)
+	UnreachNet               // network unreachable (IPv6: no route to destination)
+	UnreachAdmin             // administratively prohibited, as sent by firewalls
+)
+
+var unreachNames = map[UnreachCode]string{UnreachHost: "host", UnreachNet: "net", UnreachAdmin: "admin"}
+
+func (c UnreachCode) String() string { return unreachNames[c] }
+
+func parseUnreachCode(s string) (UnreachCode, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return UnreachHost, nil
+	}
+	for c, name := range unreachNames {
+		if s == name {
+			return c, nil
+		}
+	}
+	return UnreachNone, fmt.Errorf("unknown unreachable code %q: want host, net or admin", s)
+}
+
 // Spec describes how the mock answers a single echo request.
 type Spec struct {
-	Delay  time.Duration // base round-trip delay added before replying
-	Jitter time.Duration // reply delay is uniform in [Delay-Jitter, Delay+Jitter]
-	Loss   float64       // probability in [0,1] that a request gets no reply
-	// Pattern is a deterministic alternative to Loss: '.' replies and 'x'
-	// drops, applied to successive requests and repeated cyclically.
+	Delay  time.Duration // base round-trip delay added before answering
+	Jitter time.Duration // the delay is uniform in [Delay-Jitter, Delay+Jitter]
+	Loss   float64       // probability in [0,1] that a request gets no answer
+	// Pattern is a deterministic alternative to Loss, applied to successive
+	// requests and repeated cyclically: '.' replies, 'x' drops and 'u'
+	// answers with destination unreachable.
 	Pattern string
+	// Unreachable answers with destination unreachable instead of an echo
+	// reply. With a Pattern it only selects the code used for 'u'.
+	Unreachable UnreachCode
+}
+
+// unreachCode returns the code to send for an unreachable outcome.
+func (sp Spec) unreachCode() UnreachCode {
+	if sp.Unreachable != UnreachNone {
+		return sp.Unreachable
+	}
+	return UnreachHost
 }
 
 // ParseSpec parses either a bare duration ("120ms") or a comma-separated
-// list of key=value pairs: "delay=120ms,jitter=10ms,loss=5%" or
-// "delay=50ms,pattern=..x". The keyword "timeout" means no reply at all.
+// list of settings: "delay=120ms,jitter=10ms,loss=5%", "delay=50ms,pattern=..x"
+// or "delay=20ms,unreachable=admin". The keyword "timeout" means no answer at
+// all, and a bare "unreachable" means host unreachable.
 func ParseSpec(s string) (Spec, error) {
 	var sp Spec
 	s = strings.TrimSpace(s)
@@ -39,6 +98,9 @@ func ParseSpec(s string) (Spec, error) {
 		key, val, found := strings.Cut(part, "=")
 		if !found {
 			key, val = "delay", part
+			if strings.EqualFold(part, "unreachable") {
+				key, val = "unreachable", ""
+			}
 		}
 		var err error
 		switch strings.ToLower(strings.TrimSpace(key)) {
@@ -50,6 +112,8 @@ func ParseSpec(s string) (Spec, error) {
 			sp.Loss, err = parseLoss(val)
 		case "pattern":
 			sp.Pattern, err = parsePattern(val)
+		case "unreachable":
+			sp.Unreachable, err = parseUnreachCode(val)
 		default:
 			err = fmt.Errorf("unknown key %q", key)
 		}
@@ -115,14 +179,15 @@ func parseLoss(s string) (float64, error) {
 	return f, nil
 }
 
-// parsePattern validates a drop pattern made of '.' (reply) and 'x' (drop).
+// parsePattern validates a pattern made of '.' (reply), 'x' (drop) and
+// 'u' (unreachable).
 func parsePattern(s string) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
 		return "", fmt.Errorf("empty pattern")
 	}
-	if strings.Trim(s, ".x") != "" {
-		return "", fmt.Errorf("pattern %q may only contain '.' (reply) and 'x' (drop)", s)
+	if strings.Trim(s, ".xu") != "" {
+		return "", fmt.Errorf("pattern %q may only contain '.' (reply), 'x' (drop) and 'u' (unreachable)", s)
 	}
 	return s, nil
 }
@@ -141,18 +206,36 @@ func (sp Spec) String() string {
 	} else if sp.Loss > 0 {
 		parts = append(parts, "loss="+strconv.FormatFloat(sp.Loss*100, 'g', -1, 64)+"%")
 	}
+	switch {
+	case sp.Unreachable == UnreachHost:
+		parts = append(parts, "unreachable")
+	case sp.Unreachable != UnreachNone:
+		parts = append(parts, "unreachable="+sp.Unreachable.String())
+	}
 	return strings.Join(parts, ",")
 }
 
 // Decide determines the outcome for the idx-th request handled under this
-// spec, drawing any randomness from rng.
-func (sp Spec) Decide(idx int, rng *rand.Rand) (time.Duration, bool) {
-	if sp.Pattern != "" {
-		if sp.Pattern[idx%len(sp.Pattern)] == 'x' {
-			return 0, false
+// spec, drawing any randomness from rng. For Unreachable it also returns
+// the code to send.
+func (sp Spec) Decide(idx int, rng *rand.Rand) (Outcome, UnreachCode, time.Duration) {
+	out := Reply
+	switch {
+	case sp.Pattern != "":
+		switch sp.Pattern[idx%len(sp.Pattern)] {
+		case 'x':
+			return Drop, UnreachNone, 0
+		case 'u':
+			out = Unreachable
 		}
-	} else if sp.Loss > 0 && rng.Float64() < sp.Loss {
-		return 0, false
+	case sp.Loss > 0 && rng.Float64() < sp.Loss:
+		return Drop, UnreachNone, 0
+	case sp.Unreachable != UnreachNone:
+		out = Unreachable
+	}
+	var code UnreachCode
+	if out == Unreachable {
+		code = sp.unreachCode()
 	}
 	d := sp.Delay
 	if sp.Jitter > 0 {
@@ -161,21 +244,26 @@ func (sp Spec) Decide(idx int, rng *rand.Rand) (time.Duration, bool) {
 	if d < 0 {
 		d = 0
 	}
-	return d, true
+	return out, code, d
 }
 
 // specJSON is the JSON object form of a Spec.
 type specJSON struct {
-	Delay   string  `json:"delay,omitempty"`
-	Jitter  string  `json:"jitter,omitempty"`
-	Loss    float64 `json:"loss,omitempty"`
-	Pattern string  `json:"pattern,omitempty"`
+	Delay       string  `json:"delay,omitempty"`
+	Jitter      string  `json:"jitter,omitempty"`
+	Loss        float64 `json:"loss,omitempty"`
+	Pattern     string  `json:"pattern,omitempty"`
+	Unreachable *string `json:"unreachable,omitempty"` // "host", "net", "admin" or "" for host
 }
 
 func (sp Spec) MarshalJSON() ([]byte, error) {
 	j := specJSON{Delay: sp.Delay.String(), Loss: sp.Loss, Pattern: sp.Pattern}
 	if sp.Jitter > 0 {
 		j.Jitter = sp.Jitter.String()
+	}
+	if sp.Unreachable != UnreachNone {
+		code := sp.Unreachable.String()
+		j.Unreachable = &code
 	}
 	return json.Marshal(j)
 }
@@ -212,6 +300,11 @@ func (sp *Spec) UnmarshalJSON(b []byte) error {
 	out.Loss = j.Loss
 	if j.Pattern != "" {
 		if out.Pattern, err = parsePattern(j.Pattern); err != nil {
+			return err
+		}
+	}
+	if j.Unreachable != nil {
+		if out.Unreachable, err = parseUnreachCode(*j.Unreachable); err != nil {
 			return err
 		}
 	}
