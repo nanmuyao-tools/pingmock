@@ -1,6 +1,6 @@
 # TODO
 
-v0.2–v0.4 的规划已经全部完成（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）。接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
+v0.2–v0.4 的规划已经全部完成，v0.5 又改用了 YAML 配置文件（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）。接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
 
 ## 1. 推广
 
