@@ -34,19 +34,85 @@ pingmock 内部
 
 ## 准备：pingmock 启动时做了什么
 
-pingmock 启动时只对系统做了两件事，代码在 [`tun.Open`](../internal/tun/tun_linux.go) 和 [`configureDevice`](../internal/app/instance.go)：
+pingmock 启动时对系统做的事情，本质上就是**用代码创建一块 TUN 网卡，再替你执行几条 `ip` 命令**。
 
-1. **创建虚拟网卡 `pingmock0`**：打开 `/dev/net/tun`，用 `ioctl(TUNSETIFF)` 让内核创建一块 TUN 网卡，并绑定到这个打开的文件上。之后 pingmock 读写这个文件，就等于在这块网卡上收发包。
-2. **给网卡设置地址并启用**：执行 `ip addr add 10.99.0.254/24 dev pingmock0` 和 `ip link set pingmock0 up`。地址来自 `-addr` 参数（或配置文件里的 `addr`）。
+### 实际执行的命令
 
-第 2 步之后，**内核自动**在两张表里各登记了一条记录：
+用 `strace` 记录 pingmock 启动的子进程，可以看到它实际执行的全部命令。以 `pingmock -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms` 为例：
+
+```bash
+ip addr add 10.99.0.254/24 dev pingmock0          # ① 给网卡设置地址和网段
+ip link set pingmock0 up                          # ② 启用网卡
+ip -6 addr add fd99::fe/64 dev pingmock0 nodad    # ③ 设置 IPv6 地址
+ip route replace 8.8.8.8/32 dev pingmock0         # ④ 为网段之外的真实地址添加路由
+```
+
+| 命令 | 代码位置 | 说明 |
+|---|---|---|
+| ① ② | [`configureDevice`](../internal/app/instance.go) | 地址来自 `-addr` 参数（或配置文件里的 `addr`），默认 `10.99.0.254/24` |
+| ③ | [`configureDevice`](../internal/app/instance.go) | 地址来自 `-addr6`，默认 `fd99::fe/64`。如果内核没有启用 IPv6，这条命令会失败，pingmock 打印提示后只用 IPv4 继续运行 |
+| ④ | [`Router.Ensure`](../internal/tun/tun_linux.go) | 只为**网段之外**的目标执行。10.99.0.1 本来就在 10.99.0.0/24 里，第 ① 条命令之后内核已经自动生成了路由，所以没有为它执行 |
+
+所有命令都通过 [`tun.IP`](../internal/tun/tun_linux.go) 执行，它就是运行系统里的 `ip` 程序（来自 iproute2）。
+
+用 `pingmock exec` 运行时，开头会多一条：
+
+```bash
+ip link set lo up                                 # 打开回环网卡
+```
+
+因为 exec 模式会创建一个全新的网络命名空间，里面连回环网卡 `lo` 默认都是关闭的，而控制 API 监听在 `127.0.0.1:9100`，需要回环网卡才能访问。普通模式下系统的 `lo` 早已开启，不需要这一步。代码在 [`runExecChild`](../internal/app/exec_linux.go)。
+
+### 创建网卡：用代码，而不是 `ip` 命令
+
+上面的命令里没有创建网卡这一步。pingmock 是在 [`tun.Open`](../internal/tun/tun_linux.go) 里直接用代码创建的：
+
+1. 打开 `/dev/net/tun`，这是内核提供的 TUN 入口
+2. 调用 `ioctl(TUNSETIFF)`，告诉内核"创建一块叫 pingmock0 的 TUN 网卡，绑定到我刚打开的这个文件上"
+
+之后读写这个文件，就等于在这块网卡上收发包。也可以用 `ip tuntap add dev pingmock0 mode tun` 创建 TUN 网卡，两者的区别在于网卡的生命周期：
+
+| | `ip tuntap add` | pingmock 的 `ioctl` |
+|---|---|---|
+| 网卡什么时候消失 | 一直存在，直到手动删除 | **打开它的文件关闭时**，也就是 pingmock 退出时 |
+| `ip -d link` 显示 | `persist on` | `persist off` |
+| 谁在另一端读写 | 没有程序时，网卡处于 `NO-CARRIER`（没插网线）状态 | pingmock 进程 |
+
+pingmock 选择后一种，所以**无论怎样退出，网卡和它的地址、路由都会被内核自动清理**，不会留在系统里。
+
+### 内核自动生成的路由
+
+第 ① 条命令之后，**内核自动**在两张表里各登记了一条记录：
 
 | 表 | 记录 | 含义 |
 |---|---|---|
 | local 表 | `local 10.99.0.254 dev pingmock0` | 10.99.0.254 是本机自己的地址 |
 | main 表 | `10.99.0.0/24 dev pingmock0 src 10.99.0.254` | 10.99.0.0～10.99.0.255 都从 pingmock0 发出 |
 
-pingmock 并没有直接修改路由表。`/24` 表示地址的前 24 位（`10.99.0`）是网段，内核据此推断"这个网段的地址都在 pingmock0 那一侧"，自动生成了 main 表里的路由。
+pingmock 并没有直接修改路由表。`10.99.0.254/24` 同时说明了两件事：网卡自己的地址是 10.99.0.254，所在网段是前 24 位（`10.99.0`）相同的地址。内核据此推断"这个网段的地址都在 pingmock0 那一侧"，自动生成了 main 表里的路由。
+
+### 自己动手：搭一个一样的环境
+
+不用 pingmock，只用 `ip` 命令就能搭出几乎一样的环境，并看到路由是在哪一步出现的（这里用 `10.97.0.x`，避免和 pingmock 混淆）：
+
+```bash
+sudo ip tuntap add dev demo0 mode tun          # 1. 创建 TUN 网卡
+ip route get 10.97.0.1                         #    → 还走默认路由 eth0：光有网卡，内核不知道该把哪些地址交给它
+
+sudo ip link set demo0 up                      # 2. 启用网卡
+ip route get 10.97.0.1                         #    → 依然走 eth0
+
+sudo ip addr add 10.97.0.254/24 dev demo0      # 3. 设置地址和网段
+ip route show | grep 10.97                     #    → 出现 10.97.0.0/24 dev demo0 proto kernel（内核自动添加）
+ip route get 10.97.0.1                         #    → 改走 demo0
+
+sudo ip addr del 10.97.0.254/24 dev demo0      # 4. 删掉地址
+ip route get 10.97.0.1                         #    → 路由随之消失，又走回 eth0
+
+sudo ip tuntap del dev demo0 mode tun          # 清理
+```
+
+可以看到，**路由是在第 3 步设置地址时出现的**，而不是创建或启用网卡时。这个环境和 pingmock 搭出来的唯一区别是：网卡另一端没有程序读写数据包，所以 ping 10.97.0.1 会收不到应答。只要有一个程序打开这块网卡、读出请求、对调地址后写回，ping 就能收到应答，pingmock 做的正是这件事。
 
 ## 去程：请求怎样到达 pingmock
 
@@ -149,3 +215,4 @@ IPv6 的过程完全相同，只是：网卡地址是 `fd99::fe/64`，内核同�
 | ping 交给内核的内容 | `strace -e sendto ping -c 1 10.99.0.1` | 64 字节，以 `\10\0` 开头（类型 8） |
 | 去程和回程的包数 | `cat /sys/class/net/pingmock0/statistics/{tx,rx}_packets` | 每回复一个请求，发送和接收各加 1；被丢弃的请求只加发送 |
 | 劫持真实地址的路由 | `-rule 8.8.8.8=30ms` 时 `ip route show` | `8.8.8.8 dev pingmock0` |
+| pingmock 执行的命令 | `sudo strace -f -e trace=execve pingmock -rule 8.8.8.8=30ms` | `ip addr add`、`ip link set ... up`、`ip -6 addr add`、`ip route replace` |

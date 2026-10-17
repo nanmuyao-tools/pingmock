@@ -34,19 +34,85 @@ Return (the reply)
 
 ## Setting up: what pingmock does at startup
 
-pingmock changes only two things on the system, in [`tun.Open`](../internal/tun/tun_linux.go) and [`configureDevice`](../internal/app/instance.go):
+What pingmock does to the system at startup comes down to **creating a TUN device in code and running a few `ip` commands for you**.
 
-1. **It creates the virtual device `pingmock0`**: it opens `/dev/net/tun` and asks the kernel with `ioctl(TUNSETIFF)` to create a TUN device bound to that open file. From then on, reading and writing the file means receiving and sending packets on the device.
-2. **It gives the device an address and brings it up**: `ip addr add 10.99.0.254/24 dev pingmock0` and `ip link set pingmock0 up`. The address comes from `-addr` (or `addr` in a configuration file).
+### The commands it runs
 
-After step 2, **the kernel itself** adds an entry to two tables:
+Recording the processes pingmock starts with `strace` shows every command it runs. For `pingmock -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms`:
+
+```bash
+ip addr add 10.99.0.254/24 dev pingmock0          # ① give the device its address and network
+ip link set pingmock0 up                          # ② bring the device up
+ip -6 addr add fd99::fe/64 dev pingmock0 nodad    # ③ the IPv6 address
+ip route replace 8.8.8.8/32 dev pingmock0         # ④ a route for a real address outside the network
+```
+
+| Command | Code | Notes |
+|---|---|---|
+| ① ② | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr` (or `addr` in a configuration file), `10.99.0.254/24` by default |
+| ③ | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr6`, `fd99::fe/64` by default. If the kernel has no IPv6, this command fails and pingmock says so and continues with IPv4 only |
+| ④ | [`Router.Ensure`](../internal/tun/tun_linux.go) | Only for targets **outside the network**. 10.99.0.1 is in 10.99.0.0/24, for which the kernel already added a route after command ①, so nothing is run for it |
+
+Every command goes through [`tun.IP`](../internal/tun/tun_linux.go), which runs the system's `ip` program (from iproute2).
+
+Under `pingmock exec`, one more command comes first:
+
+```bash
+ip link set lo up                                 # bring up the loopback device
+```
+
+exec creates a brand new network namespace, in which even the loopback device `lo` starts down, and the control API listens on `127.0.0.1:9100`, which needs it. In the normal mode the system's `lo` is up already. The code is in [`runExecChild`](../internal/app/exec_linux.go).
+
+### Creating the device: in code, not with `ip`
+
+The commands above do not create the device. pingmock does that in code, in [`tun.Open`](../internal/tun/tun_linux.go):
+
+1. it opens `/dev/net/tun`, the kernel's entry point for TUN devices;
+2. it calls `ioctl(TUNSETIFF)` to tell the kernel "create a TUN device named pingmock0 and bind it to the file I just opened".
+
+From then on, reading and writing the file means receiving and sending packets on the device. `ip tuntap add dev pingmock0 mode tun` can create a TUN device too; the difference is how long the device lives:
+
+| | `ip tuntap add` | pingmock's `ioctl` |
+|---|---|---|
+| When the device goes away | Never on its own; it must be deleted | **When the file that opened it is closed**, that is, when pingmock exits |
+| `ip -d link` shows | `persist on` | `persist off` |
+| Who reads and writes the other end | Nobody; without a program the device shows `NO-CARRIER` | The pingmock process |
+
+pingmock uses the second, so **however it exits, the kernel removes the device with its addresses and routes**, and nothing is left on the system.
+
+### The routes the kernel adds
+
+After command ①, **the kernel itself** adds an entry to two tables:
 
 | Table | Entry | Meaning |
 |---|---|---|
 | local | `local 10.99.0.254 dev pingmock0` | 10.99.0.254 is an address of this machine |
 | main | `10.99.0.0/24 dev pingmock0 src 10.99.0.254` | 10.99.0.0 to 10.99.0.255 are reached through pingmock0 |
 
-pingmock does not edit the routing table. `/24` says the first 24 bits of the address (`10.99.0`) are the network, so the kernel concludes that this network is on pingmock0's side and adds the route in the main table.
+pingmock does not edit the routing table. `10.99.0.254/24` says two things at once: the device's own address is 10.99.0.254, and its network is the addresses that share the first 24 bits (`10.99.0`). The kernel concludes that this network is on pingmock0's side and adds the route in the main table.
+
+### Try it: build the same setup by hand
+
+Without pingmock, a few `ip` commands build almost the same setup and show at which step the route appears (with `10.97.0.x`, to keep clear of pingmock):
+
+```bash
+sudo ip tuntap add dev demo0 mode tun          # 1. create a TUN device
+ip route get 10.97.0.1                         #    → still the default route via eth0: a device alone tells the kernel nothing
+
+sudo ip link set demo0 up                      # 2. bring it up
+ip route get 10.97.0.1                         #    → still eth0
+
+sudo ip addr add 10.97.0.254/24 dev demo0      # 3. give it an address and network
+ip route show | grep 10.97                     #    → 10.97.0.0/24 dev demo0 proto kernel appears, added by the kernel
+ip route get 10.97.0.1                         #    → now demo0
+
+sudo ip addr del 10.97.0.254/24 dev demo0      # 4. remove the address
+ip route get 10.97.0.1                         #    → the route is gone, back to eth0
+
+sudo ip tuntap del dev demo0 mode tun          # clean up
+```
+
+**The route appears in step 3, when the address is set**, not when the device is created or brought up. The only difference from pingmock's setup is that no program reads and writes the other end of the device, so a ping to 10.97.0.1 gets no reply. A program that opens the device, reads the request, swaps its addresses and writes it back is enough for ping to get a reply, and that is what pingmock does.
 
 ## Outbound: how the request reaches pingmock
 
@@ -149,3 +215,4 @@ While pingmock runs, these commands show each step above:
 | What ping hands the kernel | `strace -e sendto ping -c 1 10.99.0.1` | 64 bytes starting with `\10\0` (type 8) |
 | Packets each way | `cat /sys/class/net/pingmock0/statistics/{tx,rx}_packets` | each answered request adds one to both; a dropped one only to tx |
 | The route for a hijacked address | `ip route show` with `-rule 8.8.8.8=30ms` | `8.8.8.8 dev pingmock0` |
+| The commands pingmock runs | `sudo strace -f -e trace=execve pingmock -rule 8.8.8.8=30ms` | `ip addr add`, `ip link set ... up`, `ip -6 addr add`, `ip route replace` |
