@@ -19,7 +19,7 @@ CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks 
 
 ## How the code is organized
 
-[docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. In short:
+[docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. In short:
 
 ```
 main.go                  entry point; calls internal/app

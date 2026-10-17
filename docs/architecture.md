@@ -56,6 +56,8 @@ In the code:
 
 The ping program measures the round trip and finds the configured 50ms.
 
+This is what happens **inside** pingmock. For how the request travels from ping through the kernel to pingmock0, and the reply back, see [The round trip of one ping](packet-path.md).
+
 ## Core concepts
 
 These types are the key to the code. They live in `rule` and `engine`:

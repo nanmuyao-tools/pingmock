@@ -56,6 +56,8 @@ flowchart TD
 
 ping 程序收到回复时计算往返时间，得到的就是设定的 50ms。
 
+这里讲的是 pingmock **内部**的处理。请求是怎样从 ping 经过内核到达 pingmock0、应答又是怎样回到 ping 的，参见[一个 ping 的往返之旅](packet-path.zh-CN.md)。
+
 ## 核心概念
 
 这几个类型是理解代码的关键，都在 `rule` 和 `engine` 两个包里：
