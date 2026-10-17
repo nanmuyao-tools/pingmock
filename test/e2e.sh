@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # End-to-end check: run as root on Linux with iproute2, ping and curl.
-#   go build -o pingmock . && sudo ./e2e_test.sh
+#   make e2e    (or: go build -o pingmock . && sudo test/e2e.sh)
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 PM=""
 start() { # args passed to pingmock

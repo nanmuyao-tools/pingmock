@@ -233,17 +233,14 @@ finally:
     pm.terminate()
 ```
 
-`e2e_test.sh` 是一个完整的端到端检查脚本：
+单元测试不需要 root，[`test/e2e.sh`](test/e2e.sh) 中的端到端测试需要：
 
 ```bash
-go build -o pingmock . && sudo ./e2e_test.sh
+make test   # go vet 和带竞态检测的单元测试
+make e2e    # 编译 pingmock，并用 sudo 运行 test/e2e.sh
 ```
 
-单元测试不需要 root：
-
-```bash
-go test -race ./...
-```
+代码的组织方式参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 限制
 

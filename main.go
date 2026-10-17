@@ -20,9 +20,15 @@ import (
 	"os/signal"
 	"runtime/debug"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
+
+	"github.com/nanmuyao/pingmock/internal/api"
+	"github.com/nanmuyao/pingmock/internal/config"
+	"github.com/nanmuyao/pingmock/internal/engine"
+	"github.com/nanmuyao/pingmock/internal/responder"
+	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao/pingmock/internal/tun"
 )
 
 // version is set at build time with -ldflags "-X main.version=v0.1.0".
@@ -44,46 +50,20 @@ type ruleFlags []string
 func (f *ruleFlags) String() string     { return strings.Join(*f, " ") }
 func (f *ruleFlags) Set(v string) error { *f = append(*f, v); return nil }
 
-// Router adds routes for targets outside the device subnet, so that real
-// addresses can be mocked too. Routes vanish with the device on exit.
-type Router struct {
-	mu     sync.Mutex
-	dev    string
-	subnet netip.Prefix
-	routed map[netip.Prefix]bool
-}
-
-func (r *Router) Ensure(p netip.Prefix) error {
-	if r.subnet.Contains(p.Addr()) && p.Bits() >= r.subnet.Bits() {
-		return nil // already routed through the device subnet
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.routed[p] {
-		return nil
-	}
-	if err := ipCmd("route", "replace", p.String(), "dev", r.dev); err != nil {
-		return err
-	}
-	r.routed[p] = true
-	log.Printf("routing %s through %s (hijacked: real traffic to it is mocked until exit)", p, r.dev)
-	return nil
-}
-
 // parseRuleFlag splits "TARGET=RULE" at the first '=' that follows the
 // target, since rules themselves contain '=' (delay=50ms).
-func parseRuleFlag(s string) (netip.Prefix, Scenario, error) {
-	target, rule, ok := strings.Cut(s, "=")
+func parseRuleFlag(s string) (netip.Prefix, rule.Scenario, error) {
+	target, text, ok := strings.Cut(s, "=")
 	if !ok {
-		return netip.Prefix{}, Scenario{}, fmt.Errorf("invalid -rule %q: want TARGET=RULE", s)
+		return netip.Prefix{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: want TARGET=RULE", s)
 	}
-	p, err := ParsePrefix(target)
+	p, err := rule.ParsePrefix(target)
 	if err != nil {
-		return netip.Prefix{}, Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
+		return netip.Prefix{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
 	}
-	sc, err := ParseScenario(rule)
+	sc, err := rule.ParseScenario(text)
 	if err != nil {
-		return netip.Prefix{}, Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
+		return netip.Prefix{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
 	}
 	return p, sc, nil
 }
@@ -115,15 +95,15 @@ func main() {
 	flag.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
 	// Configuration file first; explicitly set flags override it.
-	var cfgDefault *Scenario
+	var cfgDefault *rule.Scenario
 	var cfgSeed *uint64
 	ruleIndex := map[netip.Prefix]int{}
 	type pending struct {
 		p  netip.Prefix
-		sc Scenario
+		sc rule.Scenario
 	}
 	var initial []pending
-	addRule := func(p netip.Prefix, sc Scenario) {
+	addRule := func(p netip.Prefix, sc rule.Scenario) {
 		if i, ok := ruleIndex[p]; ok {
 			initial[i].sc = sc
 			return
@@ -132,7 +112,7 @@ func main() {
 		initial = append(initial, pending{p, sc})
 	}
 	if *cfgPath != "" {
-		cfg, cfgRules, err := LoadConfig(*cfgPath)
+		cfg, cfgRules, err := config.Load(*cfgPath)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -150,7 +130,7 @@ func main() {
 		}
 		cfgDefault, cfgSeed = cfg.Default, cfg.Seed
 		for _, r := range cfgRules {
-			addRule(r.prefix, r.sc)
+			addRule(r.Prefix, r.Scenario)
 		}
 	}
 
@@ -161,10 +141,10 @@ func main() {
 	if err != nil || !devPrefix.Addr().Is4() {
 		log.Fatalf("invalid -addr %q: need an IPv4 address with prefix, e.g. 10.99.0.254/24", *addr)
 	}
-	var def Scenario
+	var def rule.Scenario
 	if cfgDefault != nil && !set["default"] {
 		def = *cfgDefault
-	} else if def, err = ParseScenario(*defRule); err != nil {
+	} else if def, err = rule.ParseScenario(*defRule); err != nil {
 		log.Fatalf("invalid -default: %v", err)
 	}
 	for _, r := range rules {
@@ -182,20 +162,20 @@ func main() {
 		*seed = rand.Uint64()
 	}
 
-	tun, dev, err := openTUN(*devName)
+	dev, ifName, err := tun.Open(*devName)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer tun.Close()
-	if err := ipCmd("addr", "add", devPrefix.String(), "dev", dev); err != nil {
+	defer dev.Close()
+	if err := tun.IP("addr", "add", devPrefix.String(), "dev", ifName); err != nil {
 		log.Fatal(err)
 	}
-	if err := ipCmd("link", "set", dev, "up"); err != nil {
+	if err := tun.IP("link", "set", ifName, "up"); err != nil {
 		log.Fatal(err)
 	}
-	router := &Router{dev: dev, subnet: devPrefix.Masked(), routed: map[netip.Prefix]bool{}}
-	rs := NewRuleSet(def, *seed)
-	hist := NewHistory(*histLen)
+	router := tun.NewRouter(ifName, devPrefix)
+	rs := engine.NewRuleSet(def, *seed)
+	hist := engine.NewHistory(*histLen)
 	for _, r := range initial {
 		if err := router.Ensure(r.p); err != nil {
 			log.Fatal(err)
@@ -203,7 +183,7 @@ func main() {
 		rs.Set(r.p, r.sc)
 	}
 	log.Printf("pingmock %s: device %s up with %s; ping any other address in %s (not %s itself, that one is local)",
-		buildVersion(), dev, devPrefix, devPrefix.Masked(), devPrefix.Addr())
+		buildVersion(), ifName, devPrefix, devPrefix.Masked(), devPrefix.Addr())
 	log.Printf("seed %d (pass -seed %d to reproduce this run)", *seed, *seed)
 	log.Printf("default: %s", def)
 	for _, r := range initial {
@@ -212,7 +192,7 @@ func main() {
 
 	var srv *http.Server
 	if *apiAddr != "" {
-		srv = &http.Server{Addr: *apiAddr, Handler: newAPI(rs, hist, router.Ensure), ReadHeaderTimeout: 5 * time.Second}
+		srv = &http.Server{Addr: *apiAddr, Handler: api.NewHandler(rs, hist, router.Ensure), ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Fatalf("API: %v", err)
@@ -225,57 +205,17 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigs
-		log.Printf("shutting down, removing %s", dev)
+		log.Printf("shutting down, removing %s", ifName)
 		if srv != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			srv.Shutdown(ctx)
 			cancel()
 		}
-		tun.Close()
+		dev.Close()
 	}()
 
-	serve(tun, rs, hist, *verbose)
-}
-
-// serve reads packets from the device and schedules replies.
-func serve(tun *os.File, rs *RuleSet, hist *History, verbose bool) {
-	var wmu sync.Mutex
-	buf := make([]byte, 65536)
-	for {
-		n, err := tun.Read(buf)
-		if err != nil {
-			if !errors.Is(err, os.ErrClosed) {
-				log.Printf("read: %v", err)
-			}
-			return
-		}
-		pkt := buf[:n]
-		req, ok := parseEchoRequest(pkt)
-		if !ok {
-			continue
-		}
-		d := rs.Decide(req.dst)
-		ev := Event{Time: time.Now(), Src: req.src.String(), Dst: req.dst.String(), ID: req.id, Seq: req.seq, Reply: d.Reply, Rule: d.Rule, Phase: d.Phase + 1}
-		if d.Reply {
-			ev.Delay = d.Delay.String()
-		}
-		hist.Add(ev)
-		if !d.Reply {
-			if verbose {
-				log.Printf("%s -> %s id=%d seq=%d: dropped (rule %s, phase %d)", req.src, req.dst, req.id, req.seq, d.Rule, d.Phase+1)
-			}
-			continue
-		}
-		out := buildEchoReply(pkt)
-		if verbose {
-			log.Printf("%s -> %s id=%d seq=%d: reply in %s (rule %s, phase %d)", req.src, req.dst, req.id, req.seq, d.Delay, d.Rule, d.Phase+1)
-		}
-		time.AfterFunc(d.Delay, func() {
-			wmu.Lock()
-			defer wmu.Unlock()
-			if _, err := tun.Write(out); err != nil && !errors.Is(err, os.ErrClosed) {
-				log.Printf("write: %v", err)
-			}
-		})
+	r := &responder.Responder{Rules: rs, History: hist, Verbose: *verbose}
+	if err := r.Serve(dev); err != nil {
+		log.Fatalf("read: %v", err)
 	}
 }

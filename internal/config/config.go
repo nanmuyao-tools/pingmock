@@ -1,4 +1,5 @@
-package main
+// Package config loads the JSON configuration file given with -config.
+package config
 
 import (
 	"bytes"
@@ -7,6 +8,8 @@ import (
 	"net/netip"
 	"os"
 	"sort"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 // Config is the JSON configuration file loaded with -config. Every field
@@ -22,23 +25,24 @@ import (
 //	  }
 //	}
 type Config struct {
-	Dev     string              `json:"dev"`
-	Addr    string              `json:"addr"`
-	API     *string             `json:"api"` // pointer so "" can disable the API
-	Seed    *uint64             `json:"seed"`
-	History *int                `json:"history"`
-	Default *Scenario           `json:"default"`
-	Rules   map[string]Scenario `json:"rules"`
+	Dev     string                   `json:"dev"`
+	Addr    string                   `json:"addr"`
+	API     *string                  `json:"api"` // pointer so "" can disable the API
+	Seed    *uint64                  `json:"seed"`
+	History *int                     `json:"history"`
+	Default *rule.Scenario           `json:"default"`
+	Rules   map[string]rule.Scenario `json:"rules"`
 }
 
-// configRule is a parsed entry of Config.Rules.
-type configRule struct {
-	prefix netip.Prefix
-	sc     Scenario
+// Rule is a parsed entry of Config.Rules.
+type Rule struct {
+	Prefix   netip.Prefix
+	Scenario rule.Scenario
 }
 
-// LoadConfig reads and validates a configuration file.
-func LoadConfig(path string) (*Config, []configRule, error) {
+// Load reads and validates a configuration file. The rules are returned
+// sorted by their key as written in the file.
+func Load(path string) (*Config, []Rule, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, nil, err
@@ -54,10 +58,10 @@ func LoadConfig(path string) (*Config, []configRule, error) {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	rules := make([]configRule, 0, len(keys))
+	rules := make([]Rule, 0, len(keys))
 	seen := map[netip.Prefix]string{}
 	for _, k := range keys {
-		p, err := ParsePrefix(k)
+		p, err := rule.ParsePrefix(k)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: rule %q: %w", path, k, err)
 		}
@@ -65,7 +69,7 @@ func LoadConfig(path string) (*Config, []configRule, error) {
 			return nil, nil, fmt.Errorf("%s: rules %q and %q are the same target %s", path, other, k, p)
 		}
 		seen[p] = k
-		rules = append(rules, configRule{p, cfg.Rules[k]})
+		rules = append(rules, Rule{p, cfg.Rules[k]})
 	}
 	if cfg.History != nil && *cfg.History < 0 {
 		return nil, nil, fmt.Errorf("%s: history must not be negative", path)

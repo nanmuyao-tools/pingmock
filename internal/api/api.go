@@ -1,4 +1,6 @@
-package main
+// Package api serves the HTTP control API used to change rules and read
+// statistics and history while pingmock runs.
+package api
 
 import (
 	"encoding/json"
@@ -8,9 +10,12 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+
+	"github.com/nanmuyao/pingmock/internal/engine"
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
-// newAPI returns the HTTP control API:
+// NewHandler returns the HTTP control API:
 //
 //	GET    /rules             current default, rules and per-target stats
 //	PUT    /rules/{target}    set a rule; body is the text form or JSON
@@ -19,13 +24,13 @@ import (
 //	DELETE /stats             reset counters
 //	GET    /history           recent requests; ?target=IP-or-CIDR&limit=N
 //	DELETE /history           clear the history
-func newAPI(rs *RuleSet, hist *History, ensureRoute func(netip.Prefix) error) http.Handler {
+func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rules", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, rs.Snapshot())
 	})
 	mux.HandleFunc("PUT /rules/{target...}", func(w http.ResponseWriter, r *http.Request) {
-		p, err := ParsePrefix(r.PathValue("target"))
+		p, err := rule.ParsePrefix(r.PathValue("target"))
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
@@ -43,7 +48,7 @@ func newAPI(rs *RuleSet, hist *History, ensureRoute func(netip.Prefix) error) ht
 		writeJSON(w, http.StatusOK, map[string]any{"target": p.String(), "rule": sc})
 	})
 	mux.HandleFunc("DELETE /rules/{target...}", func(w http.ResponseWriter, r *http.Request) {
-		p, err := ParsePrefix(r.PathValue("target"))
+		p, err := rule.ParsePrefix(r.PathValue("target"))
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
@@ -70,7 +75,7 @@ func newAPI(rs *RuleSet, hist *History, ensureRoute func(netip.Prefix) error) ht
 	mux.HandleFunc("GET /history", func(w http.ResponseWriter, r *http.Request) {
 		var filter *netip.Prefix
 		if t := r.URL.Query().Get("target"); t != "" {
-			p, err := ParsePrefix(t)
+			p, err := rule.ParsePrefix(t)
 			if err != nil {
 				httpError(w, http.StatusBadRequest, err)
 				return
@@ -98,20 +103,20 @@ func newAPI(rs *RuleSet, hist *History, ensureRoute func(netip.Prefix) error) ht
 
 // readScenario accepts the text form used by the -rule flag
 // ("delay=120ms,loss=5%", "50ms for 3 pings; timeout") or JSON.
-func readScenario(r *http.Request) (Scenario, error) {
+func readScenario(r *http.Request) (rule.Scenario, error) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
 	if err != nil {
-		return Scenario{}, err
+		return rule.Scenario{}, err
 	}
 	text := strings.TrimSpace(string(body))
 	if strings.HasPrefix(text, "{") {
-		var sc Scenario
+		var sc rule.Scenario
 		if err := json.Unmarshal([]byte(text), &sc); err != nil {
-			return Scenario{}, fmt.Errorf("invalid JSON rule: %w", err)
+			return rule.Scenario{}, fmt.Errorf("invalid JSON rule: %w", err)
 		}
 		return sc, nil
 	}
-	return ParseScenario(text)
+	return rule.ParseScenario(text)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

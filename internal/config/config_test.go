@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -16,7 +16,7 @@ func writeConfig(t *testing.T, content string) string {
 	return path
 }
 
-func TestLoadConfig(t *testing.T) {
+func TestLoad(t *testing.T) {
 	path := writeConfig(t, `{
 		"seed": 42,
 		"api": "",
@@ -26,7 +26,7 @@ func TestLoadConfig(t *testing.T) {
 			"10.99.0.1": "20ms for 3 pings; 5ms"
 		}
 	}`)
-	cfg, rules, err := LoadConfig(path)
+	cfg, rules, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,21 +37,21 @@ func TestLoadConfig(t *testing.T) {
 		t.Fatalf("got %d rules", len(rules))
 	}
 	// Sorted by the key as written; prefixes are masked.
-	if rules[0].prefix.String() != "10.99.0.1/32" || rules[0].sc.String() != "delay=20ms for 3 pings; delay=5ms" {
-		t.Errorf("rule 0 = %v %v", rules[0].prefix, rules[0].sc)
+	if rules[0].Prefix.String() != "10.99.0.1/32" || rules[0].Scenario.String() != "delay=20ms for 3 pings; delay=5ms" {
+		t.Errorf("rule 0 = %v %v", rules[0].Prefix, rules[0].Scenario)
 	}
-	if rules[1].prefix.String() != "10.99.0.128/25" || rules[1].sc.String() != "delay=80ms" {
-		t.Errorf("rule 1 = %v %v", rules[1].prefix, rules[1].sc)
+	if rules[1].Prefix.String() != "10.99.0.128/25" || rules[1].Scenario.String() != "delay=80ms" {
+		t.Errorf("rule 1 = %v %v", rules[1].Prefix, rules[1].Scenario)
 	}
 }
 
-func TestLoadConfigExample(t *testing.T) {
-	if _, rules, err := LoadConfig("examples/pingmock.json"); err != nil || len(rules) == 0 {
+func TestLoadExample(t *testing.T) {
+	if _, rules, err := Load("../../examples/pingmock.json"); err != nil || len(rules) == 0 {
 		t.Fatalf("example config: %d rules, %v", len(rules), err)
 	}
 }
 
-func TestLoadConfigErrors(t *testing.T) {
+func TestLoadErrors(t *testing.T) {
 	cases := map[string]string{
 		`{"rulez": {}}`:                                           "unknown field",
 		`{"rules": {"::1": "5ms"}}`:                               "only IPv4",
@@ -63,12 +63,12 @@ func TestLoadConfigErrors(t *testing.T) {
 		`{`:                                                       "unexpected EOF",
 	}
 	for content, want := range cases {
-		_, _, err := LoadConfig(writeConfig(t, content))
+		_, _, err := Load(writeConfig(t, content))
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("config %s: error %v, want it to mention %q", content, err, want)
 		}
 	}
-	if _, _, err := LoadConfig(filepath.Join(t.TempDir(), "missing.json")); err == nil {
+	if _, _, err := Load(filepath.Join(t.TempDir(), "missing.json")); err == nil {
 		t.Error("missing file: expected error")
 	}
 }

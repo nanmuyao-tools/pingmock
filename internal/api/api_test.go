@@ -1,4 +1,4 @@
-package main
+package api
 
 import (
 	"encoding/json"
@@ -9,20 +9,26 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nanmuyao/pingmock/internal/engine"
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 type apiFixture struct {
 	t      *testing.T
 	srv    *httptest.Server
-	rs     *RuleSet
-	hist   *History
+	rs     *engine.RuleSet
+	hist   *engine.History
 	routed []netip.Prefix
 	fail   bool
 }
 
 func newAPIFixture(t *testing.T) *apiFixture {
-	f := &apiFixture{t: t, hist: NewHistory(100)}
-	f.rs, _ = newTestRuleSet(t, "0ms", 5)
+	f := &apiFixture{t: t, hist: engine.NewHistory(100)}
+	def, _ := rule.ParseScenario("0ms")
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	f.rs = engine.NewRuleSet(def, 5, engine.WithClock(func() time.Time { return clock }))
 	ensure := func(p netip.Prefix) error {
 		if f.fail {
 			return errors.New("ip route failed")
@@ -30,7 +36,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 		f.routed = append(f.routed, p)
 		return nil
 	}
-	f.srv = httptest.NewServer(newAPI(f.rs, f.hist, ensure))
+	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure))
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -71,7 +77,7 @@ func TestAPISetRuleTextAndJSON(t *testing.T) {
 	if code := f.do("PUT", "/rules/10.99.0.2", `{"phases":[{"spec":"5ms","count":1},{"spec":"timeout"}]}`, &resp); code != 200 || resp.Rule != "delay=5ms for 1 ping; timeout" {
 		t.Errorf("PUT JSON phases: %d %+v", code, resp)
 	}
-	if d := f.rs.Decide(addr("10.99.0.200")); d.Rule != "10.99.0.128/25" || !d.Reply {
+	if d := f.rs.Decide(netip.MustParseAddr("10.99.0.200")); d.Rule != "10.99.0.128/25" || !d.Reply {
 		t.Errorf("rule not applied: %+v", d)
 	}
 	if len(f.routed) != 3 || f.routed[1].String() != "10.99.0.128/25" {
@@ -82,13 +88,13 @@ func TestAPISetRuleTextAndJSON(t *testing.T) {
 func TestAPIRulesAndDelete(t *testing.T) {
 	f := newAPIFixture(t)
 	f.do("PUT", "/rules/10.99.0.1", "delay=1ms,pattern=.x", nil)
-	f.rs.Decide(addr("10.99.0.1"))
-	f.rs.Decide(addr("10.99.0.1"))
+	f.rs.Decide(netip.MustParseAddr("10.99.0.1"))
+	f.rs.Decide(netip.MustParseAddr("10.99.0.1"))
 	var snap struct {
 		Seed    uint64
 		Default string
 		Rules   []struct{ Target, Rule string }
-		Stats   map[string]TargetState
+		Stats   map[string]engine.TargetState
 	}
 	if code := f.do("GET", "/rules", "", &snap); code != 200 {
 		t.Fatalf("GET /rules: %d", code)
@@ -115,7 +121,7 @@ func TestAPIDefault(t *testing.T) {
 	if code := f.do("PUT", "/default", "timeout", nil); code != 200 {
 		t.Fatalf("PUT /default: %d", code)
 	}
-	if d := f.rs.Decide(addr("10.99.0.42")); d.Reply {
+	if d := f.rs.Decide(netip.MustParseAddr("10.99.0.42")); d.Reply {
 		t.Error("default timeout not applied")
 	}
 }
@@ -151,7 +157,7 @@ func TestAPIErrors(t *testing.T) {
 	if code := f.do("PUT", "/rules/8.8.8.8", "5ms", nil); code != 500 {
 		t.Errorf("route failure: %d, want 500", code)
 	}
-	if d := f.rs.Decide(addr("8.8.8.8")); d.Rule != "default" {
+	if d := f.rs.Decide(netip.MustParseAddr("8.8.8.8")); d.Rule != "default" {
 		t.Error("rule was installed although routing failed")
 	}
 }
@@ -159,11 +165,11 @@ func TestAPIErrors(t *testing.T) {
 func TestAPIHistory(t *testing.T) {
 	f := newAPIFixture(t)
 	for i := uint16(1); i <= 3; i++ {
-		f.hist.Add(Event{Dst: "10.99.0.1", Seq: i, Reply: true, Delay: "5ms", Rule: "default", Phase: 1})
+		f.hist.Add(engine.Event{Dst: "10.99.0.1", Seq: i, Reply: true, Delay: "5ms", Rule: "default", Phase: 1})
 	}
-	f.hist.Add(Event{Dst: "10.99.0.2", Seq: 9})
+	f.hist.Add(engine.Event{Dst: "10.99.0.2", Seq: 9})
 	var resp struct {
-		Events   []Event
+		Events   []engine.Event
 		Total    uint64
 		Capacity int
 	}

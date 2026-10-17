@@ -233,17 +233,14 @@ finally:
     pm.terminate()
 ```
 
-`e2e_test.sh` is a complete end-to-end check:
+The unit tests do not need root, the end-to-end checks in [`test/e2e.sh`](test/e2e.sh) do:
 
 ```bash
-go build -o pingmock . && sudo ./e2e_test.sh
+make test   # go vet and unit tests with the race detector
+make e2e    # builds pingmock and runs test/e2e.sh with sudo
 ```
 
-The unit tests do not need root:
-
-```bash
-go test -race ./...
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how the code is organized.
 
 ## Limitations
 

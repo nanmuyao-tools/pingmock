@@ -27,7 +27,7 @@ jobs:
           go vet ./...
           go test -race -count=1 ./...
           go build -o pingmock .
-          sudo ./e2e_test.sh
+          sudo test/e2e.sh
           rm pingmock
 
       - name: Build binaries

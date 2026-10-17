@@ -1,4 +1,4 @@
-package main
+package rule
 
 import (
 	"bytes"
@@ -116,9 +116,9 @@ func (sc Scenario) validate() error {
 	return nil
 }
 
-// cycle returns the total duration of one pass when every phase is
+// Cycle returns the total duration of one pass when every phase is
 // time-bounded, or 0 otherwise.
-func (sc Scenario) cycle() time.Duration {
+func (sc Scenario) Cycle() time.Duration {
 	var total time.Duration
 	for _, p := range sc.Phases {
 		if p.For <= 0 {

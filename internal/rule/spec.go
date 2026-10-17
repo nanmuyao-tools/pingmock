@@ -1,4 +1,6 @@
-package main
+// Package rule defines how pingmock answers requests: specs (delay, jitter,
+// loss, pattern), scenarios made of phases, and their text and JSON forms.
+package rule
 
 import (
 	"encoding/json"
@@ -142,9 +144,9 @@ func (sp Spec) String() string {
 	return strings.Join(parts, ",")
 }
 
-// decide determines the outcome for the idx-th request handled under this
+// Decide determines the outcome for the idx-th request handled under this
 // spec, drawing any randomness from rng.
-func (sp Spec) decide(idx int, rng *rand.Rand) (time.Duration, bool) {
+func (sp Spec) Decide(idx int, rng *rand.Rand) (time.Duration, bool) {
 	if sp.Pattern != "" {
 		if sp.Pattern[idx%len(sp.Pattern)] == 'x' {
 			return 0, false

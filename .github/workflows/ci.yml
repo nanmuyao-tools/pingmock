@@ -25,4 +25,4 @@ jobs:
       - name: Build
         run: go build -o pingmock .
       - name: End-to-end test
-        run: sudo ./e2e_test.sh
+        run: sudo test/e2e.sh

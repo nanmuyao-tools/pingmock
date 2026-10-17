@@ -1,4 +1,4 @@
-package main
+package rule
 
 import (
 	"encoding/json"
@@ -55,7 +55,7 @@ func TestDecidePattern(t *testing.T) {
 	sp := Spec{Delay: time.Millisecond, Pattern: ".x."}
 	want := []bool{true, false, true, true, false, true}
 	for i, w := range want {
-		if _, ok := sp.decide(i, nil); ok != w {
+		if _, ok := sp.Decide(i, nil); ok != w {
 			t.Errorf("request %d: reply=%v, want %v", i, ok, w)
 		}
 	}
@@ -65,13 +65,13 @@ func TestDecideJitterRange(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	sp := Spec{Delay: 100 * time.Millisecond, Jitter: 20 * time.Millisecond}
 	for i := 0; i < 1000; i++ {
-		d, ok := sp.decide(i, rng)
+		d, ok := sp.Decide(i, rng)
 		if !ok || d < 80*time.Millisecond || d > 120*time.Millisecond {
 			t.Fatalf("decide = %v, %v; want within 80-120ms", d, ok)
 		}
 	}
 	for i := 0; i < 1000; i++ {
-		if d, _ := (Spec{Delay: time.Millisecond, Jitter: 50 * time.Millisecond}).decide(i, rng); d < 0 {
+		if d, _ := (Spec{Delay: time.Millisecond, Jitter: 50 * time.Millisecond}).Decide(i, rng); d < 0 {
 			t.Fatal("negative delay")
 		}
 	}
@@ -83,14 +83,14 @@ func TestDecideLossRate(t *testing.T) {
 	dropped := 0
 	const n = 20000
 	for i := 0; i < n; i++ {
-		if _, ok := sp.decide(i, rng); !ok {
+		if _, ok := sp.Decide(i, rng); !ok {
 			dropped++
 		}
 	}
 	if rate := float64(dropped) / n; rate < 0.27 || rate > 0.33 {
 		t.Errorf("drop rate %.3f, want about 0.30", rate)
 	}
-	if _, ok := (Spec{Loss: 1}).decide(0, rng); ok {
+	if _, ok := (Spec{Loss: 1}).Decide(0, rng); ok {
 		t.Error("loss=1 should always drop")
 	}
 }

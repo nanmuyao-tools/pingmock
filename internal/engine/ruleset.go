@@ -1,41 +1,17 @@
-package main
+// Package engine keeps the rules installed for each target, decides how
+// every echo request is answered, and records recent requests.
+package engine
 
 import (
 	"hash/fnv"
 	"math/rand/v2"
 	"net/netip"
 	"sort"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
-
-// ParsePrefix accepts a single IPv4 address or a CIDR prefix.
-func ParsePrefix(s string) (netip.Prefix, error) {
-	s = strings.TrimSpace(s)
-	if strings.Contains(s, "/") {
-		p, err := netip.ParsePrefix(s)
-		if err != nil {
-			return netip.Prefix{}, err
-		}
-		if !p.Addr().Is4() {
-			return netip.Prefix{}, errIPv4Only(s)
-		}
-		return p.Masked(), nil
-	}
-	a, err := netip.ParseAddr(s)
-	if err != nil {
-		return netip.Prefix{}, err
-	}
-	if !a.Is4() {
-		return netip.Prefix{}, errIPv4Only(s)
-	}
-	return netip.PrefixFrom(a, 32), nil
-}
-
-type errIPv4Only string
-
-func (e errIPv4Only) Error() string { return string(e) + ": only IPv4 is supported" }
 
 // Stats counts what happened to requests for one target address.
 type Stats struct {
@@ -48,7 +24,7 @@ type Stats struct {
 // installation gets a new id, so targets restart the scenario from its
 // first phase whenever the rule that applies to them changes.
 type entry struct {
-	sc    Scenario
+	sc    rule.Scenario
 	id    uint64
 	setAt time.Time
 }
@@ -84,15 +60,24 @@ type RuleSet struct {
 	targets map[netip.Addr]*target
 }
 
+// Option configures a RuleSet.
+type Option func(*RuleSet)
+
+// WithClock replaces time.Now, for tests.
+func WithClock(now func() time.Time) Option { return func(rs *RuleSet) { rs.now = now } }
+
 // NewRuleSet creates a rule set. Each target draws its randomness from a
 // stream derived from seed and its address, so its sequence of drops and
 // delays does not depend on traffic to other targets.
-func NewRuleSet(def Scenario, seed uint64) *RuleSet {
+func NewRuleSet(def rule.Scenario, seed uint64, opts ...Option) *RuleSet {
 	rs := &RuleSet{
 		seed:    seed,
 		now:     time.Now,
 		rules:   map[netip.Prefix]*entry{},
 		targets: map[netip.Addr]*target{},
+	}
+	for _, o := range opts {
+		o(rs)
 	}
 	rs.def = rs.newEntry(def)
 	return rs
@@ -100,12 +85,12 @@ func NewRuleSet(def Scenario, seed uint64) *RuleSet {
 
 func (rs *RuleSet) Seed() uint64 { return rs.seed }
 
-func (rs *RuleSet) newEntry(sc Scenario) *entry {
+func (rs *RuleSet) newEntry(sc rule.Scenario) *entry {
 	rs.nextID++
 	return &entry{sc: sc, id: rs.nextID, setAt: rs.now()}
 }
 
-func (rs *RuleSet) Set(p netip.Prefix, sc Scenario) {
+func (rs *RuleSet) Set(p netip.Prefix, sc rule.Scenario) {
 	rs.mu.Lock()
 	rs.rules[p] = rs.newEntry(sc)
 	rs.mu.Unlock()
@@ -119,7 +104,7 @@ func (rs *RuleSet) Delete(p netip.Prefix) bool {
 	return ok
 }
 
-func (rs *RuleSet) SetDefault(sc Scenario) {
+func (rs *RuleSet) SetDefault(sc rule.Scenario) {
 	rs.mu.Lock()
 	rs.def = rs.newEntry(sc)
 	rs.mu.Unlock()
@@ -164,7 +149,7 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 		t.rng = rs.rngFor(dst)
 	}
 	advance(t, e.sc, now)
-	delay, reply := e.sc.Phases[t.phase].Spec.decide(t.phaseReqs, t.rng)
+	delay, reply := e.sc.Phases[t.phase].Spec.Decide(t.phaseReqs, t.rng)
 	t.phaseReqs++
 	t.stats.Requests++
 	if reply {
@@ -176,7 +161,7 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 }
 
 // advance moves t past every phase of sc that has ended by now.
-func advance(t *target, sc Scenario, now time.Time) {
+func advance(t *target, sc rule.Scenario, now time.Time) {
 	last := len(sc.Phases) - 1
 	for {
 		p := sc.Phases[t.phase]
@@ -198,7 +183,7 @@ func advance(t *target, sc Scenario, now time.Time) {
 		}
 		t.phase = 0
 		// Skip whole idle cycles at once instead of looping through them.
-		if c := sc.cycle(); c > 0 {
+		if c := sc.Cycle(); c > 0 {
 			if n := now.Sub(t.phaseStart) / c; n > 0 {
 				t.phaseStart = t.phaseStart.Add(n * c)
 			}

@@ -1,9 +1,11 @@
-package main
+package engine
 
 import (
 	"net/netip"
 	"testing"
 	"time"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 // fakeClock lets tests move time forward explicitly.
@@ -15,15 +17,12 @@ func (c *fakeClock) advance(d time.Duration) { c.t = c.t.Add(d) }
 func newTestRuleSet(t *testing.T, def string, seed uint64) (*RuleSet, *fakeClock) {
 	t.Helper()
 	clock := &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	rs := NewRuleSet(mustScenario(t, def), seed)
-	rs.now = clock.now
-	rs.def = rs.newEntry(mustScenario(t, def))
-	return rs, clock
+	return NewRuleSet(mustScenario(t, def), seed, WithClock(clock.now)), clock
 }
 
-func mustScenario(t *testing.T, s string) Scenario {
+func mustScenario(t *testing.T, s string) rule.Scenario {
 	t.Helper()
-	sc, err := ParseScenario(s)
+	sc, err := rule.ParseScenario(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,9 +67,9 @@ func outcomes(rs *RuleSet, ip string, n int) []Decision {
 }
 
 func TestSameSeedSameSequencePerTarget(t *testing.T) {
-	const rule = "delay=100ms,jitter=50ms,loss=30%"
-	a, _ := newTestRuleSet(t, rule, 42)
-	b, _ := newTestRuleSet(t, rule, 42)
+	const text = "delay=100ms,jitter=50ms,loss=30%"
+	a, _ := newTestRuleSet(t, text, 42)
+	b, _ := newTestRuleSet(t, text, 42)
 
 	// Interleave requests differently: a sees A,B,A,B...; b sees all B then all A.
 	var aA, aB []Decision
@@ -86,7 +85,7 @@ func TestSameSeedSameSequencePerTarget(t *testing.T) {
 		}
 	}
 
-	c, _ := newTestRuleSet(t, rule, 43)
+	c, _ := newTestRuleSet(t, text, 43)
 	cA := outcomes(c, "10.99.0.1", 50)
 	same := true
 	for i := range aA {
@@ -162,10 +161,10 @@ func TestTimePhasesStartWhenRuleIsSet(t *testing.T) {
 func TestRuleChangeRestartsScenario(t *testing.T) {
 	rs, _ := newTestRuleSet(t, "0ms", 7)
 	p := netip.MustParsePrefix("10.99.0.1/32")
-	rule := "delay=50ms,jitter=40ms,loss=40% for 3 pings; 5ms"
-	rs.Set(p, mustScenario(t, rule))
+	text := "delay=50ms,jitter=40ms,loss=40% for 3 pings; 5ms"
+	rs.Set(p, mustScenario(t, text))
 	first := outcomes(rs, "10.99.0.1", 5)
-	rs.Set(p, mustScenario(t, rule))
+	rs.Set(p, mustScenario(t, text))
 	second := outcomes(rs, "10.99.0.1", 5)
 	for i := range first {
 		if first[i] != second[i] {
@@ -196,19 +195,5 @@ func TestStatsAndSnapshot(t *testing.T) {
 	// Resetting counters must not restart the pattern: the 5th request is a reply.
 	if d := rs.Decide(addr("10.99.0.1")); !d.Reply {
 		t.Error("ResetStats restarted the scenario")
-	}
-}
-
-func TestParsePrefix(t *testing.T) {
-	if p, err := ParsePrefix("8.8.8.8"); err != nil || p.String() != "8.8.8.8/32" {
-		t.Errorf("single address: %v %v", p, err)
-	}
-	if p, err := ParsePrefix("10.99.0.130/25"); err != nil || p.String() != "10.99.0.128/25" {
-		t.Errorf("CIDR should be masked: %v %v", p, err)
-	}
-	for _, bad := range []string{"::1", "2001:db8::/32", "nope"} {
-		if _, err := ParsePrefix(bad); err == nil {
-			t.Errorf("ParsePrefix(%q): expected error", bad)
-		}
 	}
 }
