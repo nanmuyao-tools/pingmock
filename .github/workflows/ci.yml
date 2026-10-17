@@ -26,6 +26,14 @@ jobs:
         run: go build -o pingmock .
       - name: End-to-end test
         run: sudo REQUIRE_IPV6=1 test/e2e.sh
+      # Ubuntu 24.04 restricts unprivileged user namespaces with AppArmor.
+      # Allow them for pingmock only, with the profile users are told to
+      # install, rather than lifting the restriction for everything.
+      - name: Install the AppArmor profile
+        run: |
+          sed "s|profile pingmock /usr/local/bin/pingmock|profile pingmock $PWD/pingmock|" \
+            contrib/apparmor/pingmock | sudo tee /etc/apparmor.d/pingmock
+          sudo apparmor_parser -r /etc/apparmor.d/pingmock
       - name: pingmock exec, rootless
         run: test/e2e-exec.sh
       - name: pingmock exec, as root

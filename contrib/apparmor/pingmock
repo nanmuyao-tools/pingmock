@@ -1,0 +1,17 @@
+# AppArmor profile that lets pingmock create user namespaces, so that
+# "pingmock exec" works without root on systems that restrict them
+# (Ubuntu 23.10 and later). It grants nothing else: pingmock stays
+# unconfined, as it is without the profile.
+#
+# Change the path below if pingmock is installed elsewhere, then:
+#   sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
+#   sudo apparmor_parser -r /etc/apparmor.d/pingmock
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile pingmock /usr/local/bin/pingmock flags=(unconfined) {
+  userns,
+
+  include if exists <local/pingmock>
+}

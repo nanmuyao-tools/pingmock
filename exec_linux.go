@@ -198,8 +198,9 @@ func explain(err error, rootless bool) error {
 			"readable and writable by everyone (crw-rw-rw-); run pingmock exec with sudo, or: sudo chmod 0666 /dev/net/tun", err)
 	case errors.Is(err, syscall.EPERM) || strings.Contains(msg, "Operation not permitted"):
 		return fmt.Errorf("%w\nThe user namespace has no network privileges. On Ubuntu 23.10 and later, AppArmor restricts\n"+
-			"unprivileged user namespaces; run pingmock exec with sudo, or allow them with\n"+
-			"sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0", err)
+			"unprivileged user namespaces. Either run pingmock exec with sudo, or let pingmock use them with the\n"+
+			"AppArmor profile in contrib/apparmor/pingmock (see the README), or lift the restriction for all\n"+
+			"programs with: sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0", err)
 	}
 	return err
 }
