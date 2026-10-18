@@ -29,6 +29,25 @@ docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.i
 ```
 <!-- /docker-demo -->
 
+输出（节选）：pingmock 先打印生效的规则；第 4 个 ping 从 20ms 变成了 300ms；10.99.0.2 立即被报告为不可达：
+
+```
+2026/10/18 10:23:05 rule 10.99.0.1/32: delay=20ms for 3 pings; delay=300ms
+2026/10/18 10:23:05 rule 10.99.0.2/32: delay=0s,unreachable
+...
+64 bytes from 10.99.0.1: icmp_seq=1 ttl=64 time=20.2 ms
+64 bytes from 10.99.0.1: icmp_seq=2 ttl=64 time=20.3 ms
+64 bytes from 10.99.0.1: icmp_seq=3 ttl=64 time=20.3 ms
+64 bytes from 10.99.0.1: icmp_seq=4 ttl=64 time=301 ms
+64 bytes from 10.99.0.1: icmp_seq=5 ttl=64 time=301 ms
+64 bytes from 10.99.0.1: icmp_seq=6 ttl=64 time=301 ms
+...
+From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
+From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
+```
+
+为了简短，这里把 pingmock 和 `ping` 放在同一个容器里。测试自己的程序时，可以用 [`pingmock exec`](#不用-root-运行pingmock-exec) 运行它，或者像 [`examples/compose-demo`](examples/compose-demo/) 那样用 Docker Compose 让它加入 pingmock 的网络。
+
 ## 原理
 
 pingmock 创建一块 TUN 虚拟网卡，把测试网段（默认是 `10.99.0.0/24` 和 `fd99::/64`）以及你指定的地址路由到它上面。内核会把发往这些地址的 echo 请求交给 pingmock，pingmock 按匹配的规则等待一段时间后回复，或者返回"目标不可达"错误，或者直接丢弃。

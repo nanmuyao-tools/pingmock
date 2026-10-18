@@ -29,6 +29,25 @@ docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.i
 ```
 <!-- /docker-demo -->
 
+The output, shortened: pingmock logs its rules, the fourth ping takes 300ms instead of 20ms, and 10.99.0.2 is reported unreachable at once:
+
+```
+2026/10/18 10:23:05 rule 10.99.0.1/32: delay=20ms for 3 pings; delay=300ms
+2026/10/18 10:23:05 rule 10.99.0.2/32: delay=0s,unreachable
+...
+64 bytes from 10.99.0.1: icmp_seq=1 ttl=64 time=20.2 ms
+64 bytes from 10.99.0.1: icmp_seq=2 ttl=64 time=20.3 ms
+64 bytes from 10.99.0.1: icmp_seq=3 ttl=64 time=20.3 ms
+64 bytes from 10.99.0.1: icmp_seq=4 ttl=64 time=301 ms
+64 bytes from 10.99.0.1: icmp_seq=5 ttl=64 time=301 ms
+64 bytes from 10.99.0.1: icmp_seq=6 ttl=64 time=301 ms
+...
+From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
+From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
+```
+
+This runs pingmock and `ping` in one container for brevity. To test your own program, run it under [`pingmock exec`](#running-without-root-pingmock-exec), or in pingmock's network with Docker Compose as in [`examples/compose-demo`](examples/compose-demo/).
+
 ## How it works
 
 pingmock creates a TUN virtual network device and routes test subnets (`10.99.0.0/24` and `fd99::/64` by default), plus any addresses you choose, to it. The kernel hands every echo request sent to those addresses to pingmock, which waits according to the matching rule and then sends back a reply or a destination unreachable error, or drops the request.
