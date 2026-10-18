@@ -6,7 +6,17 @@ English | [中文](README.zh-CN.md)
 
 Mock ping (ICMP and ICMPv6 Echo) responses on Linux. Set the **delay, jitter, packet loss and unreachable errors** for each target address precisely, and change them while your tests are running.
 
-Use it when the software under test measures network latency with ping and behaves differently depending on the result: picking the fastest server, failing over to another link, deciding whether the network is up, showing a signal-strength indicator, and so on. With pingmock those behaviors become reproducible and testable.
+![A program that pings three servers and picks the fastest chooses a different one each time pingmock changes their latency](docs/demo/demo.svg)
+
+Software that measures the network with ping behaves differently depending on the result: it picks the fastest server, fails over to another link, decides whether the network is up, shows a signal-strength indicator. Those behaviors are hard to test, because the real network is never in the state a test needs. pingmock makes them reproducible: the program under test keeps running `ping` (or sending ICMP itself) unchanged, and gets the answers you decided on.
+
+The shortest example, with no root needed:
+
+```bash
+pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
+```
+
+Compared to `tc netem`, rules are set per **target address** rather than per interface, they can be **changed while the program runs** through an HTTP API, and `pingmock exec` needs **no root** and leaves the host network alone.
 
 ## How it works
 
