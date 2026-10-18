@@ -26,7 +26,7 @@
 
 ### 4. 准备收集反馈的渠道（要在发帖之前完成）
 
-- [ ] 开启 GitHub Discussions，用来回答使用问题、讨论想法（仓库 Settings → General → Features → Discussions；issue 模板的「Question or idea to discuss」链接已经指向它，开启前这个链接是 404）
+- [x] 开启 GitHub Discussions，用来回答使用问题、讨论想法（issue 模板的「Question or idea to discuss」链接指向它）
 - [x] 添加 issue 模板：bug 报告（版本、系统、复现步骤）和功能建议（使用场景）
 
 ### 5. 起草推广帖子，由作者本人发布
