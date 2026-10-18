@@ -80,11 +80,66 @@
 
 ### 2. 路径模拟：traceroute 和 mtr
 
-- [ ] 规则可以描述一条路径：经过几个中间节点，每跳的延迟
-- [ ] 按 TTL 回复 ICMP Time Exceeded，让 traceroute 和 mtr 看到中间节点
-- [ ] 对 UDP 探测回复 ICMP Port Unreachable，让默认模式的 traceroute 能到达终点
-- [ ] IPv6 同样支持（ICMPv6 Time Exceeded、Port Unreachable）
-- [ ] traceroute、mtr 加入兼容性测试
+**状态：设计方案待确认，还没有决定是否这样做、什么时候做。** 下面是方案和已经验证过的技术前提。
+
+#### 原理
+
+traceroute 和 mtr 发出一系列探测包，TTL 依次为 1、2、3……。路由器把 TTL 减到 0 时丢掉这个包，回一条 ICMP Time Exceeded，源地址是路由器自己。到达终点时，ICMP 模式（`traceroute -I`、mtr）收到回显应答；UDP 模式（traceroute 默认）的探测发往没人监听的端口，终点回 ICMP Port Unreachable。pingmock 要扮演路径上的每个路由器。
+
+#### 已验证的前提
+
+用一个 Python 原型（TUN 网卡上假装有两个中间节点）验证过：
+
+| 前提 | 结果 |
+|---|---|
+| pingmock 读到的 TTL 是程序设置的原始值 | 成立：traceroute 发出的 TTL 1～5，原型都按原值看到 |
+| traceroute -I、traceroute（UDP）、mtr 能看到伪造的中间节点和终点 | 成立：三种都正确显示了两个中间节点和终点 |
+| 严格的反向路径检查（`rp_filter=1`）下依然可用 | **只有为中间节点的地址添加指向 TUN 网卡的路由时才成立**。不加路由时，中间节点全部显示为 `*`，内核计数 `IPReversePathFilter` 显示丢弃了这些回复 |
+
+IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
+
+#### 设计方案
+
+为目标设置了路径后：
+
+| 探测包的 TTL | pingmock 的回应 |
+|---|---|
+| 不超过路径的长度 | 对应的中间节点按自己的延迟回复 Time Exceeded；`*` 节点不回复 |
+| 超过路径的长度，ICMP 回显请求 | 按目标原有的规则回复，和现在一样 |
+| 超过路径的长度，UDP 探测 | 回复 Port Unreachable，延迟、丢包按目标原有的规则 |
+
+没有设置路径的目标，行为完全不变：不理会 TTL，忽略 UDP。
+
+写法：每一跳是 `地址@规则`，用 `>` 连接，`*` 表示不回应的节点：
+
+```bash
+pingmock -rule 8.8.8.8=30ms \
+  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
+```
+
+```yaml
+paths:
+  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
+```
+
+运行中修改：`PUT /paths/{target}`、`DELETE /paths/{target}`，Go 客户端增加 `SetPath`、`DeletePath`。预期 `traceroute -n 8.8.8.8` 显示 192.168.1.1（2ms）、10.0.0.1（15ms 左右）、`*`、72.14.0.1（25ms），最后是 8.8.8.8（30ms）。
+
+#### 待决定的问题
+
+- [ ] **写法**：`地址@规则`，`>` 连接，`*` 不回应。每一跳的规则支持延迟、抖动和丢包，是否还需要其他设置？YAML 中以 `*` 开头的值需要加引号（`*` 在 YAML 里表示引用）
+- [ ] **中间节点的地址自动加路由**：这是严格模式下可用的必要条件。副作用是发往这些地址的流量也交给 pingmock，和劫持真实地址的效果一样；在 `pingmock exec` 里不影响宿主机
+- [ ] **只有设置了路径的目标才回应 UDP**：如果对所有目标都回 Port Unreachable，现有用户的程序会从"UDP 请求超时"变成"立即被拒绝"，所以做成需要主动开启
+- [ ] 是否也需要一种更简单的写法，比如只给出跳数和总延迟，自动生成中间节点？
+- [ ] 不在范围内：TCP 模式的 traceroute（`traceroute -T`）
+
+#### 实现时要做的
+
+- [ ] 规则层：解析路径的写法，配置文件和 API 中的路径
+- [ ] 决策层：按 TTL 选择中间节点或终点，中间节点的随机数和丢包同样可以用 `-seed` 复现
+- [ ] 数据包：构造 ICMP Time Exceeded、Port Unreachable（IPv4 和 IPv6），引用原包的方式和现有的不可达消息相同
+- [ ] 路由：为中间节点的地址添加路由；先验证 IPv6
+- [ ] 历史和统计：记录中间节点的回复（结果为 time-exceeded、port-unreachable，以及第几跳）
+- [ ] traceroute、mtr 加入兼容性测试；中英文文档
 
 ### 3. 更多异常行为
 
