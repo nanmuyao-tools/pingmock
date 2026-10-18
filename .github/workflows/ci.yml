@@ -95,6 +95,15 @@ jobs:
         run: |
           "$GITHUB_WORKSPACE/pingmock" exec -config pingmock.yaml -- ./test.sh | tee test.out
           tail -n 1 test.out | grep -E '^[0-9]+ passed, 0 failed$'
+      # Common ping tools and libraries, each with raw sockets and, for the
+      # libraries, unprivileged ping sockets too.
+      - name: Compatibility with ping tools and libraries
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fping
+          fping --version
+          pip install -r test/compat/requirements.txt
+          sudo env "PATH=$PATH" test/e2e-compat.sh
       - name: pingmock exec, as root
         run: sudo test/e2e-exec.sh
 

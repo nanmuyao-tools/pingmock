@@ -343,6 +343,19 @@ Each history event looks like this. `result` is `reply`, `drop` or `unreachable`
 
 ## Using it in automated tests
 
+### Tools and libraries known to work
+
+[`test/e2e-compat.sh`](test/e2e-compat.sh) checks these against pingmock in CI, on Ubuntu 24.04 and 26.04: delays, deterministic loss, unreachable errors and a hijacked real address all come out as the rules say.
+
+| Tool or library | Sockets |
+|---|---|
+| `ping` from iputils (20240117 on Ubuntu 24.04, 20250605 on 26.04) | raw |
+| [fping](https://fping.org) | raw |
+| [pro-bing](https://github.com/prometheus-community/pro-bing), Go | raw, and unprivileged ping sockets |
+| [icmplib](https://github.com/ValentinBELYN/icmplib), Python | raw, and unprivileged ping sockets |
+
+traceroute and mtr do not work yet; see [Limitations](#limitations).
+
 The easiest way is to run the tests themselves under `pingmock exec`: no root, no setup or teardown code, and every run is isolated. Fix the seed so random loss and jitter are the same on every run.
 
 ### Go
@@ -429,6 +442,7 @@ The unit tests do not need root; the end-to-end checks in [`test/`](test/) mostl
 make test         # go vet and unit tests with the race detector
 make e2e          # builds pingmock and runs test/e2e.sh with sudo
 make e2e-exec     # pingmock exec, rootless and as root
+make e2e-compat   # fping, pro-bing and icmplib against pingmock (needs fping and icmplib)
 make e2e-docker   # the container image and the Compose example
 ```
 
@@ -437,6 +451,7 @@ make e2e-docker   # the container image and the Compose example
 ## Limitations
 
 - Only ping (ICMP and ICMPv6 Echo) is mocked. TCP and UDP traffic to mocked addresses gets no response.
+- traceroute and mtr see no route: pingmock ignores the TTL, so a mocked target looks one hop away, and traceroute's default UDP probes get no answer, so it never reaches the target. Simulating paths is planned.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.
 - Linux only. `pingmock exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).

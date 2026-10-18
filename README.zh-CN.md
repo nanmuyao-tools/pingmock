@@ -343,6 +343,19 @@ curl -X DELETE localhost:9100/history
 
 ## 在自动化测试中使用
 
+### 经过测试的工具和库
+
+CI 会在 Ubuntu 24.04 和 26.04 上，用 [`test/e2e-compat.sh`](test/e2e-compat.sh) 测试下面这些工具和库：延迟、确定性丢包、目标不可达和劫持真实地址，结果都和规则一致。
+
+| 工具或库 | 套接字 |
+|---|---|
+| iputils 的 `ping`（Ubuntu 24.04 上是 20240117，26.04 上是 20250605） | 原始套接字 |
+| [fping](https://fping.org) | 原始套接字 |
+| [pro-bing](https://github.com/prometheus-community/pro-bing)（Go） | 原始套接字，以及免 root 的 ping 套接字 |
+| [icmplib](https://github.com/ValentinBELYN/icmplib)（Python） | 原始套接字，以及免 root 的 ping 套接字 |
+
+traceroute 和 mtr 目前还不能使用，参见[限制](#限制)。
+
 最简单的方式是让测试本身运行在 `pingmock exec` 下：不需要 root，不需要启动和清理的代码，每次运行都相互隔离。建议固定种子，让随机的丢包和抖动每次都一样。
 
 ### Go
@@ -429,6 +442,7 @@ def test_retries():
 make test         # go vet 和带竞态检测的单元测试
 make e2e          # 编译 pingmock，并用 sudo 运行 test/e2e.sh
 make e2e-exec     # pingmock exec，分别以普通用户和 root 运行
+make e2e-compat   # 用 fping、pro-bing 和 icmplib 测试 pingmock（需要安装 fping 和 icmplib）
 make e2e-docker   # 容器镜像和 Compose 示例
 ```
 
@@ -437,6 +451,7 @@ make e2e-docker   # 容器镜像和 Compose 示例
 ## 限制
 
 - 只模拟 ping（ICMP 和 ICMPv6 Echo）。发往模拟地址的 TCP、UDP 流量不会得到响应。
+- traceroute 和 mtr 看不到路径：pingmock 不理会 TTL，所以模拟的目标看起来就在一跳之外；traceroute 默认发送的 UDP 探测得不到回应，所以永远到不了目标。路径模拟已在计划中。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
 - 不支持分片的请求（例如 `ping -s 2000`）和带扩展头的 IPv6 请求，这类请求会被忽略。
 - 只支持 Linux。普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。

@@ -11,6 +11,7 @@ make build        # build ./pingmock
 make test         # go vet and unit tests with the race detector (no root needed)
 make e2e          # build and run test/e2e.sh with sudo
 make e2e-exec     # pingmock exec, rootless and as root
+make e2e-compat   # fping, pro-bing and icmplib against pingmock (needs fping and icmplib)
 make e2e-docker   # the container image and the Compose example (needs Docker)
 make lint         # gofmt, go vet and shellcheck
 ```
@@ -36,7 +37,8 @@ client/                  public Go client for the control API
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
 docs/                    the code tour, the packet path and the packet anatomy
 examples/                example configuration, Compose file, and complete examples in Go, Python and shell
-test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-docker.sh
+test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-compat.sh, e2e-docker.sh;
+                         test/compat holds the libraries e2e-compat.sh uses, as its own module
 scripts/release-notes.sh release notes from an annotated tag
 Dockerfile               the container image
 ```
