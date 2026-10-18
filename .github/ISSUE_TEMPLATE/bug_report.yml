@@ -1,0 +1,58 @@
+name: Bug report
+description: pingmock does not do what the documentation says
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. English or 中文, whichever you prefer.
+  - type: input
+    id: version
+    attributes:
+      label: pingmock version
+      description: The output of `pingmock -version`, or the image tag.
+      placeholder: v0.5.1
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Distribution and kernel, for example from `cat /etc/os-release` and `uname -r`. Mention a container or a CI runner if that is where it happened.
+      placeholder: Ubuntu 24.04, kernel 6.8, GitHub Actions ubuntu-latest
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How pingmock was run
+      options:
+        - pingmock exec (without root)
+        - sudo pingmock
+        - Container image (ghcr.io/nanmuyao/pingmock)
+        - Go client package only
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands, the rules or configuration file, and what the program under test does (a `ping` command is enough).
+      placeholder: |
+        pingmock exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The full output, including pingmock's log lines. Running with `-v` logs every request, which helps.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true

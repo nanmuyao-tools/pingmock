@@ -1,0 +1,29 @@
+name: Feature request
+description: Something you need to test that pingmock cannot mock yet
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. English or 中文, whichever you prefer. The use case matters most: it decides what gets built and how.
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What does the software under test do with the network, and what behavior do you need to reproduce for its tests?
+      placeholder: |
+        Our monitoring agent pings each host every 10s and raises an alert after 3 misses in a row. I want to test the alert when the host comes back after exactly 2 misses...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What it could look like
+      description: Optional. A rule, a flag, an API call, a configuration key... as you would want to write it.
+      placeholder: |
+        -rule '10.99.0.1=pattern=xx.'
+  - type: textarea
+    id: workaround
+    attributes:
+      label: What you do today
+      description: Optional. How you test this now, if at all, and what is wrong with it.
