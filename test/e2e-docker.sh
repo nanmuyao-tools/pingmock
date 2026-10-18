@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks the container image and the Compose example. Needs Docker:
+# Checks the container image and the Compose examples. Needs Docker:
 #   test/e2e-docker.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,9 +16,11 @@ near() {
     fail "$1: got ${2}ms, want ${3}±${4}ms"
   fi
 }
+DEMO=examples/compose-demo/compose.yaml
 cleanup() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
   PINGMOCK_IMAGE=$IMAGE docker compose -f examples/docker-compose.yml down >/dev/null 2>&1 || true
+  PINGMOCK_IMAGE=$IMAGE docker compose -f "$DEMO" --profile tests down >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -51,5 +53,26 @@ PINGMOCK_IMAGE=$IMAGE docker compose -f examples/docker-compose.yml up \
 if [ "$status" != 0 ]; then echo "--- compose log:"; tail -n 30 /tmp/compose.log; fi
 same "the Compose example runs the app against pingmock" "$status" 0
 grep -q 'time=5[0-9]' /tmp/compose.log && pass "the Compose app sees the 50ms rule" || fail "no 50ms replies in the Compose output"
+
+# examples/compose-demo: the tests on their own, then the monitor reacting
+# to a rule changed from the host, as its README shows.
+demo() { PINGMOCK_IMAGE=$IMAGE docker compose -f "$DEMO" "$@"; }
+demo_fail() { echo "FAIL $1"; demo --profile tests logs 2>&1 | tail -n 30; exit 1; }
+status=0
+demo run --rm --build tests >/tmp/compose-demo-tests.log 2>&1 || status=$?
+tail -n 1 /tmp/compose-demo-tests.log | grep -qE '^[0-9]+ passed, 0 failed$' && [ "$status" = 0 ] ||
+  { cat /tmp/compose-demo-tests.log; demo_fail "compose-demo tests"; }
+pass "compose-demo: $(tail -n 1 /tmp/compose-demo-tests.log)"
+demo --profile tests down >/dev/null 2>&1
+
+demo up -d --build monitor >/dev/null 2>&1 || demo_fail "compose-demo: monitor did not start"
+for _ in $(seq 30); do demo logs monitor 2>/dev/null | grep -q 'link=primary' && break; sleep 1; done
+demo logs monitor 2>/dev/null | grep -q 'link=primary' || demo_fail "compose-demo: the monitor never chose the primary"
+pass "compose-demo: the monitor uses the primary"
+curl -sf -X PUT localhost:9100/rules/10.99.0.1 -d timeout >/dev/null || demo_fail "compose-demo: the API is not published on localhost:9100"
+for _ in $(seq 30); do demo logs --tail 1 monitor 2>/dev/null | grep -q 'link=backup' && break; sleep 1; done
+demo logs --tail 1 monitor 2>/dev/null | grep -q 'link=backup' || demo_fail "compose-demo: the monitor did not switch to the backup"
+pass "compose-demo: a rule set from the host makes the monitor switch to the backup"
+demo down >/dev/null 2>&1
 
 echo "all docker checks passed"

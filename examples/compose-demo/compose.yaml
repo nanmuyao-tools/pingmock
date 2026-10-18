@@ -1,0 +1,54 @@
+# A service under test running in pingmock's network with Docker Compose.
+#
+#   docker compose up -d monitor        start pingmock and the monitor
+#   docker compose logs -f monitor      watch which link it uses
+#   curl -X PUT localhost:9100/rules/10.99.0.1 -d timeout    take the primary down
+#   docker compose run --rm tests       run the tests (on their own, see below)
+#   docker compose down                 stop everything
+#
+# See README.md.
+services:
+  pingmock:
+    image: ${PINGMOCK_IMAGE:-ghcr.io/nanmuyao/pingmock:latest}
+    cap_add: [NET_ADMIN]
+    devices: [/dev/net/tun]
+    volumes:
+      - ./pingmock.yaml:/etc/pingmock.yaml:ro
+    # Listen on all addresses inside the container, so that the API can be
+    # published to the host below.
+    command: ["-config", "/etc/pingmock.yaml", "-api", "0.0.0.0:9100"]
+    ports:
+      - "127.0.0.1:9100:9100"   # the control API, for this machine only
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9100/rules"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  # The service under test: checks the links every 2 seconds and logs the
+  # one to use. It shares pingmock's network, so its pings are mocked.
+  monitor:
+    build:
+      context: ..
+      dockerfile: compose-demo/Dockerfile
+    network_mode: service:pingmock
+    depends_on:
+      pingmock:
+        condition: service_healthy
+    command: ["sh", "-c", "while true; do ./failover.sh -s /tmp/link.state 10.99.0.1 10.99.0.2; sleep 2; done"]
+
+  # The shell example's tests, against the same kind of network. Start them
+  # with 'docker compose run --rm tests', which starts pingmock but not the
+  # monitor, whose pings would disturb them.
+  tests:
+    build:
+      context: ..
+      dockerfile: compose-demo/Dockerfile
+    network_mode: service:pingmock
+    depends_on:
+      pingmock:
+        condition: service_healthy
+    environment:
+      PINGMOCK_API: http://127.0.0.1:9100
+    command: ["./test.sh"]
+    profiles: [tests]

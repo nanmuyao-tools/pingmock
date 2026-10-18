@@ -259,6 +259,8 @@ docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
 docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
 ```
 
+[`examples/compose-demo`](examples/compose-demo/) 更进一步：一个被测服务实时响应从宿主机修改的规则，以及用 `docker compose run` 运行的测试。
+
 不带参数时，镜像中的 API 监听所有地址，可以用 `-p 9100:9100` 映射出来。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
 
 ## 运行时控制 API

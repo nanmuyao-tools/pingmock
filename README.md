@@ -259,6 +259,8 @@ With Docker Compose, put the code under test in pingmock's network with `network
 docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
 ```
 
+[`examples/compose-demo`](examples/compose-demo/) goes further: a service under test reacting live to rules changed from the host, and tests run with `docker compose run`.
+
 Without arguments, the image listens on all addresses so the API can be published with `-p 9100:9100`. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
 
 ## Runtime control API

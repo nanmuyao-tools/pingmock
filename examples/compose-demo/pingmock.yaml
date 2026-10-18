@@ -1,0 +1,4 @@
+# Both links work at first; the primary is faster.
+rules:
+  10.99.0.1: 20ms   # primary
+  10.99.0.2: 40ms   # backup
