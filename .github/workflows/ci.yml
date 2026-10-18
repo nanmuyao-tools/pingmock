@@ -10,7 +10,15 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Explicit images rather than ubuntu-latest, which moves from Ubuntu
+    # 24.04 to 26.04 between 2026-10-19 and 2026-11-19: both stay covered,
+    # whichever one users are on, and a result says which image it is for.
+    # Drop 24.04 once GitHub retires it.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -30,7 +38,8 @@ jobs:
         run: go build -o pingmock .
       - name: End-to-end test
         run: sudo REQUIRE_IPV6=1 test/e2e.sh
-      # Ubuntu 24.04 restricts unprivileged user namespaces with AppArmor.
+      # Ubuntu 24.04 and later restrict unprivileged user namespaces with
+      # AppArmor.
       # Allow them for pingmock only, with the profile users are told to
       # install, rather than lifting the restriction for everything.
       - name: Install the AppArmor profile
@@ -77,7 +86,11 @@ jobs:
         run: sudo test/e2e-exec.sh
 
   docker:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - name: Image and Compose example
@@ -99,7 +112,11 @@ jobs:
   # the tests are those of examples/go-demo, which uses the same release.
   # GOFLAGS=-v lists the tests, so that skipped ones fail this job.
   workflow-example:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
