@@ -35,7 +35,7 @@ internal/
 client/                  public Go client for the control API
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
 docs/                    the code tour, the packet path and the packet anatomy
-examples/                example configuration and Compose file
+examples/                example configuration, Compose file and go-demo, a complete Go example
 test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-docker.sh
 scripts/release-notes.sh release notes from an annotated tag
 Dockerfile               the container image
@@ -43,7 +43,7 @@ Dockerfile               the container image
 
 Everything except `tun`, `app/instance.go` and `app/exec_linux.go` can be tested without root. `responder` takes any `io.ReadWriter`, so its tests feed it packets directly, and `engine` accepts a fake clock through `engine.WithClock`.
 
-Code under `internal/` is not part of the public API and may change at any time. `client/` is public: keep it compatible, and test it against the real API handler as its tests do.
+Code under `internal/` is not part of the public API and may change at any time. `client/` is public: keep it compatible, and test it against the real API handler as its tests do. `examples/go-demo` uses it the way users do; CI runs its tests against the current code, so update the example along with the client.
 
 ## Guidelines
 

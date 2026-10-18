@@ -1,0 +1,10 @@
+# The network the tests start from. Run the tests with:
+#   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+# Each test adds the conditions it needs through the control API.
+
+seed: 42   # random loss and jitter are the same on every run
+
+rules:
+  10.99.0.1: 80ms   # a distant server
+  10.99.0.2: 20ms   # the nearest one
+  10.99.0.3: 50ms

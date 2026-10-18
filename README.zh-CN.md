@@ -228,7 +228,7 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 - **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
 - **不留残留进程。** 命令退出时，它在后台启动的进程也会被一并停止。
 
-在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问。
+在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问。所以要先编译好程序再放进去运行：需要下载依赖的 `go run`（或 `npm install`、`pip install` 等）会因为 `network is unreachable` 而失败。
 
 ### 系统要求
 
@@ -344,7 +344,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则，详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。
+客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则，详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
 
 ### 其他语言
 

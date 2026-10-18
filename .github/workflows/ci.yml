@@ -44,6 +44,16 @@ jobs:
         run: |
           go test -count=1 -v -exec "$PWD/pingmock exec -addr6= --" -run TestUnderPingmockExec ./client | tee test.out
           grep -q -- '--- PASS: TestUnderPingmockExec' test.out
+      # The example users copy from, run against the code in this commit
+      # rather than the release its go.mod names. A skipped test means it
+      # did not run under pingmock, so that fails too.
+      - name: Go example, rootless
+        working-directory: examples/go-demo
+        run: |
+          go mod edit -replace github.com/nanmuyao/pingmock=../..
+          go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
+          grep -q -- '--- PASS' test.out
+          ! grep -E -- '--- (SKIP|FAIL)' test.out
       - name: pingmock exec, as root
         run: sudo test/e2e-exec.sh
 

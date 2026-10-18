@@ -228,7 +228,7 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 - **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, or `127` if it was not found. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
 - **Nothing is left behind.** When `CMD` exits, processes it started in the background are stopped too.
 
-Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access.
+Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access. So build programs before running them there: a `go run` (or `npm install`, `pip install`...) that needs to download dependencies fails with `network is unreachable`.
 
 ### Requirements
 
@@ -344,7 +344,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-The client also reads statistics (`Stats`), deletes rules and changes the default; see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client).
+The client also reads statistics (`Stats`), deletes rules and changes the default; see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
 
 ### Other languages
 
