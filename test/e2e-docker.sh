@@ -73,6 +73,17 @@ curl -sf -X PUT localhost:9100/rules/10.99.0.1 -d timeout >/dev/null || demo_fai
 for _ in $(seq 30); do demo logs --tail 1 monitor 2>/dev/null | grep -q 'link=backup' && break; sleep 1; done
 demo logs --tail 1 monitor 2>/dev/null | grep -q 'link=backup' || demo_fail "compose-demo: the monitor did not switch to the backup"
 pass "compose-demo: a rule set from the host makes the monitor switch to the backup"
+curl -sf -X PUT localhost:9100/rules/10.99.0.1 -d 20ms >/dev/null
+for _ in $(seq 30); do demo logs --tail 1 monitor 2>/dev/null | grep -q 'link=primary' && break; sleep 1; done
+log=$(demo logs monitor 2>/dev/null)
+after_backup=$(printf '%s\n' "$log" | sed -n '/link=backup primary unhealthy/,$p')
+printf '%s\n' "$after_backup" | grep -q 'link=backup primary recovering (1/2)' &&
+  printf '%s\n' "$after_backup" | tail -n 1 | grep -q 'link=primary primary healthy' ||
+  { printf '%s\n' "$log" | tail -n 12; demo_fail "compose-demo: the monitor did not recover through 'recovering (1/2)'"; }
+pass "compose-demo: when the primary comes back, the monitor waits one check, then returns to it"
+echo "--- the monitor's log around the switch (as in the README):"
+printf '%s\n' "$log" | grep -m 1 -B 1 'link=backup primary unhealthy'
+printf '%s\n' "$after_backup" | grep -A 1 'recovering (1/2)' | head -n 2
 demo down >/dev/null 2>&1
 
 echo "all docker checks passed"
