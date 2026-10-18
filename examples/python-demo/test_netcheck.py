@@ -3,7 +3,8 @@
     pingmock exec -config pingmock.yaml -- python3 -m pytest
 
 pingmock.yaml makes both hosts answer quickly; each test changes that as it
-needs through pingmock's control API, and the fixture restores it after.
+needs through pingmock's control API, and the fixture resets it before the
+next one.
 Inside pingmock exec, mocking 8.8.8.8 affects only these tests.
 """
 

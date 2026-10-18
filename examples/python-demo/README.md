@@ -55,7 +55,7 @@ def test_something(pingmock):
     events = pingmock.history("8.8.8.8")       # the pings the code under test sent
 ```
 
-One detail: at the end of a test it **puts back the rules it changed as they were before the test**, rather than deleting them. The code under test pings fixed addresses that the configuration file already has rules for, so deleting them would leave the default rule in their place for the tests that follow.
+Before each test it calls `POST /reset`, so **every test starts from the rules in the configuration file**, with no statistics or history, whatever the tests before it changed. The code under test pings fixed addresses that the configuration file has rules for; a reset puts those rules back, where deleting a changed rule would leave the default in its place.
 
 ## Running the command
 

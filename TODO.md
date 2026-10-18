@@ -103,9 +103,9 @@
 
 借鉴 Toxiproxy。工作量小，直接改善每个用户写测试的体验。
 
-- [ ] `POST /reset`：规则、默认规则、统计和历史都恢复到启动时（命令行和配置文件）的样子，让每个测试从干净的状态开始。现在 [python-demo](examples/python-demo/conftest.py) 的 fixture 要先保存、再逐条恢复规则，正是因为缺少这个接口
-- [ ] `GET /version`：返回 pingmock 的版本，方便测试确认用的是哪个版本
-- [ ] Go 客户端增加 `Reset` 和 `Version`；python-demo 的 fixture 改用 `/reset`，变得更简单
+- [x] `POST /reset`：规则、默认规则、统计和历史都恢复到启动时（命令行和配置文件）的样子，让每个测试从干净的状态开始。每个目标的场景位置和随机序列也重新开始，所以同一 seed 下 reset 之后的结果和刚启动时完全一样（有测试验证）
+- [x] `GET /version`：返回 pingmock 的版本，方便测试确认用的是哪个版本
+- [x] Go 客户端增加 `Reset` 和 `Version`；python-demo 的 fixture 改用 `/reset`：去掉了保存、逐条恢复规则的代码，改为每个测试开始前 reset
 
 ### 2. 域名支持：`pingmock exec` 中按域名模拟
 
