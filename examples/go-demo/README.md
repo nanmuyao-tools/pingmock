@@ -77,6 +77,6 @@ fastest: 10.99.0.3
 
 1. In the tests, connect to pingmock with `client.FromEnv()` and `t.Skip` on error, as the `pingmock` function in [`fastest_test.go`](fastest_test.go) does
 2. Write a configuration file with the network the tests start from; add what each test needs with `SetRule` and remove it with `t.Cleanup`
-3. Run the tests with `go test -exec 'pingmock exec -config pingmock.yaml --' ./...`, in CI as well. GitHub Actions' Ubuntu runners need the AppArmor profile installed first; see [Requirements](../../README.md#requirements)
+3. Run the tests with `go test -exec 'pingmock exec -config pingmock.yaml --' ./...`, in CI as well. [`examples/github-actions`](../github-actions/) is a workflow ready to copy
 
 The configuration sets `seed: 42`, so even random loss and jitter give the same results on every run.

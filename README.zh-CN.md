@@ -241,7 +241,7 @@ sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
 sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```
 
-在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事，参见本仓库的 [CI 配置](.github/workflows/ci.yml)。
+在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事。[`examples/github-actions`](examples/github-actions/) 是一份可以直接复制的配置，包括安装 pingmock 和这份 AppArmor 配置。
 
 ## Docker
 

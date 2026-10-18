@@ -241,7 +241,7 @@ sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
 sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```
 
-On GitHub Actions' Ubuntu runners, do the same in a step before running tests; see this repository's [CI workflow](.github/workflows/ci.yml).
+On GitHub Actions' Ubuntu runners, do the same in a step before running tests; [`examples/github-actions`](examples/github-actions/) is a workflow ready to copy that installs pingmock and the profile.
 
 ## Docker
 

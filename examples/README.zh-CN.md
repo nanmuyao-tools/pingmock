@@ -8,5 +8,6 @@
 | [`python-demo/`](python-demo/) | 在 `pingmock exec` 下用 pytest 测试一段用 ping 检查网络状态的 Python 代码，通过 HTTP 调用控制 API |
 | [`shell-demo/`](shell-demo/) | 只用 `bash`、`ping` 和 `curl`，测试一个线路切换的 Shell 脚本 |
 | [`compose-demo/`](compose-demo/) | 用 Docker Compose 让 Shell 示例中的脚本作为服务运行在 pingmock 的网络里，包括现场演示和测试 |
+| [`github-actions/`](github-actions/) | 一份可以直接复制的 GitHub Actions 配置：从发布页安装 pingmock，在 Ubuntu 的 AppArmor 限制下为它放行，然后运行测试 |
 | [`pingmock.yaml`](pingmock.yaml) | 一个用到了各种规则、带注释的配置文件 |
 | [`docker-compose.yml`](docker-compose.yml) | 用 Docker Compose 让被测程序运行在 pingmock 的网络里 |

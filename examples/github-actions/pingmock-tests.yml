@@ -1,0 +1,51 @@
+# Runs a project's tests under pingmock on GitHub Actions. Copy this file to
+# .github/workflows/ in your repository and adapt the last step to your
+# tests; see README.md.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  PINGMOCK_VERSION: v0.5.0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # The release binary for this machine, checked against the release's
+      # SHA256SUMS before it is installed.
+      - name: Install pingmock
+        run: |
+          base="https://github.com/nanmuyao/pingmock/releases/download/$PINGMOCK_VERSION"
+          file="pingmock-linux-$(dpkg --print-architecture)"
+          curl -fsSLO "$base/$file"
+          curl -fsSLO "$base/SHA256SUMS"
+          sha256sum --check --ignore-missing SHA256SUMS
+          sudo install -m 755 "$file" /usr/local/bin/pingmock
+          rm "$file" SHA256SUMS
+          pingmock -version
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces with AppArmor;
+      # this profile allows them for /usr/local/bin/pingmock alone, so that
+      # pingmock exec works without sudo.
+      - name: Allow pingmock to create user namespaces
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/nanmuyao/pingmock/$PINGMOCK_VERSION/contrib/apparmor/pingmock" |
+            sudo tee /etc/apparmor.d/pingmock >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/pingmock
+
+      # Your tests, under pingmock exec. For example, with Python:
+      #   run: pingmock exec -config pingmock.yaml -- python -m pytest
+      - name: Test
+        run: go test -exec "pingmock exec -config pingmock.yaml --" ./...

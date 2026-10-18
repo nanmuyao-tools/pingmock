@@ -95,6 +95,6 @@ offline: no host answers (6 unreachable errors)
 
 1. Copy [`conftest.py`](conftest.py) into your tests' directory; tests get the client by taking a `pingmock` argument
 2. Write a configuration file with the network the tests start from
-3. Install the dependencies first, then run the tests with `pingmock exec -config pingmock.yaml -- python3 -m pytest`, in CI as well. GitHub Actions' Ubuntu runners need the AppArmor profile installed first; see [Requirements](../../README.md#requirements)
+3. Install the dependencies first, then run the tests with `pingmock exec -config pingmock.yaml -- python3 -m pytest`, in CI as well. [`examples/github-actions`](../github-actions/) is a workflow ready to copy
 
 The same approach works in any language: read the address from `PINGMOCK_API` and call the [control API](../../README.md#runtime-control-api) with that language's HTTP library.

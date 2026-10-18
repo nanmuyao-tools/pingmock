@@ -92,3 +92,36 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: false
+
+  # Runs the steps of examples/github-actions/pingmock-tests.yml exactly as
+  # written there, so that the workflow users copy is known to work. Like
+  # that workflow, it installs the release named in its PINGMOCK_VERSION;
+  # the tests are those of examples/go-demo, which uses the same release.
+  # GOFLAGS=-v lists the tests, so that skipped ones fail this job.
+  workflow-example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: The GitHub Actions example's steps
+        run: |
+          wf=examples/github-actions/pingmock-tests.yml
+          run_step() {
+            local script
+            script=$(yq ".jobs.test.steps[] | select(.name == \"$1\") | .run" "$wf")
+            if [ -z "$script" ] || [ "$script" = null ]; then
+              echo "no step named '$1' in $wf"
+              exit 1
+            fi
+            bash -e -c "$script"
+          }
+          PINGMOCK_VERSION=$(yq '.env.PINGMOCK_VERSION' "$wf")
+          export PINGMOCK_VERSION
+          (cd "$RUNNER_TEMP" && run_step "Install pingmock")
+          run_step "Allow pingmock to create user namespaces"
+          cd examples/go-demo
+          GOFLAGS=-v run_step "Test" | tee test.out
+          grep -q -- '--- PASS' test.out
+          ! grep -E -- '--- (SKIP|FAIL)' test.out
