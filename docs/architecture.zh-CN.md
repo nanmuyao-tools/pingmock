@@ -127,7 +127,7 @@ main.go: main
 2. **[`rule/spec.go`](../internal/rule/spec.go)** 中的 `Spec.Decide`：一条规则如何决定一个请求的结果，不到 30 行
 3. **[`engine/ruleset.go`](../internal/engine/ruleset.go)** 中的 `RuleSet.Decide` 和 `advance`：如何为每个目标选择规则和阶段
 4. **[`responder/responder.go`](../internal/responder/responder.go)**：主循环，把上面几步串起来，不到 100 行
-5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**：数据包的格式细节。如果不关心网络协议，可以先跳过
+5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**：数据包的格式细节。如果不关心网络协议，可以先跳过；想深入了解的话，[数据包详解](packets.zh-CN.md)逐字节讲解了它处理的每个字段
 6. **[`app/`](../internal/app/)**：参数解析、启动和 exec 模式
 
 ## 测试在哪里

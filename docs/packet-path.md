@@ -157,7 +157,7 @@ Having read the packet, [`Responder.handle`](../internal/responder/responder.go)
 2. asks [`RuleSet.Decide`](../internal/engine/ruleset.go) what to do according to the rules: reply, drop or answer unreachable, and after how long. Here: reply after 50ms;
 3. builds the reply with [`BuildEchoReply`](../internal/icmp/icmp.go): **it swaps the source and destination addresses**, changes the ICMP type from 8 (request) to 0 (reply), recomputes the checksums, and **keeps everything else as it was**, including the time of sending that ping put in the data.
 
-`Serve` then writes the reply to the device after 50ms with `time.AfterFunc`. If the rule drops the request, nothing is written. See the [code tour](architecture.md) for more.
+`Serve` then writes the reply to the device after 50ms with `time.AfterFunc`. If the rule drops the request, nothing is written. See the [code tour](architecture.md) for more, and [Inside the packets](packets.md) for what every byte of the request and reply means.
 
 ## Return: how the reply gets back to ping
 

@@ -157,7 +157,7 @@ pingmock 的主循环 [`Responder.Serve`](../internal/responder/responder.go) �
 2. 用 [`RuleSet.Decide`](../internal/engine/ruleset.go) 按规则决定：回复、丢弃还是返回不可达，延迟多久。这里是"50ms 后回复"
 3. 用 [`BuildEchoReply`](../internal/icmp/icmp.go) 构造应答：**对调源地址和目标地址**，ICMP 类型从 8（请求）改成 0（应答），重新计算校验和，**其余内容原样保留**，包括数据里 ping 写入的发送时间
 
-然后 `Serve` 用 `time.AfterFunc` 在 50ms 后把应答写回网卡。如果规则决定丢弃，就什么都不写。详见[代码导读](architecture.zh-CN.md)。
+然后 `Serve` 用 `time.AfterFunc` 在 50ms 后把应答写回网卡。如果规则决定丢弃，就什么都不写。详见[代码导读](architecture.zh-CN.md)；请求和应答里每个字节的含义，参见[数据包详解](packets.zh-CN.md)。
 
 ## 回程：应答怎样回到 ping
 

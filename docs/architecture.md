@@ -127,7 +127,7 @@ The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../
 2. **`Spec.Decide`** in [`rule/spec.go`](../internal/rule/spec.go): how a rule decides the outcome of a request, under 30 lines
 3. **`RuleSet.Decide` and `advance`** in [`engine/ruleset.go`](../internal/engine/ruleset.go): how each target gets its rule and phase
 4. **[`responder/responder.go`](../internal/responder/responder.go)**: the main loop that ties these together, under 100 lines
-5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**: the packet formats; skip it at first if network protocols do not interest you
+5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**: the packet formats; skip it at first if network protocols do not interest you, or read [Inside the packets](packets.md), which goes through every field it handles, byte by byte
 6. **[`app/`](../internal/app/)**: flags, starting up and exec
 
 ## Where the tests are
