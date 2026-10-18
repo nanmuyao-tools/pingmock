@@ -354,6 +354,8 @@ Run the test command under `pingmock exec` and call the [control API](#runtime-c
 pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
 ```
 
+[`examples/python-demo`](examples/python-demo/) is a complete example, with a pytest fixture you can copy.
+
 ```python
 import os, requests
 

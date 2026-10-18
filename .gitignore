@@ -4,3 +4,5 @@
 *.out
 test.out
 /examples/go-demo/fastest
+__pycache__/
+.pytest_cache/

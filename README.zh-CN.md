@@ -354,6 +354,8 @@ func TestPicksFastestServer(t *testing.T) {
 pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
 ```
 
+[`examples/python-demo`](examples/python-demo/) 是一个完整的示例，其中的 pytest fixture 可以直接复制使用。
+
 ```python
 import os, requests
 

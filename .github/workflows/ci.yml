@@ -54,6 +54,17 @@ jobs:
           go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # Likewise for the Python example: its summary line must say that
+      # every test passed, with none skipped.
+      - name: Python example, rootless
+        working-directory: examples/python-demo
+        run: |
+          pip install -r requirements.txt
+          "$GITHUB_WORKSPACE/pingmock" exec -config pingmock.yaml -- python -m pytest -v -p no:cacheprovider | tee test.out
+          tail -n 1 test.out | grep -E '^=+ [0-9]+ passed in [0-9.]+s =+$'
       - name: pingmock exec, as root
         run: sudo test/e2e-exec.sh
 
