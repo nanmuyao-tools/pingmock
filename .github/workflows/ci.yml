@@ -24,6 +24,19 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: stable
+      # What pingmock depends on that differs between images, so that a
+      # failure on one image can be compared with a success on the other.
+      - name: Environment
+        run: |
+          grep PRETTY_NAME /etc/os-release
+          echo "kernel: $(uname -r)"
+          for key in kernel.apparmor_restrict_unprivileged_userns kernel.unprivileged_userns_clone user.max_user_namespaces; do
+            echo "$key: $(sysctl -n "$key" 2>/dev/null || echo absent)"
+          done
+          ls -l /dev/net/tun
+          ip -V
+          ping -V
+          apparmor_parser --version | head -n 1
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Verify dependencies
