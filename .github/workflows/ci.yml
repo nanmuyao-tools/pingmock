@@ -107,7 +107,8 @@ jobs:
           go-version: stable
       - name: The GitHub Actions example's steps
         run: |
-          wf=examples/github-actions/pingmock-tests.yml
+          # Absolute: the steps run in other directories.
+          wf="$GITHUB_WORKSPACE/examples/github-actions/pingmock-tests.yml"
           run_step() {
             local script
             script=$(yq ".jobs.test.steps[] | select(.name == \"$1\") | .run" "$wf")
