@@ -36,7 +36,7 @@
     sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```
 
-`ubuntu-latest`（Ubuntu 24.04）通过 AppArmor 限制了普通用户创建用户命名空间，没有这一步，`pingmock exec` 会失败，错误信息会提到 `apparmor_restrict_unprivileged_userns`。
+GitHub 的 Ubuntu 机器通过 AppArmor 限制了普通用户创建用户命名空间：Ubuntu 24.04 是这样，`ubuntu-latest` 在 2026-10-19 至 2026-11-19 之间迁移到的 Ubuntu 26.04 也是这样。没有这一步，`pingmock exec` 会失败，错误信息会提到 `apparmor_restrict_unprivileged_userns`。
 
 这一步安装的 [AppArmor 配置](../../contrib/apparmor/pingmock)**只为 `/usr/local/bin/pingmock` 放行**，不影响机器上的其他程序；它里面写的路径正好是第 1 步的安装位置，所以不需要修改。配置文件取自和程序相同的版本。
 
@@ -65,4 +65,4 @@
 
 ## 这份配置经过了验证
 
-本仓库的 CI 会**从这份文件中提取每一步的命令，原样执行**：安装 `PINGMOCK_VERSION` 指定的正式版，安装 AppArmor 配置，然后运行 [go-demo](../go-demo/) 的测试，并且要求所有测试都通过、没有被跳过。所以照着复制，就能得到一份可用的配置。
+本仓库的 CI 会**从这份文件中提取每一步的命令，原样执行**，而且在 Ubuntu 24.04 和 26.04 上各执行一遍：安装 `PINGMOCK_VERSION` 指定的正式版，安装 AppArmor 配置，然后运行 [go-demo](../go-demo/) 的测试，并且要求所有测试都通过、没有被跳过。所以照着复制，就能得到一份可用的配置，无论 `ubuntu-latest` 迁移前还是迁移后。

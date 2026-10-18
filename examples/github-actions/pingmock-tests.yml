@@ -36,9 +36,9 @@ jobs:
           rm "$file" SHA256SUMS
           pingmock -version
 
-      # Ubuntu 24.04 restricts unprivileged user namespaces with AppArmor;
-      # this profile allows them for /usr/local/bin/pingmock alone, so that
-      # pingmock exec works without sudo.
+      # Ubuntu 24.04 and 26.04 restrict unprivileged user namespaces with
+      # AppArmor; this profile allows them for /usr/local/bin/pingmock alone,
+      # so that pingmock exec works without sudo.
       - name: Allow pingmock to create user namespaces
         run: |
           curl -fsSL "https://raw.githubusercontent.com/nanmuyao/pingmock/$PINGMOCK_VERSION/contrib/apparmor/pingmock" |

@@ -15,7 +15,7 @@ jobs:
   release:
     # Pinned rather than ubuntu-latest: the release must be reliable, so it
     # does not follow the label's migration (Ubuntu 26 from 2026-10-19). CI
-    # and the workflow example stay on ubuntu-latest to catch changes early.
+    # tests on both Ubuntu 24.04 and 26.04, so changes show up there first.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -77,7 +77,7 @@ jobs:
     needs: release
     # Pinned rather than ubuntu-latest: the release must be reliable, so it
     # does not follow the label's migration (Ubuntu 26 from 2026-10-19). CI
-    # and the workflow example stay on ubuntu-latest to catch changes early.
+    # tests on both Ubuntu 24.04 and 26.04, so changes show up there first.
     runs-on: ubuntu-24.04
     permissions:
       contents: read

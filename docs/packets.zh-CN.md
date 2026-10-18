@@ -251,14 +251,27 @@ pingmock 必须把两个校验和都算对吗？实验的结论是：**取决于
 | 应答里出错的是 | 内核的反应 | 系统 `ping` 命令（原始套接字） | 不需要 root 的 ping 套接字 |
 |---|---|---|---|
 | IP 头的校验和 | 计数 `Ip InHdrErrors` +1，**丢弃** | 收不到 | 收不到 |
-| ICMP 的校验和 | 计数 `Icmp InCsumErrors` +1 | **依然收到，而且不报错** | 收不到 |
+| ICMP 的校验和 | 计数 `Icmp InCsumErrors` +1 | 收到；新版 iputils 会标出 `(BAD CHECKSUM!)`，旧版**不报错** | 收不到 |
 
 ICMP 校验和出错时，各方的表现不同，原因有两个：
 
 1. **原始套接字（`SOCK_RAW`）在内核检查 ICMP 校验和之前就拿到了一份副本。** 内核发现校验和错误后，放弃的只是它自己的处理，已经复制给原始套接字的那份不会收回。而不需要 root 的 ping 套接字（`SOCK_DGRAM`）是在内核检查**之后**才交付的，所以会被丢弃。
-2. **iputils 的 `ping` 对回显应答不检查校验和。** 它在 [`ping4_parse_reply`](https://github.com/iputils/iputils/blob/20240117/ping/ping.c#L1647) 中算出了校验和是否正确（`csfailed`），但在处理回显应答时，传给 `gather_statistics` 的这个参数[写死成了 `0`](https://github.com/iputils/iputils/blob/20240117/ping/ping.c#L1658)，所以 `(BAD CHECKSUM!)` 的提示永远不会出现。它只在"目标不可达"等错误消息中使用这个结果。（以上基于 iputils 20240117 版本。）
+2. **iputils 的 `ping` 是否报告，取决于它的版本。** `ping` 在 `ping4_parse_reply` 中会算出校验和是否正确（`csfailed`），但 iputils 曾经有一个 bug：处理回显应答时，传给 `gather_statistics` 的这个参数被[写死成了 `0`](https://github.com/iputils/iputils/blob/20240117/ping/ping.c#L1658)，所以 `(BAD CHECKSUM!)` 的提示永远不会出现。这个 bug 由提交 [`bacf1b7`](https://github.com/iputils/iputils/commit/bacf1b7bb8555c407d065e97015319abef2a742d)（"ping: fix IPv4 checksum check always succeeding once again"）修复，从 **iputils 20240905** 开始生效：
 
-被测软件可能用系统的 `ping` 命令，也可能用程序库发 ping，后者常常使用 ping 套接字。pingmock 无法知道对方用的是哪种方式，所以两个校验和都必须正确。这也是 `icmp` 包的测试会验证每一个构造出的包的校验和，并且用独立实现交叉验证 IPv6 校验和的原因。
+| iputils 版本 | 例如 | 回显应答的 ICMP 校验和错误时 |
+|---|---|---|
+| 20240117 及更早 | Ubuntu 24.04 | 正常显示，没有任何提示 |
+| 20240905 及更新 | Ubuntu 26.04（20250605） | 在这一行末尾标出 `(BAD CHECKSUM!)` |
+
+以 20250605 为例，同一个校验和被弄坏的应答：
+
+```
+64 bytes from 10.98.0.1: icmp_seq=1 ttl=64 time=0.218 ms (BAD CHECKSUM!)
+```
+
+（这是从源码编译 iputils 20250605 后实测的结果；20240117 的输出是同一行，但没有末尾的提示。）
+
+被测软件可能用系统的 `ping` 命令，也可能用程序库发 ping，后者常常使用 ping 套接字。无论哪种方式，校验和错误都会被发现：要么应答被丢弃，要么被标为错误。所以 pingmock 的两个校验和都必须正确。这也是 `icmp` 包的测试会验证每一个构造出的包的校验和，并且用独立实现交叉验证 IPv6 校验和的原因。
 
 ## 10. 数据部分为什么必须原样保留
 

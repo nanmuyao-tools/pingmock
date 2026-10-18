@@ -36,7 +36,7 @@ Copy it into your repository's `.github/workflows/` directory and change the las
     sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```
 
-`ubuntu-latest` (Ubuntu 24.04) restricts unprivileged user namespaces with AppArmor; without this step `pingmock exec` fails, with an error that mentions `apparmor_restrict_unprivileged_userns`.
+GitHub's Ubuntu runners restrict unprivileged user namespaces with AppArmor: Ubuntu 24.04, and Ubuntu 26.04, which `ubuntu-latest` moves to between 2026-10-19 and 2026-11-19, alike. Without this step `pingmock exec` fails, with an error that mentions `apparmor_restrict_unprivileged_userns`.
 
 The [AppArmor profile](../../contrib/apparmor/pingmock) it installs **only allows them for `/usr/local/bin/pingmock`** and affects nothing else on the machine; the path in it is exactly where step 1 installs pingmock, so it needs no change. It comes from the same version as the binary.
 
@@ -65,4 +65,4 @@ Replace this with your own tests. For other languages, see the matching example:
 
 ## This workflow is tested
 
-This repository's CI **takes the commands of each step from this file and runs them as written**: it installs the release named in `PINGMOCK_VERSION`, installs the AppArmor profile, and runs [go-demo](../go-demo/)'s tests, requiring all of them to pass with none skipped. What you copy is known to work.
+This repository's CI **takes the commands of each step from this file and runs them as written**, on both Ubuntu 24.04 and 26.04: it installs the release named in `PINGMOCK_VERSION`, installs the AppArmor profile, and runs [go-demo](../go-demo/)'s tests, requiring all of them to pass with none skipped. What you copy is known to work, before and after `ubuntu-latest` moves.

@@ -250,14 +250,27 @@ Does pingmock have to get both checksums right? Experiments say **it depends on 
 | Wrong in the reply | The kernel | The system `ping` command (raw socket) | An unprivileged ping socket |
 |---|---|---|---|
 | the IP header checksum | counts `Ip InHdrErrors` and **drops it** | gets nothing | gets nothing |
-| the ICMP checksum | counts `Icmp InCsumErrors` | **still gets it, without a warning** | gets nothing |
+| the ICMP checksum | counts `Icmp InCsumErrors` | gets it; recent iputils marks it `(BAD CHECKSUM!)`, older versions **say nothing** | gets nothing |
 
 With a wrong ICMP checksum the receivers disagree, for two reasons:
 
 1. **A raw socket (`SOCK_RAW`) gets its copy before the kernel checks the ICMP checksum.** On finding the checksum wrong, the kernel abandons only its own handling; the copy already given to raw sockets stays with them. An unprivileged ping socket (`SOCK_DGRAM`) is served **after** that check, so it never sees the packet.
-2. **iputils' `ping` does not check the checksum of echo replies.** [`ping4_parse_reply`](https://github.com/iputils/iputils/blob/20240117/ping/ping.c#L1647) works out whether the checksum is right (`csfailed`), but for echo replies it passes [a hard-coded `0`](https://github.com/iputils/iputils/blob/20240117/ping/ping.c#L1658) to `gather_statistics` in its place, so `(BAD CHECKSUM!)` is never printed for them. It only uses the result for error messages such as "destination unreachable". (This is iputils 20240117.)
+2. **Whether iputils' `ping` reports it depends on its version.** `ping` works out in `ping4_parse_reply` whether the checksum is right (`csfailed`), but iputils had a bug: for echo replies it passed [a hard-coded `0`](https://github.com/iputils/iputils/blob/20240117/ping/ping.c#L1658) to `gather_statistics` in its place, so `(BAD CHECKSUM!)` was never printed for them. Commit [`bacf1b7`](https://github.com/iputils/iputils/commit/bacf1b7bb8555c407d065e97015319abef2a742d) ("ping: fix IPv4 checksum check always succeeding once again") fixed it, from **iputils 20240905** on:
 
-The software under test may run the system's `ping`, or send pings through a library, which often uses a ping socket. pingmock cannot know which, so both checksums must be right. This is why the `icmp` tests verify the checksums of every packet they build, and why the IPv6 checksum was cross-checked against an independent implementation.
+| iputils version | For example | Echo reply with a wrong ICMP checksum |
+|---|---|---|
+| 20240117 and earlier | Ubuntu 24.04 | shown as usual, without a warning |
+| 20240905 and later | Ubuntu 26.04 (20250605) | marked `(BAD CHECKSUM!)` at the end of the line |
+
+With 20250605, the same reply with its checksum broken:
+
+```
+64 bytes from 10.98.0.1: icmp_seq=1 ttl=64 time=0.218 ms (BAD CHECKSUM!)
+```
+
+(Measured with iputils 20250605 built from source; 20240117 prints the same line without the warning.)
+
+The software under test may run the system's `ping`, or send pings through a library, which often uses a ping socket. Either way a wrong checksum is noticed: the reply is dropped or flagged. So both of pingmock's checksums must be right. This is why the `icmp` tests verify the checksums of every packet they build, and why the IPv6 checksum was cross-checked against an independent implementation.
 
 ## 10. Why the data must be kept as it is
 
