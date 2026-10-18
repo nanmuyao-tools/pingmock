@@ -20,13 +20,14 @@
 
 ### 3. README 开头加一段演示动画
 
-- [ ] 用真实的命令输出生成（[asciinema](https://asciinema.org) 或 SVG），展示一条 `pingmock exec` 命令怎样改变程序的选择，例如 [go-demo](examples/go-demo/) 的 `fastest` 程序在不同规则下选出不同的服务器
-- [ ] 写一段 30 秒能看懂的介绍：解决什么问题 → 一个最短的示例 → 和 `tc netem` 的区别（按目标地址设置、运行中可修改、不需要 root）
+- [x] 用真实的命令输出生成（[asciinema](https://asciinema.org) 或 SVG），展示一条 `pingmock exec` 命令怎样改变程序的选择，例如 [go-demo](examples/go-demo/) 的 `fastest` 程序在不同规则下选出不同的服务器：[`docs/demo/record.sh`](docs/demo/record.sh) 录制，结果在 [`docs/demo/demo.svg`](docs/demo/demo.svg)
+- [ ] 现在的录像是在没有 IPv6 的容器里录的，开头有一行 IPv6 不可用的提示，版本号也是伪版本。发布 v0.5.1 之后，在有 IPv6 的机器上用 `VERSION=v0.5.1 docs/demo/record.sh` 重录一次
+- [x] 写一段 30 秒能看懂的介绍：解决什么问题 → 一个最短的示例 → 和 `tc netem` 的区别（按目标地址设置、运行中可修改、不需要 root）
 
 ### 4. 准备收集反馈的渠道（要在发帖之前完成）
 
-- [ ] 开启 GitHub Discussions，用来回答使用问题、讨论想法
-- [ ] 添加 issue 模板：bug 报告（版本、系统、复现步骤）和功能建议（使用场景）
+- [ ] 开启 GitHub Discussions，用来回答使用问题、讨论想法（仓库 Settings → General → Features → Discussions；issue 模板的「Question or idea to discuss」链接已经指向它，开启前这个链接是 404）
+- [x] 添加 issue 模板：bug 报告（版本、系统、复现步骤）和功能建议（使用场景）
 
 ### 5. 起草推广帖子，由作者本人发布
 
