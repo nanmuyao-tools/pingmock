@@ -54,6 +54,31 @@ if [ "$status" != 0 ]; then echo "--- compose log:"; tail -n 30 /tmp/compose.log
 same "the Compose example runs the app against pingmock" "$status" 0
 grep -q 'time=5[0-9]' /tmp/compose.log && pass "the Compose app sees the 50ms rule" || fail "no 50ms replies in the Compose output"
 
+# The one-command demo at the top of the READMEs, taken from them as written
+# (between <!-- docker-demo --> markers), run with the image just built and
+# with the published one that readers get.
+readme_demo() { awk '/<!-- docker-demo -->/ { f = 1; next } /<!-- \/docker-demo -->/ { f = 0 } f' "$1" | sed '/^```/d'; }
+demo_en=$(readme_demo README.md)
+demo_zh=$(readme_demo README.zh-CN.md)
+[ -n "$demo_en" ] || fail "no <!-- docker-demo --> block in README.md"
+same "the Docker demo command is the same in both READMEs" "$demo_zh" "$demo_en"
+for image in "$IMAGE" ghcr.io/nanmuyao/pingmock; do
+  cmd=${demo_en//ghcr.io\/nanmuyao\/pingmock/$image}
+  # The demo ends with a ping to an unreachable host, so it exits with
+  # ping's status 1; what it shows is what is checked.
+  out=$(bash -c "$cmd" 2>&1) || true
+  echo "--- the README's Docker demo with $image:"
+  echo "$out"
+  times=$(grep -o 'time=[0-9.]*' <<<"$out" | cut -d= -f2 | tr '\n' ' ')
+  awk -v t="$times" 'BEGIN { n = split(t, a, " "); if (n != 6) exit 1
+    for (i = 1; i <= 3; i++) if (a[i] < 18 || a[i] > 30) exit 1
+    for (i = 4; i <= 6; i++) if (a[i] < 295 || a[i] > 320) exit 1 }' ||
+    fail "the README's Docker demo with $image: want 3 replies near 20ms then 3 near 300ms, got: $times"
+  same "the README's Docker demo with $image reports the unreachable host" \
+    "$(grep -c 'Destination Host Unreachable' <<<"$out" || true)" 2
+  pass "the README's Docker demo with $image: $times"
+done
+
 # examples/compose-demo: the tests on their own, then the monitor reacting
 # to a rule changed from the host, as its README shows.
 demo() { PINGMOCK_IMAGE=$IMAGE docker compose -f "$DEMO" "$@"; }

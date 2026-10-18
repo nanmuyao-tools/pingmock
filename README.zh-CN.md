@@ -18,6 +18,17 @@ pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
 
 和 `tc netem` 相比：规则按**目标地址**设置，而不是按网卡；可以通过 HTTP API **在程序运行中修改**；`pingmock exec` **不需要 root**，也不影响宿主机的网络。
 
+**用 Docker 马上试一试**，什么都不用安装。pingmock 让 10.99.0.1 前三个 ping 在 20ms 后回复、之后变成 300ms，并让 10.99.0.2 返回"目标不可达"：
+
+<!-- docker-demo -->
+```bash
+docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao/pingmock -c '
+  pingmock -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
+  until wget -q -O /dev/null 127.0.0.1:9100/rules 2>/dev/null; do kill -0 $! 2>/dev/null || exit 1; sleep 0.1; done
+  ping -c 6 -i 0.5 10.99.0.1; ping -c 2 -i 0.5 10.99.0.2'
+```
+<!-- /docker-demo -->
+
 ## 原理
 
 pingmock 创建一块 TUN 虚拟网卡，把测试网段（默认是 `10.99.0.0/24` 和 `fd99::/64`）以及你指定的地址路由到它上面。内核会把发往这些地址的 echo 请求交给 pingmock，pingmock 按匹配的规则等待一段时间后回复，或者返回"目标不可达"错误，或者直接丢弃。

@@ -18,6 +18,17 @@ pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
 
 Compared to `tc netem`, rules are set per **target address** rather than per interface, they can be **changed while the program runs** through an HTTP API, and `pingmock exec` needs **no root** and leaves the host network alone.
 
+**Try it now with Docker**, with nothing to install. pingmock answers the first three pings to 10.99.0.1 in 20ms and the next ones in 300ms, and reports 10.99.0.2 unreachable:
+
+<!-- docker-demo -->
+```bash
+docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao/pingmock -c '
+  pingmock -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
+  until wget -q -O /dev/null 127.0.0.1:9100/rules 2>/dev/null; do kill -0 $! 2>/dev/null || exit 1; sleep 0.1; done
+  ping -c 6 -i 0.5 10.99.0.1; ping -c 2 -i 0.5 10.99.0.2'
+```
+<!-- /docker-demo -->
+
 ## How it works
 
 pingmock creates a TUN virtual network device and routes test subnets (`10.99.0.0/24` and `fd99::/64` by default), plus any addresses you choose, to it. The kernel hands every echo request sent to those addresses to pingmock, which waits according to the matching rule and then sends back a reply or a destination unreachable error, or drops the request.
