@@ -36,7 +36,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 		f.routed = append(f.routed, p)
 		return nil
 	}
-	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure))
+	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure, "v0.0.0-test"))
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -188,5 +188,42 @@ func TestAPIHistory(t *testing.T) {
 	f.do("GET", "/history", "", &resp)
 	if len(resp.Events) != 0 || resp.Total != 0 {
 		t.Errorf("after clear: %+v", resp)
+	}
+}
+
+func TestAPIResetAndVersion(t *testing.T) {
+	f := newAPIFixture(t)
+	f.do("PUT", "/rules/10.99.0.1", "5ms", nil)
+	f.rs.SaveBaseline() // as the command does once its startup rules are in
+	f.do("PUT", "/rules/10.99.0.1", "timeout", nil)
+	f.do("PUT", "/rules/10.99.0.2", "timeout", nil)
+	f.do("PUT", "/default", "unreachable", nil)
+	f.rs.Decide(netip.MustParseAddr("10.99.0.1"))
+	f.hist.Add(engine.Event{Dst: netip.MustParseAddr("10.99.0.1"), Seq: 1})
+
+	if code := f.do("POST", "/reset", "", nil); code != 204 {
+		t.Fatalf("POST /reset: %d", code)
+	}
+	var snap struct {
+		Default string
+		Rules   []struct{ Target, Rule string }
+		Stats   map[string]engine.TargetState
+	}
+	f.do("GET", "/rules", "", &snap)
+	if snap.Default != "delay=0s" || len(snap.Rules) != 1 || snap.Rules[0].Rule != "delay=5ms" || len(snap.Stats) != 0 {
+		t.Errorf("after reset: %+v", snap)
+	}
+	var hist struct{ Total uint64 }
+	f.do("GET", "/history", "", &hist)
+	if hist.Total != 0 {
+		t.Errorf("history after reset: %+v", hist)
+	}
+
+	var v struct{ Version string }
+	if code := f.do("GET", "/version", "", &v); code != 200 || v.Version != "v0.0.0-test" {
+		t.Errorf("GET /version: %d %+v", code, v)
+	}
+	if code := f.do("GET", "/reset", "", nil); code != 405 {
+		t.Errorf("GET /reset: %d, want 405", code)
 	}
 }

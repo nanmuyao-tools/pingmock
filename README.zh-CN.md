@@ -333,7 +333,16 @@ curl 'localhost:9100/history?target=10.99.0.1&limit=20'
 
 # 清空历史
 curl -X DELETE localhost:9100/history
+
+# 从头开始：规则和默认规则恢复成命令行和配置文件设定的样子，统计和历史清空，
+# 每个目标的场景和随机序列重新开始
+curl -X POST localhost:9100/reset
+
+# 这是哪个版本的 pingmock：{"version": "v0.6.0"}
+curl localhost:9100/version
 ```
+
+每个测试开始时先 `POST /reset`，不管前面的测试改过什么，它每次都从同样的状态出发。
 
 每条历史记录的格式如下。`result` 是 `reply`、`drop` 或 `unreachable`；`code` 只在不可达时出现；`delay` 在有响应时出现；`phase` 从 1 开始计数：
 
@@ -401,7 +410,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则，详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
+客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则、把一切恢复成启动时的样子（`Reset`，适合放在每个测试的开头），详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
 
 ### 其他语言
 

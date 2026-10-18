@@ -263,3 +263,67 @@ func TestIPv6Targets(t *testing.T) {
 		t.Errorf("fd99::1 and fd99::2 got the same random delay %v", x.Delay)
 	}
 }
+
+func TestResetRestoresBaseline(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "1ms", 7)
+	rs.Set(netip.MustParsePrefix("10.99.0.1/32"), mustScenario(t, "delay=5ms,pattern=.x"))
+	rs.SaveBaseline()
+
+	// A test changes everything: rules, default, and the targets' state.
+	rs.Set(netip.MustParsePrefix("10.99.0.1/32"), mustScenario(t, "timeout"))
+	rs.Set(netip.MustParsePrefix("10.99.0.2/32"), mustScenario(t, "unreachable"))
+	rs.SetDefault(mustScenario(t, "timeout"))
+	before := rs.Decide(addr("10.99.0.1")) // pattern position 1
+	rs.Decide(addr("10.99.0.9"))
+	if before.Outcome != rule.Drop {
+		t.Fatalf("changed rule not applied: %+v", before)
+	}
+
+	rs.Reset()
+	snap := rs.Snapshot()
+	if snap["default"].(rule.Scenario).String() != "delay=1ms" {
+		t.Errorf("default after reset = %v", snap["default"])
+	}
+	if rules := snap["rules"].([]map[string]any); len(rules) != 1 || rules[0]["target"] != "10.99.0.1/32" || rules[0]["rule"].(rule.Scenario).String() != "delay=5ms,pattern=.x" {
+		t.Errorf("rules after reset = %v", rules)
+	}
+	if stats := snap["stats"].(map[string]TargetState); len(stats) != 0 {
+		t.Errorf("stats after reset = %v", stats)
+	}
+	// Targets start their scenarios over: the pattern begins at ".", and
+	// the default rule applies to 10.99.0.2 again.
+	if d := rs.Decide(addr("10.99.0.1")); d.Outcome != rule.Reply || d.Phase != 1 {
+		t.Errorf("first decision after reset = %+v", d)
+	}
+	if d := rs.Decide(addr("10.99.0.2")); d.Rule != "default" || d.Delay != time.Millisecond {
+		t.Errorf("deleted rule still applies: %+v", d)
+	}
+}
+
+func TestResetRepeatsSeededSequence(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "0ms", 3)
+	rs.Set(netip.MustParsePrefix("10.99.0.0/24"), mustScenario(t, "loss=50%"))
+	rs.SaveBaseline()
+	run := func() string {
+		var b strings.Builder
+		for range 20 {
+			if rs.Decide(addr("10.99.0.1")).Outcome == rule.Drop {
+				b.WriteByte('x')
+			} else {
+				b.WriteByte('.')
+			}
+		}
+		return b.String()
+	}
+	first := run()
+	if strings.Count(first, "x") == 0 || strings.Count(first, ".") == 0 {
+		t.Fatalf("sequence %q has no variety", first)
+	}
+	if again := run(); again == first {
+		t.Fatalf("the sequence repeated without a reset: %q", first)
+	}
+	rs.Reset()
+	if again := run(); again != first {
+		t.Errorf("after reset %q, before %q", again, first)
+	}
+}

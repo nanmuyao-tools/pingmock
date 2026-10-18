@@ -54,10 +54,11 @@ func start(s *settings) (*instance, error) {
 		}
 		rs.Set(r.prefix, r.sc)
 	}
+	rs.SaveBaseline() // what POST /reset goes back to
 	hist := engine.NewHistory(s.history)
 
 	if s.api != "" {
-		if err := in.startAPI(s.api, api.NewHandler(rs, hist, router.Ensure)); err != nil {
+		if err := in.startAPI(s.api, api.NewHandler(rs, hist, router.Ensure, buildVersion())); err != nil {
 			dev.Close()
 			return nil, err
 		}
@@ -123,7 +124,7 @@ func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
 		log.Printf("rule %s: %s", r.prefix, r.sc)
 	}
 	if apiURL != "" {
-		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /default, GET /history)", apiURL)
+		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /default, GET /history, POST /reset)", apiURL)
 	}
 }
 

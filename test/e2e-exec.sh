@@ -44,6 +44,15 @@ changed=$(run -rule 10.99.0.1=10ms -- sh -c "
   ping -c 2 -i 0.2 10.99.0.1 | awk -F/ '/^rtt/ {print \$5}'")
 near "rules change through the API inside exec" "$changed" 120 6
 
+# POST /reset puts the startup rules back; GET /version names the build.
+reset=$(run -rule 10.99.0.1=10ms -- sh -c "
+  curl -sf -X PUT \"\$PINGMOCK_API/rules/10.99.0.1\" -d 120ms >/dev/null
+  curl -sf -X POST \"\$PINGMOCK_API/reset\"
+  ping -c 2 -i 0.2 10.99.0.1 | awk -F/ '/^rtt/ {print \$5}'")
+near "POST /reset restores the startup rules" "$reset" 10 5
+version=$(run -- sh -c 'curl -sf "$PINGMOCK_API/version"' | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+same "GET /version reports the build" "$version" "$("$PM" -version | cut -d' ' -f2)"
+
 # The host network is untouched while a run is in progress.
 run -- sleep 2 &
 bg=$!

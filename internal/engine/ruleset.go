@@ -60,6 +60,13 @@ type RuleSet struct {
 	def     *entry
 	rules   map[netip.Prefix]*entry
 	targets map[netip.Addr]*target
+
+	// baseline is what Reset restores: the default and the rules as of
+	// SaveBaseline, or of NewRuleSet if it was never called.
+	baseline struct {
+		def   rule.Scenario
+		rules map[netip.Prefix]rule.Scenario
+	}
 }
 
 // Option configures a RuleSet.
@@ -82,7 +89,34 @@ func NewRuleSet(def rule.Scenario, seed uint64, opts ...Option) *RuleSet {
 		o(rs)
 	}
 	rs.def = rs.newEntry(def)
+	rs.SaveBaseline()
 	return rs
+}
+
+// SaveBaseline makes the current default and rules what Reset restores.
+// The command calls it once its startup rules are installed.
+func (rs *RuleSet) SaveBaseline() {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.baseline.def = rs.def.sc
+	rs.baseline.rules = make(map[netip.Prefix]rule.Scenario, len(rs.rules))
+	for p, e := range rs.rules {
+		rs.baseline.rules[p] = e.sc
+	}
+}
+
+// Reset puts the default and the rules back as they were at the baseline
+// and forgets every target, so that scenario positions, counters and
+// random sequences start over as they did at startup.
+func (rs *RuleSet) Reset() {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.def = rs.newEntry(rs.baseline.def)
+	rs.rules = make(map[netip.Prefix]*entry, len(rs.baseline.rules))
+	for p, sc := range rs.baseline.rules {
+		rs.rules[p] = rs.newEntry(sc)
+	}
+	rs.targets = map[netip.Addr]*target{}
 }
 
 func (rs *RuleSet) Seed() uint64 { return rs.seed }

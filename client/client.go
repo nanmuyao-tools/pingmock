@@ -211,6 +211,26 @@ func (c *Client) ClearHistory(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/history", "", nil)
 }
 
+// Reset puts pingmock back as it was at startup: the rules and the default
+// from its command line and configuration file, no statistics and no
+// history. Targets restart their scenarios and their random sequences, so a
+// test that calls Reset first starts from the same state on every run.
+func (c *Client) Reset(ctx context.Context) error {
+	return c.do(ctx, http.MethodPost, "/reset", "", nil)
+}
+
+// Version returns the version of the running pingmock, as "pingmock
+// -version" prints it.
+func (c *Client) Version(ctx context.Context) (string, error) {
+	var resp struct {
+		Version string `json:"version"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/version", "", &resp); err != nil {
+		return "", err
+	}
+	return resp.Version, nil
+}
+
 func (c *Client) do(ctx context.Context, method, path, body string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, strings.NewReader(body))
 	if err != nil {

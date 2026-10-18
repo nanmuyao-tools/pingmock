@@ -20,7 +20,7 @@ func serve(t *testing.T) (*Client, *engine.RuleSet, *engine.History) {
 	def, _ := rule.ParseScenario("0ms")
 	rs := engine.NewRuleSet(def, 42)
 	hist := engine.NewHistory(100)
-	srv := httptest.NewServer(api.NewHandler(rs, hist, func(netip.Prefix) error { return nil }))
+	srv := httptest.NewServer(api.NewHandler(rs, hist, func(netip.Prefix) error { return nil }, "v0.0.0-test"))
 	t.Cleanup(srv.Close)
 	return New(srv.URL), rs, hist
 }
@@ -145,5 +145,35 @@ func TestNewAndFromEnv(t *testing.T) {
 	}
 	if New("http://example.test:1").URL() != "http://example.test:1" {
 		t.Error("explicit URL not used")
+	}
+}
+
+func TestResetAndVersion(t *testing.T) {
+	c, rs, hist := serve(t)
+	ctx := context.Background()
+	if err := c.SetRule(ctx, "10.99.0.1", "5ms"); err != nil {
+		t.Fatal(err)
+	}
+	rs.SaveBaseline()
+	c.SetRule(ctx, "10.99.0.1", "timeout")
+	c.SetDefault(ctx, "timeout")
+	rs.Decide(netip.MustParseAddr("10.99.0.1"))
+	hist.Add(engine.Event{Dst: netip.MustParseAddr("10.99.0.1")})
+
+	if err := c.Reset(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Default != "delay=0s" || len(s.Rules) != 1 || s.Rules[0] != (Rule{"10.99.0.1/32", "delay=5ms"}) || len(s.Stats) != 0 {
+		t.Errorf("state after reset = %+v", s)
+	}
+	if events, _ := c.History(ctx, "", 0); len(events) != 0 {
+		t.Errorf("history after reset = %+v", events)
+	}
+	if v, err := c.Version(ctx); err != nil || v != "v0.0.0-test" {
+		t.Errorf("Version() = %q, %v", v, err)
 	}
 }

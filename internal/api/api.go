@@ -16,9 +16,10 @@ import (
 )
 
 // NewHandler returns the HTTP control API. ensureRoute is called before a
-// rule is installed, so that pings to its target reach pingmock.
-func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error) http.Handler {
-	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute}
+// rule is installed, so that pings to its target reach pingmock. version is
+// what GET /version reports.
+func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error, version string) http.Handler {
+	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute, version: version}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rules", h.getRules)                  // default, rules and per-target stats
 	mux.HandleFunc("PUT /rules/{target...}", h.setRule)       // body: the text form or JSON
@@ -27,6 +28,8 @@ func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip
 	mux.HandleFunc("DELETE /stats", h.resetStats)             // zero all counters
 	mux.HandleFunc("GET /history", h.getHistory)              // ?target=IP-or-CIDR&limit=N
 	mux.HandleFunc("DELETE /history", h.clearHistory)         // forget recorded requests
+	mux.HandleFunc("POST /reset", h.reset)                    // everything as at startup
+	mux.HandleFunc("GET /version", h.getVersion)              // {"version": "v0.6.0"}
 	return mux
 }
 
@@ -34,6 +37,7 @@ type handler struct {
 	rules       *engine.RuleSet
 	history     *engine.History
 	ensureRoute func(netip.Prefix) error
+	version     string
 }
 
 func (h *handler) getRules(w http.ResponseWriter, r *http.Request) {
@@ -113,6 +117,18 @@ func (h *handler) getHistory(w http.ResponseWriter, r *http.Request) {
 func (h *handler) clearHistory(w http.ResponseWriter, r *http.Request) {
 	h.history.Clear()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// reset puts rules, default, statistics and history back as they were at
+// startup, so that a test starts from a known state whatever ran before.
+func (h *handler) reset(w http.ResponseWriter, r *http.Request) {
+	h.rules.Reset()
+	h.history.Clear()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *handler) getVersion(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"version": h.version})
 }
 
 // readScenario accepts the text form used by the -rule flag

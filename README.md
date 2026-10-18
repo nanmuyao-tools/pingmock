@@ -333,7 +333,16 @@ curl 'localhost:9100/history?target=10.99.0.1&limit=20'
 
 # Clear the history
 curl -X DELETE localhost:9100/history
+
+# Start over: the rules and default from the command line and configuration file,
+# no statistics, no history. Targets restart their scenarios and random sequences.
+curl -X POST localhost:9100/reset
+
+# Which pingmock this is: {"version": "v0.6.0"}
+curl localhost:9100/version
 ```
+
+`POST /reset` at the start of each test gives it the same state on every run, whatever the tests before it changed.
 
 Each history event looks like this. `result` is `reply`, `drop` or `unreachable`, `code` is present for unreachable answers, `delay` for anything that was answered, and `phase` counts from 1:
 
@@ -401,7 +410,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-The client also reads statistics (`Stats`), deletes rules and changes the default; see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
+The client also reads statistics (`Stats`), deletes rules, changes the default and puts everything back as at startup (`Reset`, for the beginning of each test); see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
 
 ### Other languages
 
