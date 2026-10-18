@@ -12,8 +12,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
       - name: Check formatting
@@ -56,7 +56,7 @@ jobs:
           go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       # Likewise for the Python example: its summary line must say that
@@ -79,15 +79,15 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Image and Compose example
         run: test/e2e-docker.sh
       # The release publishes amd64 and arm64 images; build both here, so a
       # problem shows up before a release does.
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - name: Build the release platforms
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -101,8 +101,8 @@ jobs:
   workflow-example:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: stable
       - name: The GitHub Actions example's steps
