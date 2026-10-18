@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api -X POST repos/nanmuyao/pingmock/git/tags *)",
+      "Bash(gh api -X POST repos/nanmuyao/pingmock/git/refs *)"
+    ]
+  }
+}
