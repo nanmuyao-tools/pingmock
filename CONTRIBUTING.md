@@ -12,7 +12,7 @@ make test         # go vet and unit tests with the race detector (no root needed
 make e2e          # build and run test/e2e.sh with sudo
 make e2e-exec     # pingmock exec, rootless and as root
 make e2e-docker   # the container image and the Compose example (needs Docker)
-make lint         # gofmt and go vet
+make lint         # gofmt, go vet and shellcheck
 ```
 
 CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks on every push and pull request.
@@ -35,7 +35,7 @@ internal/
 client/                  public Go client for the control API
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
 docs/                    the code tour, the packet path and the packet anatomy
-examples/                example configuration, Compose file and go-demo, a complete Go example
+examples/                example configuration, Compose file, and complete examples in Go, Python and shell
 test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-docker.sh
 scripts/release-notes.sh release notes from an annotated tag
 Dockerfile               the container image
@@ -43,7 +43,7 @@ Dockerfile               the container image
 
 Everything except `tun`, `app/instance.go` and `app/exec_linux.go` can be tested without root. `responder` takes any `io.ReadWriter`, so its tests feed it packets directly, and `engine` accepts a fake clock through `engine.WithClock`.
 
-Code under `internal/` is not part of the public API and may change at any time. `client/` is public: keep it compatible, and test it against the real API handler as its tests do. `examples/go-demo` uses it the way users do; CI runs its tests against the current code, so update the example along with the client.
+Code under `internal/` is not part of the public API and may change at any time. `client/` is public: keep it compatible, and test it against the real API handler as its tests do. `examples/go-demo` uses it the way users do; CI runs its tests, and those of the other examples, against the current code, so update the examples along with what they use.
 
 ## Guidelines
 

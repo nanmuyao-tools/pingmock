@@ -25,6 +25,7 @@ e2e-docker:
 lint:
 	@test -z "$$(gofmt -l .)" || (echo "gofmt needed:"; gofmt -l .; exit 1)
 	$(GO) vet ./...
+	shellcheck -S warning test/*.sh scripts/*.sh examples/*/*.sh
 
 clean:
 	rm -f pingmock

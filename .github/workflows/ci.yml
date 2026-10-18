@@ -20,6 +20,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Verify dependencies
         run: go mod verify
+      - name: Shell scripts
+        run: shellcheck -S warning test/*.sh scripts/*.sh examples/*/*.sh
       - name: Vet
         run: go vet ./...
       - name: Unit tests
@@ -65,6 +67,12 @@ jobs:
           pip install -r requirements.txt
           "$GITHUB_WORKSPACE/pingmock" exec -config pingmock.yaml -- python -m pytest -v -p no:cacheprovider | tee test.out
           tail -n 1 test.out | grep -E '^=+ [0-9]+ passed in [0-9.]+s =+$'
+      # And for the shell example: a skip prints SKIP, not a summary.
+      - name: Shell example, rootless
+        working-directory: examples/shell-demo
+        run: |
+          "$GITHUB_WORKSPACE/pingmock" exec -config pingmock.yaml -- ./test.sh | tee test.out
+          tail -n 1 test.out | grep -E '^[0-9]+ passed, 0 failed$'
       - name: pingmock exec, as root
         run: sudo test/e2e-exec.sh
 

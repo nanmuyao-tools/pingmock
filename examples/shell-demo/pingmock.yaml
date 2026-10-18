@@ -1,0 +1,8 @@
+# A network where both links work: the primary is faster. Run the script in
+# it with:
+#   pingmock exec -config pingmock.yaml -- ./failover.sh 10.99.0.1 10.99.0.2
+# test.sh sets the links itself for each test.
+
+rules:
+  10.99.0.1: 20ms   # primary
+  10.99.0.2: 40ms   # backup
