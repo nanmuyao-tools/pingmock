@@ -100,10 +100,59 @@ func (r *Router) Ensure(p netip.Prefix) error {
 	if r.routed[p] {
 		return nil
 	}
-	if err := IP("route", "replace", p.String(), "dev", r.dev); err != nil {
+	plan, kept, err := planRoutes(p, r.existing)
+	if err != nil {
 		return err
 	}
+	for _, q := range plan {
+		if err := IP("route", "replace", q.String(), "dev", r.dev); err != nil {
+			return err
+		}
+	}
 	r.routed[p] = true
-	log.Printf("routing %s through %s (hijacked: real traffic to it is mocked until exit)", p, r.dev)
+	if len(kept) == 0 {
+		log.Printf("routing %s through %s (hijacked: real traffic to it is mocked until exit)", p, r.dev)
+	} else {
+		parts := make([]string, len(plan))
+		for i, q := range plan {
+			parts[i] = q.String()
+		}
+		log.Printf("routing %s through %s as %s, leaving the host's %s in place (hijacked: real traffic to it is mocked until exit)",
+			p, r.dev, strings.Join(parts, " and "), strings.Join(kept, " and "))
+	}
 	return nil
+}
+
+// existing describes the routes of the main table for exactly p that do not
+// go through the device; see existingRoutes.
+func (r *Router) existing(p netip.Prefix) ([]string, error) {
+	args := []string{"-o", "-4"}
+	if p.Addr().Is6() {
+		args[1] = "-6"
+	}
+	args = append(args, "route", "show", "exact", p.String(), "table", "main")
+	out, err := exec.Command("ip", args...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("ip %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	var others []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		// "192.168.20.0/24 dev vlan20 proto kernel ..." or, for a route of a
+		// type without a device, "unreachable 172.31.0.0/16".
+		route := "type " + f[0]
+		for i := 0; i+1 < len(f); i++ {
+			if f[i] == "dev" {
+				route = "dev " + f[i+1]
+				break
+			}
+		}
+		if route != "dev "+r.dev {
+			others = append(others, route)
+		}
+	}
+	return others, nil
 }

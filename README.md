@@ -198,6 +198,8 @@ sudo ./pingmock -rule 8.8.8.8=120ms
 
 pingmock routes that address to its virtual device. **Note: while pingmock is running, all traffic from this machine to that address is intercepted**, not only ping. Normal routing comes back when pingmock exits. Running it on a test machine or in a container is recommended.
 
+A rule can also cover a whole network the host is on, such as `192.168.20.0/24` on a VLAN interface. pingmock then routes it as two halves, `192.168.20.0/25` and `192.168.20.128/25`, which are more specific and so take the traffic, and leaves the host's own route for the network in place, so that the host is not cut off from it when pingmock exits. It logs when it does so. A single address that already has a route of its own cannot be split around: pingmock refuses it rather than replace that route. `pingmock exec` has none of this to worry about, since it never touches the host's routes.
+
 If the software pings a hostname, point that name at an address in the test subnet in `/etc/hosts`, e.g. `10.99.0.1 api.example.com`.
 
 ### Configuration file

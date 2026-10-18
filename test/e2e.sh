@@ -105,4 +105,40 @@ else
   stop
 fi
 
+# A network the host is on: pingmock must take its traffic without replacing
+# the host's route for it, which would cut the host off from that network,
+# even after pingmock exits. The device pmhost0 stands for such a network.
+ip tuntap add dev pmhost0 mode tun
+trap 'stop; ip link del pmhost0 2>/dev/null || true' EXIT
+ip addr add 192.168.77.5/24 dev pmhost0
+ip link set pmhost0 up
+host_route() { ip -o "$1" route show exact "$2" table main | grep -c 'dev pmhost0' || true; }
+start -rule 192.168.77.0/24=60ms
+near "a network the host is on is mocked" "$(avg 192.168.77.9 2)" 60 5
+same "the host's route for it stays while pingmock runs" "$(host_route -4 192.168.77.0/24)" 1
+grep -q "leaving the host's route for 192.168.77.0/24 (dev pmhost0) in place" /tmp/pingmock-e2e.log &&
+  pass "pingmock logs that it left the route in place" || fail "no log line about the route left in place"
+stop
+same "the host's route for it stays after pingmock exits" "$(host_route -4 192.168.77.0/24)" 1
+
+# A single address with a route of its own cannot be split around: pingmock
+# refuses to start rather than replace that route.
+ip route add 192.168.77.99/32 dev pmhost0
+if ./pingmock -addr6= -api= -rule 192.168.77.99=5ms >/tmp/pingmock-e2e.log 2>&1; then
+  fail "pingmock started although 192.168.77.99 has a route of its own"
+fi
+grep -q "use pingmock exec" /tmp/pingmock-e2e.log && pass "an address with a route of its own is refused" ||
+  { cat /tmp/pingmock-e2e.log; fail "the refusal does not suggest pingmock exec"; }
+same "and its route stays" "$(host_route -4 192.168.77.99/32)" 1
+
+if [ -e /proc/net/if_inet6 ]; then
+  ip -6 addr add fd77::5/64 dev pmhost0 nodad
+  start -rule fd77::/64=60ms
+  near "IPv6: a network the host is on is mocked" "$(avg6 fd77::9 2)" 60 5
+  same "IPv6: the host's route for it stays while pingmock runs" "$(host_route -6 fd77::/64)" 1
+  stop
+  same "IPv6: the host's route for it stays after pingmock exits" "$(host_route -6 fd77::/64)" 1
+fi
+ip link del pmhost0
+
 echo "all checks passed"
