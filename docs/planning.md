@@ -6,6 +6,7 @@ This document records how pingmock's technical roadmap is planned, and the evide
 
 ## Principles
 
+- **Four core values, for every protocol.** Everything pingmock does has to be **transparent** (the program under test needs no change to its code or configuration), **per target** (every target can have its own conditions), **reproducible** (the same setup gives the same results every time) and **controllable and observable** (conditions can change during a test, and what the program did can be seen afterwards). Every protocol pingmock comes to support has to keep all four; **a design for a new protocol that cannot keep one of them must be reconsidered.** Definitions and examples are in [CONTRIBUTING](../CONTRIBUTING.md#design-principles).
 - **Test applications, not protocols.** The phrase comes from Toxiproxy's maintainers. pingmock helps people test programs that depend on ping, not study ICMP itself. A feature that does not help users test their own programs waits.
 - **Evidence first.** Every direction needs evidence that can be traced: an issue, an experiment, a compatibility test result. A direction without any waits, however useful it sounds.
 - **Verify the premises before designing; agree on the syntax before implementing.** Technical premises are checked by experiment. Syntax users will write into configuration files gets a design proposal agreed with the maintainer first, since it is hard to change once released.

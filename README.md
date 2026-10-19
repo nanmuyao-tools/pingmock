@@ -66,6 +66,17 @@ pingmock tests **programs that decide things from ping**. It does not slow real 
 
 netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. pingmock takes the test-oriented side of both and applies it to ping: faults are declared **per target address or prefix** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, rules change **while the program runs** through the API, and `pingmock exec` needs **no root** and changes nothing outside the command it runs.
 
+### What you can rely on
+
+Four things hold for everything pingmock does:
+
+| | What it means | How |
+|---|---|---|
+| **Transparent** | The program under test is not changed: no code, no configuration. It keeps pinging the addresses it always pings | A TUN device and routes catch the requests; even the `ping` command works as it is |
+| **Per target** | Every target can have its own network conditions | Rules apply to an address or a prefix |
+| **Reproducible** | The same setup gives the same results on every run | `-seed`, deterministic `pattern`, scenarios by count or time, `POST /reset` |
+| **Controllable and observable** | Conditions can change in the middle of a test, and afterwards you can see what the program really did | The HTTP API and the Go client, the request history and statistics |
+
 ## Installation
 
 The `ip` command (iproute2) must be available at runtime.
@@ -476,6 +487,7 @@ make e2e-docker   # the container image and the Compose example
 ## Limitations
 
 - Only ping (ICMP and ICMPv6 Echo) is mocked. TCP and UDP traffic to mocked addresses gets no response.
+- Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
 - traceroute and mtr see no route: pingmock ignores the TTL, so a mocked target looks one hop away, and traceroute's default UDP probes get no answer, so it never reaches the target. Simulating paths is planned.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.

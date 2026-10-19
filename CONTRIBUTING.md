@@ -2,6 +2,19 @@
 
 Thanks for your interest! Bug reports, ideas and pull requests are welcome. For anything larger than a small fix, please open an issue first so we can agree on the approach.
 
+## Design principles
+
+pingmock has four core values. Every feature has to keep all four, and so does **every protocol pingmock comes to support**:
+
+- **Transparent**: the program under test is not changed, neither its code nor its configuration. It keeps talking to the addresses, names and ports it always does.
+- **Per target**: every target (an address or prefix, and for other protocols a name or a port) can have its own conditions.
+- **Reproducible**: the same setup gives the same results on every run: random behavior follows `-seed`, and scenarios and `POST /reset` behave the same way for every protocol.
+- **Controllable and observable**: conditions can change while the program runs, through the API and its clients, and the history and statistics show what the program really did.
+
+**If a design cannot keep one of them, reconsider the design before writing code**, or do not add the feature. For example, a protocol that only works if the program is pointed at a proxy is not transparent, and a fault that cannot be reproduced with a seed is not reproducible.
+
+A second rule decides what to build at all: *test applications, not protocols*. A feature earns its place by helping people test their programs, not by covering more of a protocol. How the roadmap applies both is in [docs/planning.md](docs/planning.md).
+
 ## Development
 
 You need Linux, Go 1.22 or later, and iproute2. The end-to-end checks also need root, `ping` and `curl`.
