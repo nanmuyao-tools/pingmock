@@ -20,7 +20,7 @@ CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks 
 
 ## How the code is organized
 
-[docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. In short: [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on.
+[docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on. In short:
 
 ```
 main.go                  entry point; calls internal/app
