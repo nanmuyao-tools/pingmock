@@ -141,7 +141,20 @@ pingmock exec -rule www.baidu.com=80ms -- ./app      # 自动分配模拟地址
 - [ ] 回答 `-host` 和按域名写的规则，自动分配模拟地址
 - [ ] 为模拟的地址提供反向解析（v0.8 中 traceroute 显示中间节点的名字）
 - [ ] 不认识的域名，通过仍在宿主机网络中的父进程转发给真实的 DNS 服务器
-- [ ] 动手之前先逐项验证（来自 slirp4netns 用户踩过的坑）：`/etc/resolv.conf` 是符号链接（包括多层）；DNS 服务器是 `127.0.0.53`（systemd-resolved，在 `exec` 的独立网络中访问不到）；多个 DNS 服务器；搜索域；IPv6 的 AAAA 记录；父进程转发的可行性；默认网段和用户网络重叠
+- [x] 动手之前先逐项验证（来自 slirp4netns 用户踩过的坑）：`/etc/resolv.conf` 是符号链接（包括多层）；DNS 服务器是 `127.0.0.53`（systemd-resolved，在 `exec` 的独立网络中访问不到）；多个 DNS 服务器；搜索域；IPv6 的 AAAA 记录；父进程转发的可行性；默认网段和用户网络重叠。**已用原型验证**（一个 Go 程序：子进程在 `exec` 里跑 DNS 服务并替换 `resolv.conf`，父进程留在宿主机网络里转发；宿主机的 DNS 用一个只认识 `real.example` 的桩程序模拟，监听在 `127.0.0.53`）：
+
+  | 前提 | 结果 |
+  |---|---|
+  | `resolv.conf` 是两层符号链接 | 成立：bind mount 会沿着符号链接挂到最终文件上，程序照常读到替换后的内容；宿主机的链接和文件不变 |
+  | DNS 服务器是 `127.0.0.53` | 成立：子进程访问不到，但不需要访问；父进程在宿主机网络里能访问，转发正常 |
+  | 多个 DNS 服务器 | 成立：父进程按 `resolv.conf` 的顺序逐个尝试，第一个是死地址时 9ms 内换到第二个（连接被拒绝立即返回；真正超时时要靠 `options timeout`） |
+  | 搜索域 | 成立：替换后的 `resolv.conf` 保留宿主机的 `search` 和 `options`，只换 `nameserver`；`getent hosts api` 解析到 `api.test.example`。副作用：glibc 对已模拟域名的 AAAA 得到空回答后，会继续拿搜索域拼出的名字（`api.test.example.test.example`）去问，这些会被转发到真实 DNS；无害，但模拟的域名会以这种形式泄露给真实 DNS |
+  | AAAA | 成立：Python 的 `getaddrinfo` 拿到 `fd99::1`。glibc 的 `getent ahosts` 在本容器里拿不到，是因为内核没有 IPv6、glibc 的 `AI_ADDRCONFIG` 跳过了 AAAA，在有 IPv6 的机器上没有这个问题 |
+  | 父进程转发 | 成立：Unix 域套接字不受网络命名空间限制，子进程把原始 DNS 报文发给父进程，父进程原样转发给宿主机的 DNS 并把回答传回；glibc、Python、Go（纯 Go 解析器和 cgo 解析器）都正常；不存在的域名得到 NXDOMAIN |
+  | 模拟的域名优先于真实 DNS | 成立：`real.example` 既在真实 DNS 里又被模拟时，解析到模拟地址，真实 DNS 没有收到这个域名的 A/AAAA 查询 |
+  | 默认网段和用户网络重叠 | 只做了分析：自动分配的地址落在 TUN 的网段里，重叠问题和今天的 `-addr` 一样，不因 DNS 而变化；建议从网段的高端往下分配（`.253`、`.252`……），避开用户通常手写的低位地址 |
+
+  还发现两件事：(1) `ping` 会对模拟地址做反向解析（`1.0.99.10.in-addr.arpa` 被转发到了真实 DNS），所以 PTR 要在本地回答，否则每次 ping 都多一次外部查询；(2) 装了 `libnss-resolve` 的系统（`nsswitch.conf` 里 `hosts: ... resolve ...`）会通过 Unix 域套接字直接问 systemd-resolved，绕过 `resolv.conf`，而这个套接字同样跨网络命名空间——本容器没有它，无法验证；实现时若发现 `resolve`，用同样的 bind mount 把 `nsswitch.conf` 换成 `hosts: files dns`，并在有 systemd-resolved 的机器上验证
 
 ### v0.8　路径：traceroute 和 mtr
 
