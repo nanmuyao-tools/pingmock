@@ -47,6 +47,12 @@ near "count phase 2 (120ms afterwards)" "$(avg 10.99.0.4 2)" 120 5
 
 events=$(curl -sf "localhost:9100/history?target=10.99.0.3" | grep -c '"seq":' || true)
 same "history records every request" "$events" 9
+
+# ttl= sets the TTL of the replies; without it, 64.
+curl -sf -X PUT localhost:9100/rules/10.99.0.5 -d 'delay=1ms,ttl=128' >/dev/null
+ttl() { ping -c 1 -W 2 "$1" | grep -o 'ttl=[0-9]*' | head -1; }
+same "ttl=128 shows in ping" "$(ttl 10.99.0.5)" "ttl=128"
+same "the default TTL is 64" "$(ttl 10.99.0.1)" "ttl=64"
 stop
 
 # Destination unreachable: ping must report each code, and fail fast.

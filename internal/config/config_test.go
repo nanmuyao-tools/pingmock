@@ -85,7 +85,7 @@ func TestLoadExample(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *cfg.Seed != 42 || len(rules) != 6 {
+	if *cfg.Seed != 42 || len(rules) != 7 {
 		t.Errorf("example: seed %v, %d rules", cfg.Seed, len(rules))
 	}
 }
@@ -108,6 +108,7 @@ func TestLoadJSON(t *testing.T) {
 			"repeat": true
 		},
 		"10.99.0.5": "delay=50ms,unreachable=admin",
+		"10.99.0.6": {"delay": "25ms", "ttl": 128},
 		"8.8.8.8": "timeout"
 	}
 }`

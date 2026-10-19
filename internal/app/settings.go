@@ -98,7 +98,7 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	f.verbose = fs.Bool("v", false, "log every request")
 	f.config = fs.String("config", "", "YAML configuration file; flags given on the command line override it")
 	f.history = fs.Int("history", 1000, "number of recent requests kept for GET /history (0 disables)")
-	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, or phases such as \"50ms for 3 pings; timeout\"")
+	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, ttl=128, or phases such as \"50ms for 3 pings; timeout\"")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
 }

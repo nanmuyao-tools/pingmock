@@ -46,6 +46,7 @@ type Decision struct {
 	Outcome rule.Outcome
 	Code    rule.UnreachCode // set when Outcome is rule.Unreachable
 	Delay   time.Duration    // before the reply or unreachable message
+	TTL     uint8            // IP TTL or hop limit of the answer
 	Rule    string           // matching prefix, or "default"
 	Phase   int              // the phase that applied, counting from 1
 }
@@ -192,7 +193,8 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 		t.rng = rs.rngFor(dst)
 	}
 	advance(t, e.sc, now)
-	out, code, delay := e.sc.Phases[t.phase].Spec.Decide(t.phaseReqs, t.rng)
+	sp := e.sc.Phases[t.phase].Spec
+	out, code, delay := sp.Decide(t.phaseReqs, t.rng)
 	t.phaseReqs++
 	t.stats.Requests++
 	switch out {
@@ -203,7 +205,7 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 	case rule.Unreachable:
 		t.stats.Unreachable++
 	}
-	return Decision{Outcome: out, Code: code, Delay: delay, Rule: label, Phase: t.phase + 1}
+	return Decision{Outcome: out, Code: code, Delay: delay, TTL: sp.EffectiveTTL(), Rule: label, Phase: t.phase + 1}
 }
 
 // advance moves t past every phase of sc that has ended by now.

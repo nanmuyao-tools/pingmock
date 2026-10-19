@@ -34,6 +34,9 @@ rules:
   # A firewall rejects pings to this host after 50ms.
   10.99.0.5: delay=50ms,unreachable=admin
 
+  # Answers with TTL 128, as a Windows host would (the default is 64).
+  10.99.0.6: delay=25ms,ttl=128
+
   # A real address, mocked: nothing on this machine reaches the real 8.8.8.8
   # while pingmock runs.
   8.8.8.8: timeout

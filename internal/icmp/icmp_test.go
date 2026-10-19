@@ -41,7 +41,7 @@ func TestParseEchoRequestRejects(t *testing.T) {
 func TestBuildEchoReply(t *testing.T) {
 	payload := []byte("timestamp-and-padding")
 	req := BuildEchoRequest(netip.MustParseAddr("10.99.0.254"), netip.MustParseAddr("10.99.0.1"), 7, 42, payload)
-	reply := BuildEchoReply(req)
+	reply := BuildEchoReply(req, 64)
 
 	if got, want := netip.AddrFrom4([4]byte(reply[12:16])).String(), "10.99.0.1"; got != want {
 		t.Errorf("reply src = %s, want %s", got, want)
@@ -84,7 +84,7 @@ func TestBuildUnreachable(t *testing.T) {
 	client, target := netip.MustParseAddr("10.99.0.254"), netip.MustParseAddr("10.99.0.3")
 	req := BuildEchoRequest(client, target, 7, 42, []byte("payload"))
 	for code, want := range map[rule.UnreachCode]byte{rule.UnreachHost: 1, rule.UnreachNet: 0, rule.UnreachAdmin: 13} {
-		out := BuildUnreachable(req, code)
+		out := BuildUnreachable(req, code, 64)
 		if len(out) != 20+8+len(req) || int(binary.BigEndian.Uint16(out[2:4])) != len(out) {
 			t.Fatalf("%v: length %d, header says %d, want %d", code, len(out), binary.BigEndian.Uint16(out[2:4]), 20+8+len(req))
 		}
@@ -111,7 +111,7 @@ func TestBuildUnreachable(t *testing.T) {
 
 func TestBuildUnreachableTruncatesLargeRequests(t *testing.T) {
 	req := BuildEchoRequest(netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2"), 1, 1, make([]byte, 1400))
-	out := BuildUnreachable(req, rule.UnreachHost)
+	out := BuildUnreachable(req, rule.UnreachHost, 64)
 	if len(out) != 576 {
 		t.Errorf("length %d, want 576", len(out))
 	}
@@ -158,7 +158,7 @@ func TestParseEchoRequest6(t *testing.T) {
 
 func TestBuildEchoReply6(t *testing.T) {
 	req := BuildEchoRequest(client6, target6, 9, 77, []byte("timestamp"))
-	reply := BuildEchoReply(req)
+	reply := BuildEchoReply(req, 64)
 	if len(reply) != len(req) || reply[0]>>4 != 6 || reply[7] != 64 {
 		t.Fatalf("bad header: %x", reply[:8])
 	}
@@ -180,7 +180,7 @@ func TestBuildEchoReply6(t *testing.T) {
 func TestBuildUnreachable6(t *testing.T) {
 	req := BuildEchoRequest(client6, target6, 9, 77, []byte("payload"))
 	for code, want := range map[rule.UnreachCode]byte{rule.UnreachNet: 0, rule.UnreachAdmin: 1, rule.UnreachHost: 3} {
-		out := BuildUnreachable(req, code)
+		out := BuildUnreachable(req, code, 64)
 		if len(out) != ipv6Header+8+len(req) || int(binary.BigEndian.Uint16(out[4:6])) != 8+len(req) {
 			t.Fatalf("%v: length %d", code, len(out))
 		}
@@ -195,7 +195,7 @@ func TestBuildUnreachable6(t *testing.T) {
 		}
 	}
 	big := BuildEchoRequest(client6, target6, 1, 1, make([]byte, 1400))
-	if out := BuildUnreachable(big, rule.UnreachHost); len(out) != maxError6 || !valid6(out) {
+	if out := BuildUnreachable(big, rule.UnreachHost, 64); len(out) != maxError6 || !valid6(out) {
 		t.Errorf("large request: length %d (want %d), valid %v", len(out), maxError6, valid6(out))
 	}
 }
@@ -206,5 +206,28 @@ func TestChecksum6KnownValue(t *testing.T) {
 	pkt := BuildEchoRequest(netip.MustParseAddr("fd99::fe"), netip.MustParseAddr("fd99::1"), 0x1234, 1, []byte("pingmock"))
 	if got := binary.BigEndian.Uint16(pkt[ipv6Header+2 : ipv6Header+4]); got != 0xc1a1 {
 		t.Errorf("checksum %#04x, want 0xc1a1", got)
+	}
+}
+
+func TestAnswersCarryTheTTL(t *testing.T) {
+	req4 := BuildEchoRequest(netip.MustParseAddr("10.99.0.254"), netip.MustParseAddr("10.99.0.1"), 1, 1, []byte("x"))
+	req6 := BuildEchoRequest(netip.MustParseAddr("fd99::fe"), netip.MustParseAddr("fd99::1"), 1, 1, []byte("x"))
+	for _, ttl := range []uint8{1, 64, 128, 255} {
+		if got := BuildEchoReply(req4, ttl)[8]; got != ttl {
+			t.Errorf("IPv4 reply TTL = %d, want %d", got, ttl)
+		}
+		if got := BuildUnreachable(req4, rule.UnreachHost, ttl)[8]; got != ttl {
+			t.Errorf("IPv4 unreachable TTL = %d, want %d", got, ttl)
+		}
+		if got := BuildEchoReply(req6, ttl)[7]; got != ttl {
+			t.Errorf("IPv6 reply hop limit = %d, want %d", got, ttl)
+		}
+		if got := BuildUnreachable(req6, rule.UnreachHost, ttl)[7]; got != ttl {
+			t.Errorf("IPv6 unreachable hop limit = %d, want %d", got, ttl)
+		}
+	}
+	// The header checksum covers the TTL, so it must still be right.
+	if reply := BuildEchoReply(req4, 128); Checksum(reply[:20]) != 0 {
+		t.Error("IPv4 header checksum wrong after setting the TTL")
 	}
 }

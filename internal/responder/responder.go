@@ -61,9 +61,9 @@ func (r *Responder) handle(pkt []byte) ([]byte, time.Duration) {
 	var answer []byte
 	switch d.Outcome {
 	case rule.Reply:
-		answer = icmp.BuildEchoReply(pkt)
+		answer = icmp.BuildEchoReply(pkt, d.TTL)
 	case rule.Unreachable:
-		answer = icmp.BuildUnreachable(pkt, d.Code)
+		answer = icmp.BuildUnreachable(pkt, d.Code, d.TTL)
 	}
 	r.record(req, d, answer != nil)
 	return answer, d.Delay

@@ -133,8 +133,9 @@ A **RULE** is made of these settings:
 | `unreachable` | Answer with ICMP destination unreachable (host unreachable) instead of a reply |
 | `unreachable=net` / `unreachable=admin` | Network unreachable / administratively prohibited, as a firewall would send |
 | `timeout` | No request gets an answer; same as `loss=100%` |
+| `ttl=128` | TTL (IPv6 hop limit) of the answers, 1 to 255; `ping` shows it as `ttl=128`. Default 64, as a Linux host sends. Software sometimes guesses the system or the distance from it |
 
-They can be combined, for example `delay=80ms,jitter=10ms,loss=2%` or `delay=200ms,unreachable=net` (the error arrives after 200ms). `loss` and `pattern` cannot be used together. With a pattern, `unreachable=` selects the code used for `u`.
+They can be combined, for example `delay=80ms,jitter=10ms,loss=2%`, `delay=200ms,unreachable=net` (the error arrives after 200ms) or `delay=30ms,ttl=128`. `loss` and `pattern` cannot be used together. With a pattern, `unreachable=` selects the code used for `u`.
 
 ### Unreachable versus timeout
 
@@ -222,6 +223,7 @@ rules:
         for: 10s
     repeat: true
   10.99.0.5: delay=50ms,unreachable=admin
+  10.99.0.6: delay=25ms,ttl=128                        # answers like a Windows host
   fd99::1: 30ms                                        # IPv6 needs no quotes
   8.8.8.8: timeout
 ```
@@ -230,7 +232,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern` and `unreachable`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api` and `history`.
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api` and `history`.
 
 Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 

@@ -100,26 +100,27 @@ func parse6(pkt []byte) (EchoRequest, bool) {
 	}, true
 }
 
-// BuildEchoReply turns a valid echo request into an echo reply. The payload
-// is echoed unchanged, so tools that embed a send timestamp in it (like
-// iputils ping) compute the RTT from their own clock.
-func BuildEchoReply(req []byte) []byte {
+// BuildEchoReply turns a valid echo request into an echo reply sent with
+// the given IP TTL (IPv6 hop limit). The payload is echoed unchanged, so
+// tools that embed a send timestamp in it (like iputils ping) compute the
+// RTT from their own clock.
+func BuildEchoReply(req []byte, ttl uint8) []byte {
 	if req[0]>>4 == 6 {
-		return reply6(req)
+		return reply6(req, ttl)
 	}
-	return reply4(req)
+	return reply4(req, ttl)
 }
 
-func reply4(req []byte) []byte {
+func reply4(req []byte, ttl uint8) []byte {
 	ihl := int(req[0]&0x0f) * 4
 	total := int(binary.BigEndian.Uint16(req[2:4]))
 	reply := make([]byte, total)
 	copy(reply, req[:total])
 
-	// IPv4 header: swap addresses, reset TTL, recompute checksum.
+	// IPv4 header: swap addresses, set the TTL, recompute checksum.
 	copy(reply[12:16], req[16:20])
 	copy(reply[16:20], req[12:16])
-	reply[8] = 64
+	reply[8] = ttl
 	reply[10], reply[11] = 0, 0
 	binary.BigEndian.PutUint16(reply[10:12], Checksum(reply[:ihl]))
 
@@ -130,13 +131,13 @@ func reply4(req []byte) []byte {
 	return reply
 }
 
-func reply6(req []byte) []byte {
+func reply6(req []byte, ttl uint8) []byte {
 	total := ipv6Header + int(binary.BigEndian.Uint16(req[4:6]))
 	reply := make([]byte, total)
 	copy(reply, req[:total])
 	copy(reply[8:24], req[24:40])
 	copy(reply[24:40], req[8:24])
-	reply[7] = 64 // hop limit
+	reply[7] = ttl // hop limit
 
 	msg := reply[ipv6Header:]
 	msg[0] = icmp6EchoReply
@@ -160,23 +161,23 @@ var (
 )
 
 // BuildUnreachable answers a valid echo request with a destination
-// unreachable message. It appears to come from the target itself and
-// quotes the start of the request, which is how ping matches the error to
-// the request it sent.
-func BuildUnreachable(req []byte, code rule.UnreachCode) []byte {
+// unreachable message sent with the given IP TTL (IPv6 hop limit). It
+// appears to come from the target itself and quotes the start of the
+// request, which is how ping matches the error to the request it sent.
+func BuildUnreachable(req []byte, code rule.UnreachCode, ttl uint8) []byte {
 	if req[0]>>4 == 6 {
-		return unreachable6(req, code)
+		return unreachable6(req, code, ttl)
 	}
-	return unreachable4(req, code)
+	return unreachable4(req, code, ttl)
 }
 
-func unreachable4(req []byte, code rule.UnreachCode) []byte {
+func unreachable4(req []byte, code rule.UnreachCode, ttl uint8) []byte {
 	total := int(binary.BigEndian.Uint16(req[2:4]))
 	quote := req[:min(total, maxError4-ipv4Header-8)]
 	out := make([]byte, ipv4Header+8+len(quote))
 	out[0] = 0x45
 	binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
-	out[8] = 64
+	out[8] = ttl
 	out[9] = protoICMP
 	copy(out[12:16], req[16:20]) // from the target
 	copy(out[16:20], req[12:16]) // to the client
@@ -190,14 +191,14 @@ func unreachable4(req []byte, code rule.UnreachCode) []byte {
 	return out
 }
 
-func unreachable6(req []byte, code rule.UnreachCode) []byte {
+func unreachable6(req []byte, code rule.UnreachCode, ttl uint8) []byte {
 	total := ipv6Header + int(binary.BigEndian.Uint16(req[4:6]))
 	quote := req[:min(total, maxError6-ipv6Header-8)]
 	out := make([]byte, ipv6Header+8+len(quote))
 	out[0] = 0x60
 	binary.BigEndian.PutUint16(out[4:6], uint16(8+len(quote)))
 	out[6] = protoICMPv6
-	out[7] = 64
+	out[7] = ttl
 	copy(out[8:24], req[24:40]) // from the target
 	copy(out[24:40], req[8:24]) // to the client
 

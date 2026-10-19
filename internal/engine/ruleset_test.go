@@ -327,3 +327,22 @@ func TestResetRepeatsSeededSequence(t *testing.T) {
 		t.Errorf("after reset %q, before %q", again, first)
 	}
 }
+
+func TestDecisionTTL(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "1ms", 1)
+	rs.Set(netip.MustParsePrefix("10.99.0.1/32"), mustScenario(t, "delay=5ms,ttl=128"))
+	rs.Set(netip.MustParsePrefix("10.99.0.2/32"), mustScenario(t, "ttl=1 for 1 ping; unreachable"))
+	if d := rs.Decide(addr("10.99.0.1")); d.TTL != 128 {
+		t.Errorf("ttl=128 rule: TTL = %d", d.TTL)
+	}
+	if d := rs.Decide(addr("10.99.0.9")); d.TTL != rule.DefaultTTL {
+		t.Errorf("default rule: TTL = %d, want %d", d.TTL, rule.DefaultTTL)
+	}
+	// Each phase has its own TTL; an unset one is the default.
+	if d := rs.Decide(addr("10.99.0.2")); d.TTL != 1 || d.Phase != 1 {
+		t.Errorf("phase 1: %+v", d)
+	}
+	if d := rs.Decide(addr("10.99.0.2")); d.TTL != rule.DefaultTTL || d.Outcome != rule.Unreachable {
+		t.Errorf("phase 2: %+v", d)
+	}
+}

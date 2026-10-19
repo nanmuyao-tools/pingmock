@@ -133,8 +133,9 @@ ping 10.99.0.9   # 没有规则，使用默认值（立即回复）
 | `unreachable` | 不正常回复，而是返回 ICMP"目标不可达"（主机不可达） |
 | `unreachable=net` / `unreachable=admin` | 网络不可达 / 被管理策略禁止（防火墙通常会发送这种） |
 | `timeout` | 全部不回复，等同于 `loss=100%` |
+| `ttl=128` | 回复的 TTL（IPv6 为 hop limit），1 到 255，`ping` 会显示为 `ttl=128`。默认 64，和 Linux 主机发出的一样。有些软件据此推测对方的系统或距离 |
 
-各项可以组合，例如 `delay=80ms,jitter=10ms,loss=2%`，或者 `delay=200ms,unreachable=net`（200ms 后才返回错误）。`loss` 和 `pattern` 不能同时使用。和 `pattern` 一起使用时，`unreachable=` 只用来指定 `u` 返回哪种原因。
+各项可以组合，例如 `delay=80ms,jitter=10ms,loss=2%`、`delay=200ms,unreachable=net`（200ms 后才返回错误）或者 `delay=30ms,ttl=128`。`loss` 和 `pattern` 不能同时使用。和 `pattern` 一起使用时，`unreachable=` 只用来指定 `u` 返回哪种原因。
 
 ### 不可达与超时
 
@@ -222,6 +223,7 @@ rules:
         for: 10s
     repeat: true
   10.99.0.5: delay=50ms,unreachable=admin
+  10.99.0.6: delay=25ms,ttl=128                        # 像 Windows 主机那样回复
   fd99::1: 30ms                                        # IPv6 地址不需要加引号
   8.8.8.8: timeout
 ```
@@ -230,7 +232,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern` 和 `unreachable`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api` 和 `history`。
+每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api` 和 `history`。
 
 出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。早期版本使用的 JSON 配置文件无需修改即可继续使用，因为 JSON 本身就是合法的 YAML。
 

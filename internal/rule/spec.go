@@ -20,7 +20,14 @@ type Spec struct {
 	// Unreachable answers with destination unreachable instead of an echo
 	// reply. With a Pattern it only selects the code used for 'u'.
 	Unreachable UnreachCode
+	// TTL is the IP TTL (IPv6 hop limit) of everything the target sends;
+	// 0 means DefaultTTL.
+	TTL uint8
 }
+
+// DefaultTTL is the TTL of answers whose rule does not set one: what Linux
+// hosts send, so ping shows ttl=64 as it would for a nearby machine.
+const DefaultTTL = 64
 
 // unreachCode returns the code to send for an unreachable outcome.
 func (sp Spec) unreachCode() UnreachCode {
@@ -28,6 +35,14 @@ func (sp Spec) unreachCode() UnreachCode {
 		return sp.Unreachable
 	}
 	return UnreachHost
+}
+
+// EffectiveTTL returns the TTL to send: TTL, or DefaultTTL if unset.
+func (sp Spec) EffectiveTTL() uint8 {
+	if sp.TTL != 0 {
+		return sp.TTL
+	}
+	return DefaultTTL
 }
 
 // ParseSpec parses either a bare duration ("120ms") or a comma-separated
@@ -65,6 +80,8 @@ func ParseSpec(s string) (Spec, error) {
 			sp.Pattern, err = parsePattern(val)
 		case "unreachable":
 			sp.Unreachable, err = parseUnreachCode(val)
+		case "ttl":
+			sp.TTL, err = parseTTL(val)
 		default:
 			err = fmt.Errorf("unknown key %q", key)
 		}
@@ -130,6 +147,15 @@ func parseLoss(s string) (float64, error) {
 	return f, nil
 }
 
+// parseTTL accepts a TTL from 1 to 255.
+func parseTTL(s string) (uint8, error) {
+	n, err := strconv.ParseUint(strings.TrimSpace(s), 10, 8)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("ttl %q must be a number from 1 to 255", s)
+	}
+	return uint8(n), nil
+}
+
 // parsePattern validates a pattern made of '.' (reply), 'x' (drop) and
 // 'u' (unreachable).
 func parsePattern(s string) (string, error) {
@@ -162,6 +188,9 @@ func (sp Spec) String() string {
 		parts = append(parts, "unreachable")
 	case sp.Unreachable != UnreachNone:
 		parts = append(parts, "unreachable="+sp.Unreachable.String())
+	}
+	if sp.TTL != 0 {
+		parts = append(parts, "ttl="+strconv.Itoa(int(sp.TTL)))
 	}
 	return strings.Join(parts, ",")
 }

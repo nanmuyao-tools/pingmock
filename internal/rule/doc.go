@@ -1,15 +1,16 @@
 // Package rule defines how pingmock answers a ping, and how that is written.
 //
 // A Spec says how to answer one request: after which Delay (plus or minus
-// Jitter), and whether to drop it (Loss, or a deterministic Pattern) or to
-// answer with destination Unreachable instead of a reply. Its text form is
-// what users write after -rule:
+// Jitter), whether to drop it (Loss, or a deterministic Pattern) or to
+// answer with destination Unreachable instead of a reply, and with which
+// TTL. Its text form is what users write after -rule:
 //
 //	120ms
 //	delay=200ms,jitter=30ms,loss=5%
 //	delay=10ms,pattern=..u
 //	unreachable=admin
 //	timeout
+//	delay=30ms,ttl=128
 //
 // A Scenario is a list of Phases, each a Spec that lasts for a duration or
 // a number of requests, so that a rule can change over time:

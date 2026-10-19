@@ -24,6 +24,8 @@ func TestParseSpec(t *testing.T) {
 		{"delay=20ms,unreachable=admin", Spec{Delay: 20 * time.Millisecond, Unreachable: UnreachAdmin}},
 		{"unreachable=net,loss=10%", Spec{Unreachable: UnreachNet, Loss: 0.1}},
 		{"pattern=.u.x", Spec{Pattern: ".u.x"}},
+		{"delay=20ms,ttl=128", Spec{Delay: 20 * time.Millisecond, TTL: 128}},
+		{"ttl=255,unreachable", Spec{TTL: 255, Unreachable: UnreachHost}},
 	}
 	for _, c := range cases {
 		got, err := ParseSpec(c.in)
@@ -35,7 +37,7 @@ func TestParseSpec(t *testing.T) {
 			t.Errorf("ParseSpec(%q) = %+v, want %+v", c.in, got, c.want)
 		}
 	}
-	for _, bad := range []string{"", "abc", "delay=-5ms", "loss=150%", "speed=3", "pattern=", "pattern=.-x", "loss=5%,pattern=.x", "unreachable=port", "unreachable=1"} {
+	for _, bad := range []string{"", "abc", "delay=-5ms", "loss=150%", "speed=3", "pattern=", "pattern=.-x", "loss=5%,pattern=.x", "unreachable=port", "unreachable=1", "ttl=0", "ttl=256", "ttl=-1", "ttl=64ms"} {
 		if _, err := ParseSpec(bad); err == nil {
 			t.Errorf("ParseSpec(%q): expected error", bad)
 		}
@@ -44,7 +46,7 @@ func TestParseSpec(t *testing.T) {
 
 func TestSpecStringRoundTrip(t *testing.T) {
 	for _, in := range []string{"0ms", "120ms", "delay=200ms,jitter=30ms", "delay=10ms,loss=5%", "timeout", "delay=5ms,pattern=..x",
-		"unreachable", "delay=3ms,unreachable=net", "pattern=.u,unreachable=admin"} {
+		"unreachable", "delay=3ms,unreachable=net", "pattern=.u,unreachable=admin", "delay=5ms,ttl=128", "unreachable=net,ttl=1"} {
 		sp, err := ParseSpec(in)
 		if err != nil {
 			t.Fatal(err)
@@ -170,6 +172,28 @@ func TestSpecJSON(t *testing.T) {
 		`-5`, `{"delay":-5}`, `{"loss":"150%"}`, `{"delay":true}`} {
 		if err := json.Unmarshal([]byte(bad), &out); err == nil {
 			t.Errorf("Unmarshal(%s): expected error", bad)
+		}
+	}
+}
+
+func TestSpecJSONTTL(t *testing.T) {
+	for _, in := range []string{`{"delay":"5ms","ttl":128}`, `{"delay":"5ms","ttl":"128"}`, `"delay=5ms,ttl=128"`} {
+		var sp Spec
+		if err := json.Unmarshal([]byte(in), &sp); err != nil || sp != (Spec{Delay: 5 * time.Millisecond, TTL: 128}) {
+			t.Errorf("%s: %+v, %v", in, sp, err)
+		}
+	}
+	b, _ := json.Marshal(Spec{Delay: 5 * time.Millisecond, TTL: 128})
+	if string(b) != `{"delay":"5ms","ttl":"128"}` {
+		t.Errorf("marshal = %s", b)
+	}
+	if b, _ := json.Marshal(Spec{Delay: 5 * time.Millisecond}); string(b) != `{"delay":"5ms"}` {
+		t.Errorf("default TTL must not be marshalled: %s", b)
+	}
+	for _, bad := range []string{`{"ttl":0}`, `{"ttl":300}`, `{"ttl":"64ms"}`} {
+		var sp Spec
+		if err := json.Unmarshal([]byte(bad), &sp); err == nil {
+			t.Errorf("%s: expected error", bad)
 		}
 	}
 }

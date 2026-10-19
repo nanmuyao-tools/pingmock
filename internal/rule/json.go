@@ -20,6 +20,7 @@ type specJSON struct {
 	Loss        numOrString `json:"loss,omitempty"`   // a fraction (0.05) or a percentage ("5%")
 	Pattern     string      `json:"pattern,omitempty"`
 	Unreachable *string     `json:"unreachable,omitempty"` // "host", "net", "admin" or "" for host
+	TTL         numOrString `json:"ttl,omitempty"`         // 1 to 255; unset means rule.DefaultTTL
 }
 
 // numOrString holds a JSON string or number as text. Configuration files,
@@ -58,6 +59,9 @@ func (sp Spec) MarshalJSON() ([]byte, error) {
 	if sp.Unreachable != UnreachNone {
 		code := sp.Unreachable.String()
 		j.Unreachable = &code
+	}
+	if sp.TTL != 0 {
+		j.TTL = numOrString(strconv.Itoa(int(sp.TTL)))
 	}
 	return json.Marshal(j)
 }
@@ -107,6 +111,11 @@ func (sp *Spec) UnmarshalJSON(b []byte) error {
 	}
 	if j.Unreachable != nil {
 		if out.Unreachable, err = parseUnreachCode(*j.Unreachable); err != nil {
+			return err
+		}
+	}
+	if j.TTL != "" {
+		if out.TTL, err = parseTTL(string(j.TTL)); err != nil {
 			return err
 		}
 	}
