@@ -19,6 +19,8 @@ A second rule decides what to build at all: *test applications, not protocols*. 
 
 You need Linux, Go 1.22 or later, and iproute2. The end-to-end checks also need root, `ping` and `curl`.
 
+Without Linux at hand, for example on a Mac, use the [development container](.devcontainer/README.md): it has all of it, and runs the checks the way CI does.
+
 ```bash
 make build        # build ./pingmock
 make test         # go vet and unit tests with the race detector (no root needed)

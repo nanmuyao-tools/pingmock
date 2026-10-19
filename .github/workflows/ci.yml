@@ -180,3 +180,30 @@ jobs:
           GOFLAGS=-v run_step "Test" | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out
+
+  # The development container (.devcontainer/), built and used as a
+  # contributor on a Mac would use it: the checks run inside it, as its
+  # unprivileged user, so that the container stays usable.
+  devcontainer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      # The container's user gets the runner's uid, so that it can write
+      # to the checked-out repository, which is bind-mounted.
+      - name: Build the development container
+        run: docker build --build-arg UID="$(id -u)" -t pingmock-dev -f .devcontainer/Dockerfile .
+      # Ubuntu's AppArmor restriction on unprivileged user namespaces
+      # applies inside containers too, where the host's profile for
+      # pingmock cannot help. Lift it for this job: a Mac has no such
+      # restriction, and the test job covers it with the profile.
+      - name: Allow user namespaces in containers
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: The checks, inside the container
+        run: |
+          docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tun \
+            -v "$PWD:/workspace" -w /workspace pingmock-dev \
+            bash -c 'make lint && make test && make e2e && make e2e-exec && make e2e-compat'

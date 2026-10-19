@@ -554,6 +554,8 @@ make e2e-compat   # fping, pro-bing and icmplib against pingmock (needs fping an
 make e2e-docker   # the container image and the Compose example
 ```
 
+On a Mac, or wherever there is no Linux, the [development container](.devcontainer/) in this repository runs all of them but `make e2e-docker`.
+
 [docs/packet-path.md](docs/packet-path.md) follows one ping through the kernel and back, [docs/packets.md](docs/packets.md) takes the packets apart byte by byte, [docs/architecture.md](docs/architecture.md) is a tour of the code, and [CONTRIBUTING.md](CONTRIBUTING.md) explains how to contribute.
 
 ## Limitations

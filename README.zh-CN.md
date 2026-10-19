@@ -554,6 +554,8 @@ make e2e-compat   # 用 fping、pro-bing 和 icmplib 测试 pingmock（需要安
 make e2e-docker   # 容器镜像和 Compose 示例
 ```
 
+在 Mac 上，或者没有 Linux 的地方，用仓库里的[开发容器](.devcontainer/README.zh-CN.md)：除了 `make e2e-docker`，其余都能在里面跑。
+
 [一个 ping 的往返之旅](docs/packet-path.zh-CN.md)讲解了 ping 请求如何经过内核到达 pingmock 再返回，[数据包详解](docs/packets.zh-CN.md)逐字节讲解了请求和应答的内容，[代码导读](docs/architecture.zh-CN.md)介绍了代码的组织方式和阅读顺序，[CONTRIBUTING.md](CONTRIBUTING.md) 说明了如何参与贡献。
 
 ## 限制

@@ -1,0 +1,41 @@
+// The development container of pingmock: see README.md next to this file.
+{
+  "name": "pingmock",
+  "build": {
+    "dockerfile": "Dockerfile",
+    // The repository root, so that the Dockerfile can copy the tests'
+    // Python requirements.
+    "context": ".."
+  },
+  // pingmock needs NET_ADMIN and the TUN device. SYS_ADMIN is for
+  // pingmock exec: Docker's default seccomp profile lets a container
+  // create namespaces only when it has that capability, and the root
+  // path of exec needs the capability itself. Neither --privileged nor
+  // turning seccomp off is needed (verified with Docker Desktop 4.68).
+  "runArgs": [
+    "--cap-add=NET_ADMIN",
+    "--cap-add=SYS_ADMIN",
+    "--device=/dev/net/tun"
+  ],
+  "remoteUser": "dev",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
+  "workspaceFolder": "/workspace",
+  "mounts": [
+    // The Go module and build caches (and pip's), so that a rebuilt
+    // container does not download or compile everything again.
+    "source=pingmock-gomod,target=/go/pkg/mod,type=volume",
+    "source=pingmock-cache,target=/home/dev/.cache,type=volume",
+    // Claude Code's login and settings, and the shell history, outlive
+    // the container.
+    "source=pingmock-claude-${devcontainerId},target=/home/dev/.claude,type=volume",
+    "source=pingmock-history-${devcontainerId},target=/commandhistory,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": ["golang.go", "anthropic.claude-code"]
+    }
+  },
+  // Fetch the dependency and check that everything builds, so that the
+  // first make test is quick.
+  "postCreateCommand": "go mod download && go build ./... && go vet ./..."
+}
