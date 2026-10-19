@@ -150,15 +150,26 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 
 - [ ] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：七条技术路线和代表项目、运维人员这类用户、绑定网卡的限制、WireMock 是更贴切的类比、gVisor 的用户态 TCP 协议栈、Testcontainers 渠道受技术路线限制
 
-### 3. 开发环境：在 Mac 上用 Docker 开发
+### 3. 开发环境：在 Mac 上用 Docker 开发（已完成，CI 任务待推送验证）
 
 维护者用 Mac，pingmock 只能在 Linux 上运行。Mac 上的 Docker Desktop 在 Linux 虚拟机中运行容器，所以可以在容器里开发。Claude Code 官方文档中有开发容器的说明（命令在容器里执行，文件修改实时出现在本地仓库），参考配置以非 root 用户运行，并加了 `NET_ADMIN` 权限，这也正是 pingmock 需要的。
 
-- [ ] 增加 `.devcontainer/`：Go、iproute2、ping、fping、Python、shellcheck 和 Claude Code；以非 root 用户运行，容器内可以用 `sudo` 跑端到端测试；`NET_ADMIN` 和 `/dev/net/tun`
-- [ ] 先验证：免 root 的测试（`make e2e-exec`）需要创建用户命名空间，Docker 默认的 seccomp 策略可能阻止，需要找出最小的权限（还是只能 `--privileged`）；IPv6 默认关闭，相关检查会跳过
-- [ ] CI 增加一个任务：构建这个开发容器，在里面运行 `make test`、`make e2e`、`make e2e-exec`，保证它一直可用。Docker 相关的测试（`make e2e-docker`）继续只在 CI 中运行
-- [ ] 中英文的使用说明：在 Mac 上怎样打开、哪些测试在本地跑、哪些交给 CI；维护者在 Mac 上实际验证一次 Docker Desktop 的差异
-- [ ] 增加 `CLAUDE.md`：写入项目的工作约定（四个核心价值、证据优先、中英文文档同步、依赖要发布超过两周、验证后再下结论、不提交来源不明的文件），本地的 Claude Code 会读取它
+- [x] 增加 [`.devcontainer/`](.devcontainer/)：`Dockerfile`（`golang:1.27.0-bookworm`；iproute2、ping、curl、traceroute、mtr、fping、带 icmplib 和 pytest 的 Python、shellcheck、git；Claude Code 用原生安装脚本装给普通用户）和 `devcontainer.json`。以普通用户 `dev` 运行，免密码 `sudo`；Go 的模块缓存和构建缓存放在两个卷里，重建容器不用重新下载；登录 shell 的 PATH 里补上 Go，因为 Debian 的 `/etc/profile` 会覆盖镜像设置的 PATH，否则 VS Code 和 devcontainer CLI 的终端里找不到 `go`
+- [x] 先验证（在这台 Mac 上，Docker Desktop 4.68、Engine 29.3.1）：
+
+  | 前提 | 结果 |
+  |---|---|
+  | 只给 `NET_ADMIN` 和 `/dev/net/tun` | root 模式能跑；`pingmock exec` 免 root 和 root 都失败：Docker 默认的 seccomp 策略不允许创建命名空间（`clone` 带命名空间标志要容器有 `CAP_SYS_ADMIN`），连 root 也不行 |
+  | 再关掉 seccomp | 免 root 的 `exec` 能跑；root 的 `exec` 仍失败，容器里的 root 没有 `CAP_SYS_ADMIN`，创建网络命名空间本身需要它 |
+  | 改为再加 `SYS_ADMIN`，seccomp 保持默认 | 全部能跑。**这就是最小权限**，不需要 `--privileged`，也不用关 seccomp |
+  | IPv6 | Docker Desktop 的容器里是开着的，e2e 的 IPv6 检查也跑了（46 项全过）；Linux 上的 Docker 默认关闭，相关检查会跳过 |
+  | 和 Linux 的差别 | Docker Desktop 的解析器对任何域名都回一个虚构地址（`fdfe:dcba:9876::/48`），「未知域名解析不到」的检查改为在宿主机也能解析该域名时跳过；`/proc/sys` 只读，兼容性检查改为只在需要时写 `ping_group_range`（容器本来就允许所有组）；虚拟机里的时间抖动让容差 ±3ms、±5ms 的检查各失败过一次，都发生在我同时构建镜像的时候，单独跑全过 |
+  | 各项用时 | `make test` 约 15 秒，e2e 25 秒，e2e-exec 23 秒（两种模式），e2e-compat 第一次 51 秒、有缓存后 31 秒。时间都花在等超时和等 mtr 上 |
+
+  顺带发现：容器里的 root 没有 `CAP_SYS_ADMIN` 时，`pingmock exec` 走 root 路径直接失败。可以改成没有这个能力时就像普通用户一样走用户命名空间；暂不做，等有人遇到
+- [x] CI 增加 `devcontainer` 任务（Ubuntu 24.04 和 26.04）：构建开发容器，在里面以 `dev` 用户运行 `make lint`、`make test`、`make e2e`、`make e2e-exec`、`make e2e-compat`。容器用户取 runner 的 uid，才能写挂载进来的仓库；先在 runner 上关掉 Ubuntu 对非特权用户命名空间的 AppArmor 限制，因为容器里用不上宿主机的 profile，Mac 上也没有这个限制（`test` 任务继续覆盖 profile）。**还没在 CI 上跑过**，推送后看结果
+- [x] 中英文使用说明：[`.devcontainer/README.md`](.devcontainer/README.md)（[中文](.devcontainer/README.zh-CN.md)）：怎样打开（VS Code、devcontainer CLI、纯 Docker）、哪些检查在容器里跑、哪些交给 CI、需要哪些权限、和 Linux 的差别、各项用时。在这台 Mac 上验证了纯 Docker 和 devcontainer CLI 0.89.0 两种方式；CLI 0.80.0 在 Docker Desktop 4.68 上启动容器后一直卡在等 `docker events`，文档里写明要用新版。VS Code 没有装，「Reopen in Container」没有试
+- [x] 增加 [`CLAUDE.md`](CLAUDE.md)：四个核心价值、测试应用而不是协议、证据优先、验证后再下结论、依赖要发布超过两周、中英文文档同步、seed 序列是行为的一部分、不提交来源不明的文件、TODO 保持最新、提交信息的格式，以及在哪里跑哪些测试
 
 另一个选择是 OrbStack、Lima 等工具提供的 Linux 虚拟机：和 CI 更接近，免 root 测试、IPv6、Docker 都不需要额外处理，但更重。
 
