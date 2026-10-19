@@ -6,3 +6,6 @@ test.out
 /examples/go-demo/fastest
 __pycache__/
 .pytest_cache/
+
+# Release notes drafted for a tag; the tag message carries them, the repository does not.
+/notes.txt
