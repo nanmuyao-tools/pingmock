@@ -144,11 +144,10 @@ IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 - [x] 在 Ubuntu 24.04 和 26.04 的 CI 上通过，包括本地无法运行的 IPv6 路径检查；用发布页下载的程序验证了 traceroute、mtr、域名和种子序列
 - [x] 发布后更新了示例中的版本号（github-actions、go-demo、pinglib-demo）；用完的草稿 `notes.txt` 由另一个对话删除，并加入了 `.gitignore`（发布说明由标签携带，不放在仓库里）
 
-### 2. v0.6 剩下的两项
+### 2. v0.6 剩下的一项
 
-Python 客户端包移到了[最低优先级](#最低优先级)。
+Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级](#最低优先级)：**所有示例都放到最后做**，技术项优先。
 
-- [ ] 新示例：用 pingmock 测试 **Prometheus 的 ICMP 告警规则**（blackbox exporter 是最常用的 ping 监控），Docker Compose 即可运行。服务用户 ③，运维人员不写代码
 - [ ] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：七条技术路线和代表项目、运维人员这类用户、绑定网卡的限制、WireMock 是更贴切的类比、gVisor 的用户态 TCP 协议栈、Testcontainers 渠道受技术路线限制
 
 ### 3. 开发环境：在 Mac 上用 Docker 开发
@@ -215,6 +214,7 @@ README 只描述已经实现的功能：等第一个新协议（DNS 故障）发
 
 ### 功能
 
+- [ ] 新示例：用 pingmock 测试 **Prometheus 的 ICMP 告警规则**（blackbox exporter 是最常用的 ping 监控），Docker Compose 即可运行。服务用户 ③，运维人员不写代码（原属 v0.6；Compose 文件和 Prometheus、blackbox 的配置已起草，暂存在本机、未入库）
 - [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI（原属 v0.6）
 - [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装（原属 v0.8）
 - [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈（原属 v0.8）
