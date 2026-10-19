@@ -53,6 +53,16 @@ near "POST /reset restores the startup rules" "$reset" 10 5
 version=$(run -- sh -c 'curl -sf "$PINGMOCK_API/version"' | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
 same "GET /version reports the build" "$version" "$("$PM" -version | cut -d' ' -f2)"
 
+# -host gives the command a private /etc/hosts; the system's is untouched.
+before=$(md5sum /etc/hosts)
+resolved=$(run -host test.example=10.99.0.1 -rule 10.99.0.1=35ms -- sh -c "
+  getent hosts test.example | awk '{print \$1}'
+  ping -c 2 -i 0.2 test.example | awk -F/ '/^rtt/ {print \$5}'")
+same "-host resolves the name for the command" "$(echo "$resolved" | head -1)" "10.99.0.1"
+near "-host: ping by name gets the rule's delay" "$(echo "$resolved" | tail -1)" 35 5
+same "-host leaves the system's /etc/hosts alone" "$(md5sum /etc/hosts)" "$before"
+same "-host leaves no file behind" "$(ls /tmp/pingmock-hosts-* 2>/dev/null | wc -l)" 0
+
 # The host network is untouched while a run is in progress.
 run -- sleep 2 &
 bg=$!

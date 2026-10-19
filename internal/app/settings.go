@@ -37,6 +37,7 @@ type settings struct {
 	verbose       bool
 	def           rule.Scenario
 	rules         []targetRule
+	hosts         []config.Host // names the command resolves; exec only
 }
 
 // errHelp is returned when -h or -help was given; usage has been printed.
@@ -75,6 +76,7 @@ type flagValues struct {
 	history                                *int
 	verbose                                *bool
 	rules                                  ruleFlags
+	hosts                                  ruleFlags
 
 	given map[string]bool // flags given on the command line
 
@@ -83,6 +85,7 @@ type flagValues struct {
 	cfgDefault      *rule.Scenario
 	cfgSeed         *uint64
 	cfgRules        []config.Rule
+	cfgHosts        []config.Host
 }
 
 func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Writer) (*flagValues, *flag.FlagSet) {
@@ -99,6 +102,7 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	f.config = fs.String("config", "", "YAML configuration file; flags given on the command line override it")
 	f.history = fs.Int("history", 1000, "number of recent requests kept for GET /history (0 disables)")
 	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, ttl=128, or phases such as \"50ms for 3 pings; timeout\"")
+	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, pingmock exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
 }
@@ -127,7 +131,8 @@ func (f *flagValues) applyConfig(path string) error {
 		*f.history = *cfg.History
 	}
 	f.cfgDefault, f.cfgSeed, f.cfgRules = cfg.Default, cfg.Seed, rules
-	return nil
+	f.cfgHosts, err = cfg.SortedHosts(path)
+	return err
 }
 
 // resolve validates the values and turns them into settings. Rules from the
@@ -172,6 +177,21 @@ func (f *flagValues) resolve() (*settings, error) {
 		s.addRule(p, sc)
 	}
 
+	for _, h := range f.cfgHosts {
+		s.addHost(h)
+	}
+	for _, text := range f.hosts {
+		name, addr, ok := strings.Cut(text, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid -host %q: want NAME=ADDR", text)
+		}
+		h, err := config.ParseHost(name, addr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -host %q: %w", text, err)
+		}
+		s.addHost(h)
+	}
+
 	switch {
 	case f.given["seed"]:
 		s.seed = *f.seed
@@ -181,6 +201,17 @@ func (f *flagValues) resolve() (*settings, error) {
 		s.seed = rand.Uint64()
 	}
 	return s, nil
+}
+
+// addHost adds a host, or replaces the address of the same name.
+func (s *settings) addHost(h config.Host) {
+	for i := range s.hosts {
+		if s.hosts[i].Name == h.Name {
+			s.hosts[i].Addr = h.Addr
+			return
+		}
+	}
+	s.hosts = append(s.hosts, h)
 }
 
 // addRule adds a rule, or replaces the one for the same target.

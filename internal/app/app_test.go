@@ -126,3 +126,30 @@ func TestExplain(t *testing.T) {
 		t.Errorf("EPERM advice: %s", msg)
 	}
 }
+
+func TestParseSettingsHosts(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "c.yaml")
+	os.WriteFile(cfg, []byte("hosts:\n  api.example.com: 10.99.0.1\n  v6.example.com: fd99::7\n"), 0o644)
+	s, _, err := parse(t, "-config", cfg, "-host", "api.example.com=10.99.0.2", "-host", "db.example.com=10.99.0.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, h := range s.hosts {
+		got = append(got, h.Name+"="+h.Addr.String())
+	}
+	// The file's hosts first, in name order; a -host for the same name
+	// replaces the address, a new one is appended.
+	if strings.Join(got, " ") != "api.example.com=10.99.0.2 v6.example.com=fd99::7 db.example.com=10.99.0.3" {
+		t.Errorf("hosts = %v", got)
+	}
+	if s, _, _ := parse(t); len(s.hosts) != 0 {
+		t.Errorf("hosts without -host = %v", s.hosts)
+	}
+	for _, bad := range []string{"nope", "=10.99.0.1", "api.example.com=", "api.example.com=10.99.0", "10.99.0.1=10.99.0.2",
+		"a b=10.99.0.1", "-x=10.99.0.1", "api.example.com=fe80::1%eth0"} {
+		if _, _, err := parse(t, "-host", bad); err == nil {
+			t.Errorf("-host %q: expected error", bad)
+		}
+	}
+}

@@ -167,3 +167,20 @@ func TestLoadErrors(t *testing.T) {
 		t.Error("missing file: expected error")
 	}
 }
+
+func TestLoadHosts(t *testing.T) {
+	cfg, _, err := Load(writeFile(t, "h.yaml", "hosts:\n  www.example.com: 10.99.0.1\n  api.example.com: fd99::1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts, err := cfg.SortedHosts("h.yaml")
+	if err != nil || len(hosts) != 2 || hosts[0].Name != "api.example.com" || hosts[0].Addr.String() != "fd99::1" ||
+		hosts[1].Name != "www.example.com" || hosts[1].Addr.String() != "10.99.0.1" {
+		t.Errorf("hosts = %+v, %v", hosts, err)
+	}
+	for _, bad := range []string{"hosts:\n  www.example.com: nope\n", "hosts:\n  10.99.0.1: 10.99.0.2\n", "hosts:\n  '': 10.99.0.1\n"} {
+		if _, _, err := Load(writeFile(t, "bad.yaml", bad)); err == nil {
+			t.Errorf("%q: expected error", bad)
+		}
+	}
+}

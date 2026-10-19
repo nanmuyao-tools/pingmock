@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
@@ -32,12 +33,58 @@ type Config struct {
 	History *int                     `json:"history"`
 	Default *rule.Scenario           `json:"default"`
 	Rules   map[string]rule.Scenario `json:"rules"`
+	// Hosts maps names to addresses for pingmock exec, which resolves
+	// them for the command through a private /etc/hosts:
+	//
+	//	hosts:
+	//	  api.example.com: 10.99.0.1
+	Hosts map[string]string `json:"hosts"`
 }
 
 // Rule is a parsed entry of Config.Rules.
 type Rule struct {
 	Prefix   netip.Prefix
 	Scenario rule.Scenario
+}
+
+// Host is a name that pingmock exec resolves to an address.
+type Host struct {
+	Name string
+	Addr netip.Addr
+}
+
+// ParseHost validates a host entry, from the file or from -host NAME=ADDR.
+func ParseHost(name, addr string) (Host, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.ContainsAny(name, " \t#") || strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") {
+		return Host{}, fmt.Errorf("invalid host name %q", name)
+	}
+	if _, err := netip.ParseAddr(name); err == nil {
+		return Host{}, fmt.Errorf("host name %q is an address; want a name such as api.example.com", name)
+	}
+	a, err := netip.ParseAddr(strings.TrimSpace(addr))
+	if err != nil || a.Zone() != "" {
+		return Host{}, fmt.Errorf("host %s: invalid address %q", name, addr)
+	}
+	return Host{Name: name, Addr: a}, nil
+}
+
+// SortedHosts returns the file's hosts, validated and sorted by name.
+func (c *Config) SortedHosts(path string) ([]Host, error) {
+	names := make([]string, 0, len(c.Hosts))
+	for n := range c.Hosts {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	hosts := make([]Host, 0, len(names))
+	for _, n := range names {
+		h, err := ParseHost(n, c.Hosts[n])
+		if err != nil {
+			return nil, fmt.Errorf("%s: hosts: %w", path, err)
+		}
+		hosts = append(hosts, h)
+	}
+	return hosts, nil
 }
 
 // Load reads and validates a configuration file. The rules are returned
@@ -75,6 +122,9 @@ func Load(path string) (*Config, []Rule, error) {
 		}
 		seen[p] = k
 		rules = append(rules, Rule{p, cfg.Rules[k]})
+	}
+	if _, err := cfg.SortedHosts(path); err != nil {
+		return nil, nil, err
 	}
 	if cfg.History != nil && *cfg.History < 0 {
 		return nil, nil, fmt.Errorf("%s: history must not be negative", path)

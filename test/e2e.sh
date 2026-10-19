@@ -55,6 +55,11 @@ same "ttl=128 shows in ping" "$(ttl 10.99.0.5)" "ttl=128"
 same "the default TTL is 64" "$(ttl 10.99.0.1)" "ttl=64"
 stop
 
+# -host is for exec only: the server mode refuses it instead of ignoring it.
+status=0
+./pingmock -host test.example=10.99.0.1 >/dev/null 2>&1 || status=$?
+same "-host is refused outside pingmock exec" "$status" 2
+
 # Destination unreachable: ping must report each code, and fail fast.
 start -rule 10.99.0.8=unreachable -rule 10.99.0.9=unreachable=net \
   -rule 10.99.0.10=unreachable=admin -rule '10.99.0.11=delay=5ms,pattern=..u'

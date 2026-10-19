@@ -36,11 +36,14 @@ once, and pingmock exits with CMD's exit status. When CMD exits, any
 processes it left running are stopped.
 
 CMD can reach the control API at the address in $PINGMOCK_API. It has no
-network access other than the mocked targets.
+network access other than the mocked targets. With -host, CMD resolves a
+name to a mocked address through a private /etc/hosts; the system's file
+is not touched.
 
 Examples:
   pingmock exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
   pingmock exec -seed 42 -rule 8.8.8.8=120ms -- ./my-app
+  pingmock exec -host api.example.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./my-app
   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 
 Flags:
@@ -51,7 +54,7 @@ Flags:
 // runExec starts a copy of pingmock in new namespaces, which then runs the
 // command. It returns the command's exit status.
 func runExec(args []string) int {
-	_, cmdArgs, err := parseSettings("pingmock exec", args, execUsage, os.Stderr)
+	s, cmdArgs, err := parseSettings("pingmock exec", args, execUsage, os.Stderr)
 	if isHelp(err) {
 		return 0
 	}
@@ -76,6 +79,10 @@ func runExec(args []string) int {
 	// command started in the background outlives the run. Pdeathsig does
 	// the same if pingmock exec itself is killed.
 	attr := &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET | syscall.CLONE_NEWPID, Pdeathsig: syscall.SIGKILL}
+	if len(s.hosts) > 0 {
+		// A mount namespace, for the command's own /etc/hosts.
+		attr.Cloneflags |= syscall.CLONE_NEWNS
+	}
 	rootless := os.Geteuid() != 0
 	if rootless {
 		attr.Cloneflags |= syscall.CLONE_NEWUSER
@@ -110,6 +117,12 @@ func runExecChild(args []string) int {
 	if err != nil {
 		log.Print(err)
 		return 2
+	}
+	if len(s.hosts) > 0 {
+		if err := mountHosts(s.hosts); err != nil {
+			log.Print(explain(err, rootless))
+			return 1
+		}
 	}
 	// The new namespace starts with loopback down; the API listens on it.
 	if err := tun.IP("link", "set", "lo", "up"); err != nil {

@@ -16,7 +16,7 @@ import (
 // knownFields are the top-level keys of a configuration file.
 var knownFields = map[string]bool{
 	"dev": true, "addr": true, "addr6": true, "api": true,
-	"seed": true, "history": true, "default": true, "rules": true,
+	"seed": true, "history": true, "default": true, "rules": true, "hosts": true,
 }
 
 // yamlToJSON converts a YAML configuration into the equivalent JSON, which
@@ -58,6 +58,10 @@ func yamlToJSON(data []byte, path string) ([]byte, error) {
 			if err := checkRules(val, path); err != nil {
 				return nil, err
 			}
+		case key.Value == "hosts":
+			if err := checkHosts(val, path); err != nil {
+				return nil, err
+			}
 		}
 	}
 	var v any
@@ -93,6 +97,27 @@ func checkRules(n *yaml.Node, path string) error {
 		seen[p] = key.Line
 		if err := checkRule(val); err != nil {
 			return fmt.Errorf("%s:%d: rule %q: %w", path, val.Line, key.Value, err)
+		}
+	}
+	return nil
+}
+
+// checkHosts validates the hosts mapping, reporting the line of the first
+// bad name or address.
+func checkHosts(n *yaml.Node, path string) error {
+	if n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
+		return nil
+	}
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s:%d: hosts must be a mapping of names to addresses", path, n.Line)
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key, val := n.Content[i], n.Content[i+1]
+		if val.Kind != yaml.ScalarNode {
+			return fmt.Errorf("%s:%d: host %q: want an address", path, val.Line, key.Value)
+		}
+		if _, err := ParseHost(key.Value, val.Value); err != nil {
+			return fmt.Errorf("%s:%d: hosts: %w", path, key.Line, err)
 		}
 	}
 	return nil

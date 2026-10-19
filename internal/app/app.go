@@ -87,6 +87,11 @@ func runServer(args []string) int {
 		log.Printf("unexpected arguments %q (to run a command, use: pingmock exec [flags] -- %s)", rest, rest[0])
 		return 2
 	}
+	if len(s.hosts) > 0 {
+		log.Printf("-host (and hosts: in the configuration file) only work with pingmock exec, which gives the command\n" +
+			"a private /etc/hosts. To resolve a name to a mocked address for the whole machine, add it to /etc/hosts.")
+		return 2
+	}
 	in, err := start(s)
 	if err != nil {
 		log.Print(err)

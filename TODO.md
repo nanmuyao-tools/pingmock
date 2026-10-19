@@ -129,8 +129,8 @@ pingmock exec -host www.baidu.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./app
 ```
 
 - [x] 前提已验证：普通用户可以在用户命名空间 + 挂载命名空间中覆盖 `/etc/hosts`；glibc、Go（纯 Go 解析器）、Python 都读到新的内容；宿主机的文件不受影响
-- [ ] `exec` 增加挂载命名空间，实现 `-host`
-- [ ] root 模式下继续推荐改 `/etc/hosts` 的做法，在 README 中写清楚
+- [x] `exec` 增加挂载命名空间，实现 `-host`：给了 `-host` 时父进程多加 `CLONE_NEWNS`，子进程先把挂载设为私有，再把「pingmock 的条目 + 系统的 `/etc/hosts`」写进一个临时文件，bind mount 到 `/etc/hosts` 上，然后删除临时文件（挂载让它继续存在，不留痕迹）。配置文件支持 `hosts:` 映射，`-host` 按名字覆盖。root 和普通用户都验证过；端到端测试检查 `getent`、按名字 ping 的延迟、系统文件的 md5 不变、`/tmp` 没有残留
+- [x] root 模式下继续推荐改 `/etc/hosts` 的做法，在 README 中写清楚：`sudo pingmock -host` 直接拒绝并提示改 `/etc/hosts`；README 的「域名：-host」一节写明
 
 **第 2 步：内置的小型 DNS 服务**
 

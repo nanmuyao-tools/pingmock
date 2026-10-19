@@ -255,7 +255,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api` 和 `history`。
+每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`，以及供 `pingmock exec` 使用的 [`hosts`](#域名-host)。
 
 出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。早期版本使用的 JSON 配置文件无需修改即可继续使用，因为 JSON 本身就是合法的 YAML。
 
@@ -274,6 +274,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 | `-dev` | `pingmock0` | 虚拟网卡名称 |
 | `-api` | `127.0.0.1:9100` | 控制 API 的监听地址，设为空字符串则关闭 |
 | `-history` | `1000` | `GET /history` 保留的最近请求数，`0` 表示关闭 |
+| `-host` | | `域名=地址`，可重复，仅限 `pingmock exec`：命令把域名解析成这个地址，见[域名](#域名-host) |
 | `-v` | `false` | 打印每个请求的处理日志 |
 | `-version` | | 打印版本号并退出 |
 
@@ -296,6 +297,25 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 - **不留残留进程。** 命令退出时，它在后台启动的进程也会被一并停止。
 
 在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问。所以要先编译好程序再放进去运行：需要下载依赖的 `go run`（或 `npm install`、`pip install` 等）会因为 `network is unreachable` 而失败。
+
+### 域名：-host
+
+很多软件 ping 的是域名而不是地址。独立网络里没有 DNS，所以用 `-host 域名=地址`（可重复）把命令需要的域名交给它，再为这些地址设置规则：
+
+```bash
+pingmock exec -host api.example.com=10.99.0.1 -host backup.example.com=10.99.0.2 \
+  -rule 10.99.0.1=80ms -rule 10.99.0.2=timeout -- ./my-app
+```
+
+命令会得到**自己的 `/etc/hosts`**：在它独有的挂载命名空间里，内容是系统的文件，前面加上这些域名。凡是通过 `/etc/hosts` 解析域名的程序都能看到：`ping` 和其他用 C 库的程序、Go 程序、Python……系统的文件不会被改动，不留任何痕迹，也不需要 root。在配置文件里写法是：
+
+```yaml
+hosts:
+  api.example.com: 10.99.0.1
+  backup.example.com: 10.99.0.2
+```
+
+`-host` 只用于 `pingmock exec`。用 `sudo pingmock` 为整台机器模拟时，请把域名加到机器的 `/etc/hosts` 里。
 
 ### 系统要求
 
