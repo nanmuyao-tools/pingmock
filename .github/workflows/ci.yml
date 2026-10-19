@@ -78,6 +78,15 @@ jobs:
           go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out
+      # The ping-library example, likewise: pro-bing's raw socket must work
+      # rootless inside exec, and every test must run.
+      - name: Ping-library example, rootless
+        working-directory: examples/pinglib-demo
+        run: |
+          go mod edit -replace github.com/nanmuyao/pingmock=../..
+          go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
+          grep -q -- '--- PASS' test.out
+          ! grep -E -- '--- (SKIP|FAIL)' test.out
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

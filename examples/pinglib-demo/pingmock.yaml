@@ -1,0 +1,12 @@
+# The hosts the ping library is tested against. Run the tests with:
+#   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+# Each host stands for one behavior a ping library has to get right.
+
+seed: 7   # the same random outcomes on every run (none of these rules are random, but keep the habit)
+
+rules:
+  10.99.0.1: 20ms                    # answers every ping after 20ms
+  10.99.0.2: timeout                 # never answers
+  10.99.0.3: unreachable             # answers "destination host unreachable" at once
+  10.99.0.4: delay=10ms,pattern=.x   # answers one ping, loses the next, and so on
+  10.99.0.5: delay=10ms,ttl=128      # answers with TTL 128, as a Windows host would

@@ -65,4 +65,4 @@ git push origin v0.3.0
 
 The release workflow runs the tests, builds static binaries for linux/amd64 and linux/arm64, creates the GitHub release, and pushes the container image to `ghcr.io/nanmuyao/pingmock`.
 
-After a release, update the examples that name a version, so users who copy them get the new one: `PINGMOCK_VERSION` in `examples/github-actions/pingmock-tests.yml`, and the `require` line in `examples/go-demo/go.mod` (then `go mod tidy` there). CI's `workflow-example` job runs the workflow example against that release. Tags with a hyphen, such as `v0.3.0-rc.1`, become prereleases.
+After a release, update the examples that name a version, so users who copy them get the new one: `PINGMOCK_VERSION` in `examples/github-actions/pingmock-tests.yml`, and the `require` line in `examples/go-demo/go.mod` and `examples/pinglib-demo/go.mod` (then `go mod tidy` in each). CI's `workflow-example` job runs the workflow example against that release. Tags with a hyphen, such as `v0.3.0-rc.1`, become prereleases.
