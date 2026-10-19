@@ -36,32 +36,7 @@
 
 ### 5. 起草推广帖子，由作者本人发布
 
-**暂缓**：先专注项目本身，见下面的[技术路线](#技术路线)。另外，查过三个社区的规定：Hacker News、Reddit r/golang 和 V2EX 都禁止 AI 生成的帖子或回复，所以帖子和回复都要由作者本人来写；AI 可以准备素材、核对事实、帮作者弄懂读者的技术问题。
-
-每个社区先读一遍发帖规则；发帖后作者本人在评论区回答问题。
-
-- [ ] **V2EX**：「分享创造」节点，用中文介绍
-- [ ] **Reddit r/golang**：英文，强调 Go 实现、依赖极少、`go test -exec` 的用法
-- [ ] **Hacker News**：标题用 `Show HN: Pingmock – mock ping latency, loss and unreachable errors on Linux` 这样的格式
-- [ ] （可选）掘金、Go 中文社区、Twitter / X
-
-发帖之后：把收到的需求记在下面的"候选方向"里，按**有多少人需要**排优先级。
-
-## 学习进度
-
-和任务没有先后关系，可以穿插进行，或者在等待反馈期间进行。
-
-| 课 | 主题 | 状态 |
-|---|---|---|
-| 1 | 整体原理：TUN 网卡、路由，ping 请求怎样到达 pingmock | ✅ 已完成，整理为[一个 ping 的往返之旅](docs/packet-path.zh-CN.md) |
-| 2 | 数据包：每个字节的含义、pingmock 的检查、校验和、分片 | ✅ 已完成，整理为[数据包详解](docs/packets.zh-CN.md) |
-| 3 | 规则与决策：`internal/rule` 和 `internal/engine`，怎样决定回复、丢弃还是不可达 | 下一课。从课后思考题开始：规则存在哪里、怎样找到；`-seed` 怎样让随机结果可以复现 |
-| 4 | 主循环：`internal/responder`，延迟是怎么做到的，为什么一个慢回复不会挡住其他请求 | |
-| 5 | 启动与配置：`internal/app`、`internal/config`、`internal/api` 怎样组装起来 | |
-| 6 | 不用 root：Linux 的用户、网络、PID 命名空间，`exec_linux.go` | |
-| 7 | 工程化：测试、CI、发布和 `examples/` 中的示例 | |
-
-每一课都动手做实验，结论都经过验证；有价值的内容整理进 `docs/`。
+暂缓，移到[最低优先级](#最低优先级)。
 
 ## 已修复：root 模式会替换本机所在网络的路由
 
@@ -158,8 +133,7 @@ IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 
 **还没有做的**：
 
-- [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装
-- [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈
+- Trippy 的场景验收、自动生成中间节点的简化写法：移到[最低优先级](#最低优先级)
 
 ## 下一步
 
@@ -170,9 +144,10 @@ IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 - [x] 在 Ubuntu 24.04 和 26.04 的 CI 上通过，包括本地无法运行的 IPv6 路径检查；用发布页下载的程序验证了 traceroute、mtr、域名和种子序列
 - [x] 发布后更新了示例中的版本号（github-actions、go-demo、pinglib-demo）；用完的草稿 `notes.txt` 由另一个对话删除，并加入了 `.gitignore`（发布说明由标签携带，不放在仓库里）
 
-### 2. v0.6 剩下的三项
+### 2. v0.6 剩下的两项
 
-- [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI
+Python 客户端包移到了[最低优先级](#最低优先级)。
+
 - [ ] 新示例：用 pingmock 测试 **Prometheus 的 ICMP 告警规则**（blackbox exporter 是最常用的 ping 监控），Docker Compose 即可运行。服务用户 ③，运维人员不写代码
 - [ ] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：七条技术路线和代表项目、运维人员这类用户、绑定网卡的限制、WireMock 是更贴切的类比、gVisor 的用户态 TCP 协议栈、Testcontainers 渠道受技术路线限制
 
@@ -233,3 +208,42 @@ README 只描述已经实现的功能：等第一个新协议（DNS 故障）发
 
 - [ ] 删除用于推送的 Fine-grained token（**2026-11-16 过期**）：它出现在过去的对话记录里，切换到新的工作方式后就应该删除；以后需要推送时，每个工作阶段新建一个有效期很短的 token
 - [ ] 每次发布后更新示例中的版本号（见第 2 项）
+
+## 最低优先级
+
+以下几项都不急，其他事情做完、或者有空闲时再做。
+
+### 功能
+
+- [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI（原属 v0.6）
+- [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装（原属 v0.8）
+- [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈（原属 v0.8）
+
+### 推广帖子，由作者本人发布
+
+**暂缓**：先专注项目本身，见上面的[技术路线](#技术路线)。另外，查过三个社区的规定：Hacker News、Reddit r/golang 和 V2EX 都禁止 AI 生成的帖子或回复，所以帖子和回复都要由作者本人来写；AI 可以准备素材、核对事实、帮作者弄懂读者的技术问题。
+
+每个社区先读一遍发帖规则；发帖后作者本人在评论区回答问题。
+
+- [ ] **V2EX**：「分享创造」节点，用中文介绍
+- [ ] **Reddit r/golang**：英文，强调 Go 实现、依赖极少、`go test -exec` 的用法
+- [ ] **Hacker News**：标题用 `Show HN: Pingmock – mock ping latency, loss and unreachable errors on Linux` 这样的格式
+- [ ] （可选）掘金、Go 中文社区、Twitter / X
+
+发帖之后：把收到的需求记在上面的[之后：等需求再决定](#之后等需求再决定)里，按**有多少人需要**排优先级。
+
+### 学习进度
+
+和任务没有先后关系，可以穿插进行，或者在等待反馈期间进行。
+
+| 课 | 主题 | 状态 |
+|---|---|---|
+| 1 | 整体原理：TUN 网卡、路由，ping 请求怎样到达 pingmock | ✅ 已完成，整理为[一个 ping 的往返之旅](docs/packet-path.zh-CN.md) |
+| 2 | 数据包：每个字节的含义、pingmock 的检查、校验和、分片 | ✅ 已完成，整理为[数据包详解](docs/packets.zh-CN.md) |
+| 3 | 规则与决策：`internal/rule` 和 `internal/engine`，怎样决定回复、丢弃还是不可达 | 下一课。从课后思考题开始：规则存在哪里、怎样找到；`-seed` 怎样让随机结果可以复现 |
+| 4 | 主循环：`internal/responder`，延迟是怎么做到的，为什么一个慢回复不会挡住其他请求 | |
+| 5 | 启动与配置：`internal/app`、`internal/config`、`internal/api` 怎样组装起来 | |
+| 6 | 不用 root：Linux 的用户、网络、PID 命名空间，`exec_linux.go` | |
+| 7 | 工程化：测试、CI、发布和 `examples/` 中的示例 | |
+
+每一课都动手做实验，结论都经过验证；有价值的内容整理进 `docs/`。
