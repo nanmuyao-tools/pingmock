@@ -96,7 +96,10 @@ func (r *Responder) record(req icmp.Probe, d engine.Decision, answered bool) {
 		ev.Probe = req.Kind.String()
 	}
 	if d.Hop > 0 || d.Rule == "path" || req.Kind != icmp.Echo {
-		ev.TTL, ev.Hop, ev.From = req.TTL, d.Hop, d.From
+		ev.TTL, ev.Hop = req.TTL, d.Hop
+		if d.From.IsValid() {
+			ev.From = d.From.String()
+		}
 	}
 	r.History.Add(ev)
 	if r.Verbose {

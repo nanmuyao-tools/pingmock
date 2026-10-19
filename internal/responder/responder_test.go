@@ -1,8 +1,10 @@
 package responder
 
 import (
+	"encoding/json"
 	"net/netip"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -95,6 +97,17 @@ func TestServeRepliesAfterDelay(t *testing.T) {
 	}
 	if events, _ := hist.Events(nil, 0); len(events) != 1 || !events[0].Reply || events[0].Delay != "40ms" || events[0].Seq != 1 {
 		t.Errorf("history = %+v", events)
+	}
+	// Fields for path probes stay out of the history of a plain ping.
+	events, _ := hist.Events(nil, 0)
+	b, err := json.Marshal(events[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"from"`, `"probe"`, `"ttl"`, `"hop"`} {
+		if strings.Contains(string(b), field) {
+			t.Errorf("a ping's history event has %s: %s", field, b)
+		}
 	}
 }
 
