@@ -90,7 +90,8 @@ pingmock 将来支持的每一个协议都必须同时做到这四点。**新协
 |---|---|
 | ① 应用开发者 | 程序在网络变慢、断开、不可达时的表现。pingmock 的核心 |
 | ② ping 库的开发者 | 超时、不可达、丢包、TTL 等行为（pro-bing 的测试依赖 `www.google.com`） |
-| ③ 网络诊断工具的开发者 | traceroute / mtr 类工具对路径的处理（Trippy #1552、#1554） |
+| ③ 运维人员 | 监控告警规则（宕机多久告警、丢几个包算故障）、线路切换脚本。市场调研中发现：Zabbix 用户只能临时改小阈值来测试告警；Uptime Kuma 曾因 bug 每秒都在 ping。他们不写代码，需要 Docker 和命令行就能用 |
+| ④ 网络诊断工具的开发者 | traceroute / mtr 类工具对路径的处理（Trippy #1552、#1554） |
 
 每一版都能独立发布、独立带来价值。每一版都按这个流程：
 
@@ -100,14 +101,16 @@ pingmock 将来支持的每一个协议都必须同时做到这四点。**新协
 4. 中英文文档、示例同步更新
 5. 发布，用发布页下载的程序再验证一遍
 
-### 已完成：兼容性测试进 CI
+### 已完成，尚未发布（将作为 v0.6.0 发布）
+
+v0.5.2 之后，原计划中 v0.6（测试体验）、v0.7（域名）、v0.8（路径）的功能都已实现。
+
+**兼容性测试进 CI**
 
 - [x] 把 fping、pro-bing、icmplib 的测试固定下来（`test/e2e-compat.sh`），在 Ubuntu 24.04 和 26.04 上运行，保护后面对 `icmp`、`engine` 的修改：20 项检查（3 个工具、两种套接字、4 种情况），变异测试确认能发现问题；README 新增了经过测试的工具和库，并在限制中写明 traceroute 和 mtr 目前不能使用
 - [x] 测试用的程序库固定版本，放在独立的目录里，不给主模块增加依赖：`test/compat` 是独立的模块，pro-bing v0.9.1、icmplib 3.0.4
 
-### v0.6　测试体验
-
-小而快，所有用户受益，不涉及架构变化。
+**测试体验**
 
 - [x] `POST /reset`：规则、默认规则、统计和历史都恢复到启动时（命令行和配置文件）的样子，让每个测试从干净的状态开始。每个目标的场景位置和随机序列也重新开始，所以同一 seed 下 reset 之后的结果和刚启动时完全一样（有测试验证）
 - [x] `GET /version`：返回 pingmock 的版本，方便测试确认用的是哪个版本
@@ -116,65 +119,32 @@ pingmock 将来支持的每一个协议都必须同时做到这四点。**新协
 - [x] 定位说明：README 中说明 pingmock、`tc netem`、Toxiproxy 各适合什么场景（给真实流量加延迟用 netem，TCP 层的故障用 Toxiproxy，测试依赖 ping 的程序用 pingmock）；突出配置文件中声明故障、可复现的随机、按网段设置，这是 Toxiproxy 用户呼声最高的需求（#281、#447、#274、#273）。已加在中英文 README「原理」之后的「什么时候用它，什么时候用别的」一节：一张三行的表，加一段说明两者的局限和 pingmock 借鉴了什么
 - [x] 新示例：测试 ping 库的超时和不可达行为，服务用户 ②，场景参考 pro-bing #70（超时没有返回错误、不可达的主机让 `Run()` 一直阻塞）。已加 [`examples/pinglib-demo`](examples/pinglib-demo/)：原样测试 pro-bing v0.9.1，配置文件里五台主机各代表一种行为（回复、不回应、不可达、隔一个丢一个、TTL 128），五个测试验证了：超时通过统计体现而不是错误；不可达在库看来和丢包一样，pingmock 的历史能看出区别；`Count` 数的是回复，有丢包时会等到超时；TTL 原样到达。CI 在 exec 下免 root 运行（原始套接字在用户命名空间里可用）
 - [x] README 的限制中写明：绑定网卡的 ping（`ping -I eth0`）不会被模拟（已实验验证：绑定真实网卡时直接从那块网卡发出；绑定源地址时照常被模拟），因为 README 现在明确承诺了"透明"
-- [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI
 
-### v0.7　域名：让 `pingmock exec` 真正好用
-
-很多软件 ping 的是域名，而 `exec` 中目前无法解析（实验：`ping www.baidu.com`）。
-
-**第 1 步：私有的 `/etc/hosts`**
-
-```bash
-pingmock exec -host www.baidu.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./app
-```
+**域名：`pingmock exec` 中的 `-host`、按域名的规则和内置的 DNS 服务**
 
 - [x] 前提已验证：普通用户可以在用户命名空间 + 挂载命名空间中覆盖 `/etc/hosts`；glibc、Go（纯 Go 解析器）、Python 都读到新的内容；宿主机的文件不受影响
 - [x] `exec` 增加挂载命名空间，实现 `-host`：给了 `-host` 时父进程多加 `CLONE_NEWNS`，子进程先把挂载设为私有，再把「pingmock 的条目 + 系统的 `/etc/hosts`」写进一个临时文件，bind mount 到 `/etc/hosts` 上，然后删除临时文件（挂载让它继续存在，不留痕迹）。配置文件支持 `hosts:` 映射，`-host` 按名字覆盖。root 和普通用户都验证过；端到端测试检查 `getent`、按名字 ping 的延迟、系统文件的 md5 不变、`/tmp` 没有残留
 - [x] root 模式下继续推荐改 `/etc/hosts` 的做法，在 README 中写清楚：`sudo pingmock -host` 直接拒绝并提示改 `/etc/hosts`；README 的「域名：-host」一节写明
-
-**第 2 步：内置的小型 DNS 服务**
-
-```bash
-pingmock exec -rule www.baidu.com=80ms -- ./app      # 自动分配模拟地址
-```
-
 - [x] 回答 `-host` 和按域名写的规则，自动分配模拟地址：`-rule api.example.com=80ms` 和配置文件 `rules:` 里的域名键都可以；地址从 `-addr` 网段的高端往下分配（`.253`、`.252`……，跳过已被明确规则或 `-host` 占用的地址），按域名排序所以每次一样；`-host` 指定的地址优先。`internal/dns` 是一个不依赖第三方库的小 DNS 服务（只处理单个问题的 UDP 查询，A/AAAA/PTR），监听在命令网络里的 `127.0.0.1:53`；`resolv.conf` 保留宿主机的 `search`/`options`，只换 `nameserver`；`nsswitch.conf` 里有 `resolve` 时同样替换成 `files dns`
 - [x] 为模拟的地址提供反向解析（v0.8 中 traceroute 显示中间节点的名字）：PTR 回答该地址的第一个名字，`getent hosts 10.99.0.253` 得到域名
 - [x] 不认识的域名，通过仍在宿主机网络中的父进程转发给真实的 DNS 服务器：父子进程之间一对 Unix 域套接字（子进程的 fd 3），子进程把原始查询按长度前缀转发，父进程按宿主机 `resolv.conf` 的顺序逐个询问（每个 2 秒），回答原样传回；都失败时回 SERVFAIL。用桩解析器验证过：模拟的域名从不转发，未知域名得到真实解析器的回答（含 NXDOMAIN）；端到端测试在能解析 `github.com` 的机器上检查它在 `exec` 里也能解析
 - [x] 动手之前先逐项验证（来自 slirp4netns 用户踩过的坑）：`/etc/resolv.conf` 是符号链接（包括多层）；DNS 服务器是 `127.0.0.53`（systemd-resolved，在 `exec` 的独立网络中访问不到）；多个 DNS 服务器；搜索域；IPv6 的 AAAA 记录；父进程转发的可行性；默认网段和用户网络重叠。**已用原型验证**（一个 Go 程序：子进程在 `exec` 里跑 DNS 服务并替换 `resolv.conf`，父进程留在宿主机网络里转发；宿主机的 DNS 用一个只认识 `real.example` 的桩程序模拟，监听在 `127.0.0.53`）：
 
-  | 前提 | 结果 |
-  |---|---|
-  | `resolv.conf` 是两层符号链接 | 成立：bind mount 会沿着符号链接挂到最终文件上，程序照常读到替换后的内容；宿主机的链接和文件不变 |
-  | DNS 服务器是 `127.0.0.53` | 成立：子进程访问不到，但不需要访问；父进程在宿主机网络里能访问，转发正常 |
-  | 多个 DNS 服务器 | 成立：父进程按 `resolv.conf` 的顺序逐个尝试，第一个是死地址时 9ms 内换到第二个（连接被拒绝立即返回；真正超时时要靠 `options timeout`） |
-  | 搜索域 | 成立：替换后的 `resolv.conf` 保留宿主机的 `search` 和 `options`，只换 `nameserver`；`getent hosts api` 解析到 `api.test.example`。副作用：glibc 对已模拟域名的 AAAA 得到空回答后，会继续拿搜索域拼出的名字（`api.test.example.test.example`）去问，这些会被转发到真实 DNS；无害，但模拟的域名会以这种形式泄露给真实 DNS |
-  | AAAA | 成立：Python 的 `getaddrinfo` 拿到 `fd99::1`。glibc 的 `getent ahosts` 在本容器里拿不到，是因为内核没有 IPv6、glibc 的 `AI_ADDRCONFIG` 跳过了 AAAA，在有 IPv6 的机器上没有这个问题 |
-  | 父进程转发 | 成立：Unix 域套接字不受网络命名空间限制，子进程把原始 DNS 报文发给父进程，父进程原样转发给宿主机的 DNS 并把回答传回；glibc、Python、Go（纯 Go 解析器和 cgo 解析器）都正常；不存在的域名得到 NXDOMAIN |
-  | 模拟的域名优先于真实 DNS | 成立：`real.example` 既在真实 DNS 里又被模拟时，解析到模拟地址，真实 DNS 没有收到这个域名的 A/AAAA 查询 |
-  | 默认网段和用户网络重叠 | 只做了分析：自动分配的地址落在 TUN 的网段里，重叠问题和今天的 `-addr` 一样，不因 DNS 而变化；建议从网段的高端往下分配（`.253`、`.252`……），避开用户通常手写的低位地址 |
+**路径：traceroute 和 mtr**
 
-  还发现两件事：(1) `ping` 会对模拟地址做反向解析（`1.0.99.10.in-addr.arpa` 被转发到了真实 DNS），所以 PTR 要在本地回答，否则每次 ping 都多一次外部查询；(2) 装了 `libnss-resolve` 的系统（`nsswitch.conf` 里 `hosts: ... resolve ...`）会通过 Unix 域套接字直接问 systemd-resolved，绕过 `resolv.conf`，而这个套接字同样跨网络命名空间——本容器没有它，无法验证；实现时若发现 `resolve`，用同样的 bind mount 把 `nsswitch.conf` 换成 `hosts: files dns`，并在有 systemd-resolved 的机器上验证
+设计方案的几个待决定的问题，在实现中都按方案落实了：每一跳写成 `地址@规则`，用 `>` 连接，`*` 表示不回应；目标和每一跳都自动加路由（严格的反向路径检查下的必要条件）；只有设置了路径的目标才理会 TTL、回应 UDP 和 TCP 探测，其他目标的行为不变。调研中补充的几点也都实现了：
 
-### v0.8　路径：traceroute 和 mtr
+- [x] TCP 探测：终点回 SYN-ACK，traceroute 的 TCP 模式能确认到达终点
+- [x] 两种丢包：`loss=` 是只是不回应（ICMP 限速，只影响这一跳），`cut=` 是链路丢包（经过这一跳的包都丢失，之后的跳和终点都受影响）。依据 Trippy #1554
+- [x] IPv6：TTL 超时用 ICMPv6 类型 3、代码 0，端口不可达用类型 1、代码 4；引用原包不超过 1280 字节
+- [x] 规则层：解析路径的写法，配置文件和 API 中的路径：`rule.Path`/`rule.Hop`，`ParsePath`；每跳 `delay`、`jitter`、`loss`（这一跳不回应）、`cut`（链路丢包，之后的跳和终点都收不到）、`ttl`；`-path` 参数、配置文件 `paths:`（以 `*` 开头要加引号，错误信息会提示）、`PUT/DELETE /paths/{target}`、Go 客户端 `SetPath`/`DeletePath`；目标可以是域名（`exec` 下，和规则共用地址分配）
+- [x] 决策层：按 TTL 选择中间节点或终点，中间节点的随机数和丢包同样可以用 `-seed` 复现：`RuleSet.DecideProbe`，经过的每跳先按 `cut` 判断是否丢失，TTL 耗尽的那跳按 `loss` 判断是否回应，超过路径长度则由终点原有规则决定——回显请求照旧，UDP 探测回 Port Unreachable，TCP SYN 回 SYN-ACK；没有路径的目标行为完全不变（不理会 TTL，忽略 UDP/TCP）。`/reset` 也恢复路径
+- [x] 数据包：构造 ICMP Time Exceeded、Port Unreachable（IPv4 和 IPv6），引用原包的方式和现有的不可达消息相同：`icmp.ParseProbe` 统一解析回显请求、UDP、TCP SYN 并读出 TTL；`BuildTimeExceeded`、`BuildPortUnreachable`、`BuildSynAck`（IPv4 和 IPv6，TCP 校验和含伪头部）；原有的不可达消息改用同一个构造函数
+- [x] 路由：为中间节点的地址添加路由；先验证 IPv6：启动和 API 设置路径时为目标和每一跳加 /32 或 /128 路由。IPv6 在本容器无法运行，端到端测试里 IPv6 路径的 traceroute 检查放在 CI（`REQUIRE_IPV6=1`）
+- [x] 历史和统计：记录中间节点的回复（结果为 time-exceeded、port-unreachable，以及第几跳）：事件新增 `probe`（udp/tcp）、`ttl`、`hop`、`from`；统计新增 `hops`（由中间节点回应的探测数）
+- [x] traceroute、mtr 加入兼容性测试；中英文文档：`test/e2e.sh` 用 traceroute 的 UDP/ICMP/TCP 三种模式和 mtr 检查路径、第二跳的延迟、`cut` 的效果、历史记录，IPv6 路径在 CI 检查；`test/e2e-exec.sh` 在免 root 的 `exec` 里跑 traceroute；CI 安装 traceroute 和 mtr-tiny。README 新增「路径：traceroute 和 mtr」一节，限制一节和「经过测试的工具」同步更新。本容器里实测：traceroute 三种模式和 mtr 都正确显示四跳和终点（`*` 那一跳显示为 `*`/`???`），第二跳延迟 13～18ms（15ms±3ms 抖动）
 
-放在 v0.7 之后：traceroute 和 mtr 默认会反向解析每一跳，用到 v0.7 的 DNS 服务；服务的人群（③）也最窄。
-
-**这次调研对设计的补充**（设计方案本身见下文）：
-
-- [ ] **TCP 探测**：终点只需回一个 SYN-ACK，代价很小，从暂缓并入这一版（Trippy 的模拟测试就是这样做的）
-- [ ] **两种丢包**：每一跳区分**链路丢包**（同一轮中之后的跳也丢失）和**只是不回应**（ICMP 限速，只影响这一跳）。依据 Trippy #1554；后一种在 mtr 中很常见，也最容易被误判为网络有问题
-- [ ] **IPv6**：TTL 超时是 ICMPv6 类型 3、代码 0；端口不可达是类型 1、代码 4（pingmock 现在的 IPv6 不可达还不支持代码 4）；引用原包不超过 1280 字节（fakert 没有这个限制，是个问题）
-- [ ] **自动生成中间节点**的简化写法有了先例（traceroute-haiku 按规则生成）
-- [ ] 兼容性测试加入 traceroute、mtr 和 Trippy 本身，Trippy 的 28 个场景文件作为验收清单
-
-**状态：设计方案待确认，还没有决定是否这样做、什么时候做。** 下面是方案和已经验证过的技术前提。
-
-#### 原理
-
-traceroute 和 mtr 发出一系列探测包，TTL 依次为 1、2、3……。路由器把 TTL 减到 0 时丢掉这个包，回一条 ICMP Time Exceeded，源地址是路由器自己。到达终点时，ICMP 模式（`traceroute -I`、mtr）收到回显应答；UDP 模式（traceroute 默认）的探测发往没人监听的端口，终点回 ICMP Port Unreachable。pingmock 要扮演路径上的每个路由器。
-
-#### 已验证的前提
+原型实验验证过的前提（实现时都用到了）：
 
 用一个 Python 原型（TUN 网卡上假装有两个中间节点）验证过：
 
@@ -186,49 +156,52 @@ traceroute 和 mtr 发出一系列探测包，TTL 依次为 1、2、3……。�
 
 IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 
-#### 设计方案
+**还没有做的**：
 
-为目标设置了路径后：
+- [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装
+- [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈
 
-| 探测包的 TTL | pingmock 的回应 |
+## 下一步
+
+### 1. 发布 v0.6.0
+
+- [ ] 发布前对比 v0.5.2 和当前代码中用户可见的行为（帮助信息、API、配置文件、种子序列），在更新说明中如实写出新增和变化；确认没有不兼容的改动
+- [ ] 新功能较多（`/reset`、`/version`、TTL、`-host`、按域名的规则、DNS 服务、路径），每一项在 README 中都有中英文说明，示例都能运行
+- [ ] 在 Ubuntu 24.04 和 26.04 的 CI 上通过（包括本地无法运行的 IPv6 路径检查）；用发布页下载的程序再验证一遍
+- [ ] 发布后更新示例中的版本号
+
+### 2. v0.6 剩下的三项
+
+- [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI
+- [ ] 新示例：用 pingmock 测试 **Prometheus 的 ICMP 告警规则**（blackbox exporter 是最常用的 ping 监控），Docker Compose 即可运行。服务用户 ③，运维人员不写代码
+- [ ] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：七条技术路线和代表项目、运维人员这类用户、绑定网卡的限制、WireMock 是更贴切的类比、gVisor 的用户态 TCP 协议栈、Testcontainers 渠道受技术路线限制
+
+### 3. 开发环境：在 Mac 上用 Docker 开发
+
+维护者用 Mac，pingmock 只能在 Linux 上运行。Mac 上的 Docker Desktop 在 Linux 虚拟机中运行容器，所以可以在容器里开发。Claude Code 官方文档中有开发容器的说明（命令在容器里执行，文件修改实时出现在本地仓库），参考配置以非 root 用户运行，并加了 `NET_ADMIN` 权限，这也正是 pingmock 需要的。
+
+- [ ] 增加 `.devcontainer/`：Go、iproute2、ping、fping、Python、shellcheck 和 Claude Code；以非 root 用户运行，容器内可以用 `sudo` 跑端到端测试；`NET_ADMIN` 和 `/dev/net/tun`
+- [ ] 先验证：免 root 的测试（`make e2e-exec`）需要创建用户命名空间，Docker 默认的 seccomp 策略可能阻止，需要找出最小的权限（还是只能 `--privileged`）；IPv6 默认关闭，相关检查会跳过
+- [ ] CI 增加一个任务：构建这个开发容器，在里面运行 `make test`、`make e2e`、`make e2e-exec`，保证它一直可用。Docker 相关的测试（`make e2e-docker`）继续只在 CI 中运行
+- [ ] 中英文的使用说明：在 Mac 上怎样打开、哪些测试在本地跑、哪些交给 CI；维护者在 Mac 上实际验证一次 Docker Desktop 的差异
+- [ ] 增加 `CLAUDE.md`：写入项目的工作约定（四个核心价值、证据优先、中英文文档同步、依赖要发布超过两周、验证后再下结论、不提交来源不明的文件），本地的 Claude Code 会读取它
+
+另一个选择是 OrbStack、Lima 等工具提供的 Linux 虚拟机：和 CI 更接近，免 root 测试、IPv6、Docker 都不需要额外处理，但更重。
+
+### 4. 多协议
+
+**名字保持 pingmock，后续支持更多的协议，这是已经确定的方向。** 每个协议都必须保持四个核心价值（见本节开头）；设计做不到其中某一点，就要重新考虑。
+
+现在的基础：`exec` 中已经有一个 DNS 服务（只回答模拟的域名、转发其他的）；路径模拟已经能解析 UDP 和 TCP SYN、回复 SYN-ACK。
+
+| 步骤 | 内容 |
 |---|---|
-| 不超过路径的长度 | 对应的中间节点按自己的延迟回复 Time Exceeded；`*` 节点不回复 |
-| 超过路径的长度，ICMP 回显请求 | 按目标原有的规则回复，和现在一样 |
-| 超过路径的长度，UDP 探测 | 回复 Port Unreachable，延迟、丢包按目标原有的规则 |
+| 1. 设计（**需要维护者确认**） | 多协议的规则写法：协议、地址或域名、端口怎样表达；现有的 ping 规则和路径写法**保持不变**；YAML、API、客户端、历史和统计的对应写法。逐个检查是否做到四个核心价值 |
+| 2. DNS 故障 | DNS 成为第一个被完整模拟的协议：按域名设置延迟、NXDOMAIN、SERVFAIL、超时，同样支持场景和可复现的随机。需要先决定 root 模式下怎样做到透明（`exec` 中已有自己的 DNS 服务） |
+| 3. TCP 连接 | 先调研（tcping、健康检查、`nc -z` 等怎样用 TCP 测延迟、检查端口），再实验（只回 SYN-ACK、RST 或不回应时各种客户端的表现，以及连接建立后客户端发数据时怎样处理），最后实现：按地址和端口延迟后接受、拒绝、超时。复用路径模拟中的 SYN-ACK |
+| 4. v1.0 之前的两个决定 | 是否支持**连接建立后的数据**（比如 HTTP 的回应）：需要用户态 TCP 协议栈，gVisor 有现成的 Go 实现，但依赖很重，先做技术验证，再决定放进 pingmock 还是作为单独的可选组件；v1.0 的**兼容性承诺**：规则写法、API、配置文件、客户端在 v1.0 之后保持兼容，所以多协议的写法要在 v1.0 之前稳定下来 |
 
-没有设置路径的目标，行为完全不变：不理会 TTL，忽略 UDP。
-
-写法：每一跳是 `地址@规则`，用 `>` 连接，`*` 表示不回应的节点：
-
-```bash
-pingmock -rule 8.8.8.8=30ms \
-  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
-```
-
-```yaml
-paths:
-  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
-```
-
-运行中修改：`PUT /paths/{target}`、`DELETE /paths/{target}`，Go 客户端增加 `SetPath`、`DeletePath`。预期 `traceroute -n 8.8.8.8` 显示 192.168.1.1（2ms）、10.0.0.1（15ms 左右）、`*`、72.14.0.1（25ms），最后是 8.8.8.8（30ms）。
-
-#### 待决定的问题
-
-- [ ] **写法**：`地址@规则`，`>` 连接，`*` 不回应。每一跳的规则支持延迟、抖动和丢包，是否还需要其他设置？YAML 中以 `*` 开头的值需要加引号（`*` 在 YAML 里表示引用）
-- [ ] **中间节点的地址自动加路由**：这是严格模式下可用的必要条件。副作用是发往这些地址的流量也交给 pingmock，和劫持真实地址的效果一样；在 `pingmock exec` 里不影响宿主机
-- [ ] **只有设置了路径的目标才回应 UDP**：如果对所有目标都回 Port Unreachable，现有用户的程序会从"UDP 请求超时"变成"立即被拒绝"，所以做成需要主动开启
-- [ ] 是否也需要一种更简单的写法，比如只给出跳数和总延迟，自动生成中间节点？
-- [x] ~~不在范围内：TCP 模式的 traceroute（`traceroute -T`）~~ 已改变：终点只需回一个 SYN-ACK，并入这一版（见上面的补充）
-
-#### 实现时要做的
-
-- [x] 规则层：解析路径的写法，配置文件和 API 中的路径：`rule.Path`/`rule.Hop`，`ParsePath`；每跳 `delay`、`jitter`、`loss`（这一跳不回应）、`cut`（链路丢包，之后的跳和终点都收不到）、`ttl`；`-path` 参数、配置文件 `paths:`（以 `*` 开头要加引号，错误信息会提示）、`PUT/DELETE /paths/{target}`、Go 客户端 `SetPath`/`DeletePath`；目标可以是域名（`exec` 下，和规则共用地址分配）
-- [x] 决策层：按 TTL 选择中间节点或终点，中间节点的随机数和丢包同样可以用 `-seed` 复现：`RuleSet.DecideProbe`，经过的每跳先按 `cut` 判断是否丢失，TTL 耗尽的那跳按 `loss` 判断是否回应，超过路径长度则由终点原有规则决定——回显请求照旧，UDP 探测回 Port Unreachable，TCP SYN 回 SYN-ACK；没有路径的目标行为完全不变（不理会 TTL，忽略 UDP/TCP）。`/reset` 也恢复路径
-- [x] 数据包：构造 ICMP Time Exceeded、Port Unreachable（IPv4 和 IPv6），引用原包的方式和现有的不可达消息相同：`icmp.ParseProbe` 统一解析回显请求、UDP、TCP SYN 并读出 TTL；`BuildTimeExceeded`、`BuildPortUnreachable`、`BuildSynAck`（IPv4 和 IPv6，TCP 校验和含伪头部）；原有的不可达消息改用同一个构造函数
-- [x] 路由：为中间节点的地址添加路由；先验证 IPv6：启动和 API 设置路径时为目标和每一跳加 /32 或 /128 路由。IPv6 在本容器无法运行，端到端测试里 IPv6 路径的 traceroute 检查放在 CI（`REQUIRE_IPV6=1`）
-- [x] 历史和统计：记录中间节点的回复（结果为 time-exceeded、port-unreachable，以及第几跳）：事件新增 `probe`（udp/tcp）、`ttl`、`hop`、`from`；统计新增 `hops`（由中间节点回应的探测数）
-- [x] traceroute、mtr 加入兼容性测试；中英文文档：`test/e2e.sh` 用 traceroute 的 UDP/ICMP/TCP 三种模式和 mtr 检查路径、第二跳的延迟、`cut` 的效果、历史记录，IPv6 路径在 CI 检查；`test/e2e-exec.sh` 在免 root 的 `exec` 里跑 traceroute；CI 安装 traceroute 和 mtr-tiny。README 新增「路径：traceroute 和 mtr」一节，限制一节和「经过测试的工具」同步更新。本容器里实测：traceroute 三种模式和 mtr 都正确显示四跳和终点（`*` 那一跳显示为 `*`/`???`），第二跳延迟 13～18ms（15ms±3ms 抖动）
-- [ ] Trippy 的 28 个场景文件作为验收清单：未做，Trippy 是 Rust 程序，需要单独安装；留给后续
+README 只描述已经实现的功能：等第一个新协议（DNS 故障）发布时，再把定位更新为"从 ping 起步、支持多种协议的网络回应模拟工具"。
 
 ### 之后：等需求再决定
 
@@ -236,7 +209,7 @@ paths:
 |---|---|
 | `exec` 的外网访问 | 检测到系统装有 pasta 或 slirp4netns 时，借助它们为 `exec` 提供外网，解决不能下载依赖、不能访问真实服务的问题 |
 | 更多异常行为 | 重复回复（`DUP!`）、损坏的回复：没有找到明确的需求 |
-| TCP 连接延迟 | 和 Toxiproxy 的领域重叠，需要明确的需求 |
+| Testcontainers 模块 | 只适用于被测代码运行在容器里的情况：pingmock 的容器影响不了宿主机上的测试进程 |
 | 用 netlink 替代 `ip` 命令 | 去掉运行时对 iproute2 的依赖；fakert 用的 vishvananda/netlink 可以参考 |
 | 分片重组、其他系统（macOS 等） | 使用场景少，或者工作量大（`exec` 依赖 Linux 命名空间） |
 
@@ -244,7 +217,7 @@ paths:
 
 | 方向 | 原因 |
 |---|---|
-| 通用的流量整形 | 需求最大，但 netem、Toxiproxy 等已经很成熟，做了会偏离定位 |
+| 通用的流量整形 | 需求最大，但 netem、Toxiproxy 等已经很成熟，做了会偏离定位：pingmock 伪造回应，不改变真实的网络 |
 | 向 Toxiproxy 贡献 ping 支持 | 维护者认为三层代理需要 TUN、等于重写，而且他们看重跨平台（#39） |
 
 ### 和外部项目的互动
@@ -253,8 +226,8 @@ paths:
 
 | 时机 | 机会 |
 |---|---|
-| v0.6 之后 | [pro-bing #70](https://github.com/prometheus-community/pro-bing/issues/70)：贡献修复，附带用 pingmock 测试超时行为的用例 |
-| v0.8 之后 | [Trippy #1552](https://github.com/fujiapple852/trippy/issues/1552)：作者想要一个独立的模拟工具，介绍 pingmock 作为 Linux 上的选择 |
+| v0.6.0 发布之后 | [pro-bing #70](https://github.com/prometheus-community/pro-bing/issues/70)：贡献修复，附带用 pingmock 测试超时行为的用例（[pinglib-demo](examples/pinglib-demo/) 已经演示了这类测试） |
+| v0.6.0 发布之后 | [Trippy #1552](https://github.com/fujiapple852/trippy/issues/1552)：作者想要一个独立的模拟工具；路径模拟已经实现，可以介绍 pingmock 作为 Linux 上的选择 |
 
 ## 维护
 
