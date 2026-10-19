@@ -3,7 +3,7 @@ module example.com/pinglib-demo
 go 1.25.0
 
 require (
-	github.com/nanmuyao/pingmock v0.5.2
+	github.com/nanmuyao/pingmock v0.8.0
 	github.com/prometheus-community/pro-bing v0.9.1
 )
 

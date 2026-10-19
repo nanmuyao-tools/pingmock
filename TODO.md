@@ -1,6 +1,6 @@
 # TODO
 
-已发布 v0.5.2（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
+已发布 v0.8.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
 接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
 
@@ -101,9 +101,9 @@ pingmock 将来支持的每一个协议都必须同时做到这四点。**新协
 4. 中英文文档、示例同步更新
 5. 发布，用发布页下载的程序再验证一遍
 
-### 已完成，尚未发布（将作为 v0.6.0 发布）
+### 已完成，已作为 v0.8.0 发布
 
-v0.5.2 之后，原计划中 v0.6（测试体验）、v0.7（域名）、v0.8（路径）的功能都已实现。
+v0.5.2 之后，原计划中 v0.6（测试体验）、v0.7（域名）、v0.8（路径）的功能都已实现，一起作为 **v0.8.0** 发布（没有单独的 v0.6.0 和 v0.7.0）。
 
 **兼容性测试进 CI**
 
@@ -163,12 +163,12 @@ IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 
 ## 下一步
 
-### 1. 发布 v0.6.0
+### 1. 发布 v0.8.0（已完成）
 
-- [ ] 发布前对比 v0.5.2 和当前代码中用户可见的行为（帮助信息、API、配置文件、种子序列），在更新说明中如实写出新增和变化；确认没有不兼容的改动
-- [ ] 新功能较多（`/reset`、`/version`、TTL、`-host`、按域名的规则、DNS 服务、路径），每一项在 README 中都有中英文说明，示例都能运行
-- [ ] 在 Ubuntu 24.04 和 26.04 的 CI 上通过（包括本地无法运行的 IPv6 路径检查）；用发布页下载的程序再验证一遍
-- [ ] 发布后更新示例中的版本号
+- [x] 发布前对比 v0.5.2 和当前代码中用户可见的行为：错误提示、退出码、种子序列都相同，帮助信息、`GET /rules`、历史事件只有新增；对比中发现普通 ping 的历史事件多了 `"from": ""`（`omitempty` 对结构体类型不起作用），发布前修正，并加了测试
+- [x] 更新说明以另一个对话起草的 v0.7.0 草稿为基础，补充了路径模拟，如实写出 API 新增的字段；说明中的链接都检查过
+- [x] 在 Ubuntu 24.04 和 26.04 的 CI 上通过，包括本地无法运行的 IPv6 路径检查；用发布页下载的程序验证了 traceroute、mtr、域名和种子序列
+- [x] 发布后更新了示例中的版本号（github-actions、go-demo、pinglib-demo）；用完的草稿 `notes.txt` 由另一个对话删除，并加入了 `.gitignore`（发布说明由标签携带，不放在仓库里）
 
 ### 2. v0.6 剩下的三项
 
@@ -226,8 +226,8 @@ README 只描述已经实现的功能：等第一个新协议（DNS 故障）发
 
 | 时机 | 机会 |
 |---|---|
-| v0.6.0 发布之后 | [pro-bing #70](https://github.com/prometheus-community/pro-bing/issues/70)：贡献修复，附带用 pingmock 测试超时行为的用例（[pinglib-demo](examples/pinglib-demo/) 已经演示了这类测试） |
-| v0.6.0 发布之后 | [Trippy #1552](https://github.com/fujiapple852/trippy/issues/1552)：作者想要一个独立的模拟工具；路径模拟已经实现，可以介绍 pingmock 作为 Linux 上的选择 |
+| v0.8.0 发布之后 | [pro-bing #70](https://github.com/prometheus-community/pro-bing/issues/70)：贡献修复，附带用 pingmock 测试超时行为的用例（[pinglib-demo](examples/pinglib-demo/) 已经演示了这类测试） |
+| v0.8.0 发布之后 | [Trippy #1552](https://github.com/fujiapple852/trippy/issues/1552)：作者想要一个独立的模拟工具；路径模拟已经实现，可以介绍 pingmock 作为 Linux 上的选择 |
 
 ## 维护
 
