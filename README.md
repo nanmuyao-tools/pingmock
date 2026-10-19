@@ -54,6 +54,18 @@ pingmock creates a TUN virtual network device and routes test subnets (`10.99.0.
 
 The software under test needs **no changes at all**: whether it runs the `ping` command or sends ICMP itself through a raw socket, it gets mocked. The request payload is echoed back unchanged, so tools like `ping` that put a timestamp in the payload report exactly the configured latency.
 
+### When to use it, and when to use something else
+
+pingmock tests **programs that decide things from ping**. It does not slow real traffic down, and it does not touch TCP. Each of these tools has its place:
+
+| You want to | Use |
+|---|---|
+| Test a program that pings: server selection, failover, "is the network up", a latency display | **pingmock** |
+| Slow down or lose real traffic on an interface, for every protocol: load tests, "how does the app feel on 3G" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html), the kernel's network emulator |
+| Break TCP connections to a service: latency, timeouts, resets, bandwidth, for a database or an API | [Toxiproxy](https://github.com/Shopify/toxiproxy), a TCP proxy with an API and client libraries |
+
+netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. pingmock takes the test-oriented side of both and applies it to ping: faults are declared **per target address or prefix** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, rules change **while the program runs** through the API, and `pingmock exec` needs **no root** and changes nothing outside the command it runs.
+
 ## Installation
 
 The `ip` command (iproute2) must be available at runtime.
