@@ -121,10 +121,14 @@ func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
 	log.Printf("seed %d (pass -seed %d to reproduce this run)", s.seed, s.seed)
 	log.Printf("default: %s", s.def)
 	for _, r := range s.rules {
-		log.Printf("rule %s: %s", r.prefix, r.sc)
+		if r.name != "" {
+			log.Printf("rule %s (%s): %s", r.name, r.prefix.Addr(), r.sc)
+		} else {
+			log.Printf("rule %s: %s", r.prefix, r.sc)
+		}
 	}
 	for _, h := range s.hosts {
-		log.Printf("host %s resolves to %s (for the command only)", h.Name, h.Addr)
+		log.Printf("name %s resolves to %s (for the command only)", h.Name, h.Addr)
 	}
 	if apiURL != "" {
 		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /default, GET /history, POST /reset)", apiURL)

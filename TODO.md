@@ -138,9 +138,9 @@ pingmock exec -host www.baidu.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./app
 pingmock exec -rule www.baidu.com=80ms -- ./app      # 自动分配模拟地址
 ```
 
-- [ ] 回答 `-host` 和按域名写的规则，自动分配模拟地址
-- [ ] 为模拟的地址提供反向解析（v0.8 中 traceroute 显示中间节点的名字）
-- [ ] 不认识的域名，通过仍在宿主机网络中的父进程转发给真实的 DNS 服务器
+- [x] 回答 `-host` 和按域名写的规则，自动分配模拟地址：`-rule api.example.com=80ms` 和配置文件 `rules:` 里的域名键都可以；地址从 `-addr` 网段的高端往下分配（`.253`、`.252`……，跳过已被明确规则或 `-host` 占用的地址），按域名排序所以每次一样；`-host` 指定的地址优先。`internal/dns` 是一个不依赖第三方库的小 DNS 服务（只处理单个问题的 UDP 查询，A/AAAA/PTR），监听在命令网络里的 `127.0.0.1:53`；`resolv.conf` 保留宿主机的 `search`/`options`，只换 `nameserver`；`nsswitch.conf` 里有 `resolve` 时同样替换成 `files dns`
+- [x] 为模拟的地址提供反向解析（v0.8 中 traceroute 显示中间节点的名字）：PTR 回答该地址的第一个名字，`getent hosts 10.99.0.253` 得到域名
+- [x] 不认识的域名，通过仍在宿主机网络中的父进程转发给真实的 DNS 服务器：父子进程之间一对 Unix 域套接字（子进程的 fd 3），子进程把原始查询按长度前缀转发，父进程按宿主机 `resolv.conf` 的顺序逐个询问（每个 2 秒），回答原样传回；都失败时回 SERVFAIL。用桩解析器验证过：模拟的域名从不转发，未知域名得到真实解析器的回答（含 NXDOMAIN）；端到端测试在能解析 `github.com` 的机器上检查它在 `exec` 里也能解析
 - [x] 动手之前先逐项验证（来自 slirp4netns 用户踩过的坑）：`/etc/resolv.conf` 是符号链接（包括多层）；DNS 服务器是 `127.0.0.53`（systemd-resolved，在 `exec` 的独立网络中访问不到）；多个 DNS 服务器；搜索域；IPv6 的 AAAA 记录；父进程转发的可行性；默认网段和用户网络重叠。**已用原型验证**（一个 Go 程序：子进程在 `exec` 里跑 DNS 服务并替换 `resolv.conf`，父进程留在宿主机网络里转发；宿主机的 DNS 用一个只认识 `real.example` 的桩程序模拟，监听在 `127.0.0.53`）：
 
   | 前提 | 结果 |

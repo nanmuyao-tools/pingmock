@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/netip"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -84,17 +83,17 @@ func checkRules(n *yaml.Node, path string) error {
 	if n.Kind != yaml.MappingNode {
 		return fmt.Errorf("%s:%d: rules must be a mapping of targets to rules", path, n.Line)
 	}
-	seen := map[netip.Prefix]int{}
+	seen := map[string]int{}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		key, val := n.Content[i], n.Content[i+1]
-		p, err := rule.ParsePrefix(key.Value)
+		t, err := rule.ParseTarget(key.Value)
 		if err != nil {
 			return fmt.Errorf("%s:%d: rule %q: %w", path, key.Line, key.Value, err)
 		}
-		if line, dup := seen[p]; dup {
-			return fmt.Errorf("%s:%d: rule %q is the same target %s as on line %d", path, key.Line, key.Value, p, line)
+		if line, dup := seen[t.String()]; dup {
+			return fmt.Errorf("%s:%d: rule %q is the same target %s as on line %d", path, key.Line, key.Value, t, line)
 		}
-		seen[p] = key.Line
+		seen[t.String()] = key.Line
 		if err := checkRule(val); err != nil {
 			return fmt.Errorf("%s:%d: rule %q: %w", path, val.Line, key.Value, err)
 		}

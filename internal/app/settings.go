@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/netip"
+	"sort"
 	"strings"
 
 	"github.com/nanmuyao/pingmock/internal/config"
@@ -18,9 +19,11 @@ type ruleFlags []string
 func (f *ruleFlags) String() string     { return strings.Join(*f, " ") }
 func (f *ruleFlags) Set(v string) error { *f = append(*f, v); return nil }
 
-// targetRule is a rule to install at startup.
+// targetRule is a rule to install at startup. A rule given for a name gets
+// its address allocated when the settings are resolved.
 type targetRule struct {
 	prefix netip.Prefix
+	name   string // set when the rule was given for a name
 	sc     rule.Scenario
 }
 
@@ -167,14 +170,14 @@ func (f *flagValues) resolve() (*settings, error) {
 	}
 
 	for _, r := range f.cfgRules {
-		s.addRule(r.Prefix, r.Scenario)
+		s.addRule(r.Target, r.Scenario)
 	}
 	for _, text := range f.rules {
-		p, sc, err := parseRuleFlag(text)
+		t, sc, err := parseRuleFlag(text)
 		if err != nil {
 			return nil, err
 		}
-		s.addRule(p, sc)
+		s.addRule(t, sc)
 	}
 
 	for _, h := range f.cfgHosts {
@@ -190,6 +193,9 @@ func (f *flagValues) resolve() (*settings, error) {
 			return nil, fmt.Errorf("invalid -host %q: %w", text, err)
 		}
 		s.addHost(h)
+	}
+	if err := s.allocateNames(); err != nil {
+		return nil, err
 	}
 
 	switch {
@@ -215,32 +221,98 @@ func (s *settings) addHost(h config.Host) {
 }
 
 // addRule adds a rule, or replaces the one for the same target.
-func (s *settings) addRule(p netip.Prefix, sc rule.Scenario) {
+func (s *settings) addRule(t rule.Target, sc rule.Scenario) {
 	for i := range s.rules {
-		if s.rules[i].prefix == p {
+		if s.rules[i].name == t.Name && (t.Name != "" || s.rules[i].prefix == t.Prefix) {
 			s.rules[i].sc = sc
 			return
 		}
 	}
-	s.rules = append(s.rules, targetRule{p, sc})
+	s.rules = append(s.rules, targetRule{prefix: t.Prefix, name: t.Name, sc: sc})
+}
+
+// allocateNames gives every rule written for a name an address: one given
+// with -host for that name if there is one, else a free address from the
+// top of the IPv4 subnet down, in name order so that it is the same on
+// every run. The command resolves the name to it.
+func (s *settings) allocateNames() error {
+	byName := map[string]netip.Addr{}
+	for _, h := range s.hosts {
+		if _, taken := byName[h.Name]; !taken || h.Addr.Is4() {
+			byName[h.Name] = h.Addr // prefer the IPv4 address, which every rule can use
+		}
+	}
+	taken := map[netip.Addr]bool{}
+	for _, h := range s.hosts {
+		taken[h.Addr] = true
+	}
+	for _, r := range s.rules {
+		if r.name == "" && r.prefix.IsSingleIP() {
+			taken[r.prefix.Addr()] = true
+		}
+	}
+	var names []string
+	for _, r := range s.rules {
+		if r.name != "" {
+			names = append(names, r.name)
+		}
+	}
+	sort.Strings(names)
+	next := s.addr.Masked().Addr() // the subnet's first address; counted from the top below
+	top := lastAddr(s.addr)
+	for _, name := range names {
+		a, ok := byName[name]
+		if !ok {
+			a = top
+			for taken[a] || a == s.addr.Addr() || a == s.addr.Masked().Addr() || a == lastAddr(s.addr) {
+				a = a.Prev()
+				if !a.IsValid() || a.Less(next) {
+					return fmt.Errorf("no free address left in %s for the rule %s", s.addr.Masked(), name)
+				}
+			}
+			byName[name] = a
+			s.hosts = append(s.hosts, config.Host{Name: name, Addr: a})
+		}
+		taken[a] = true
+		for i := range s.rules {
+			if s.rules[i].name == name {
+				s.rules[i].prefix = netip.PrefixFrom(a, a.BitLen())
+			}
+		}
+	}
+	return nil
+}
+
+// lastAddr is the last address of p, the broadcast address of an IPv4 subnet.
+func lastAddr(p netip.Prefix) netip.Addr {
+	b := p.Masked().Addr().As4()
+	bits := p.Bits()
+	for i := bits; i < 32; i++ {
+		b[i/8] |= 1 << (7 - i%8)
+	}
+	return netip.AddrFrom4(b)
 }
 
 // parseRuleFlag splits "TARGET=RULE" at the first '=' that follows the
 // target, since rules themselves contain '=' (delay=50ms).
-func parseRuleFlag(s string) (netip.Prefix, rule.Scenario, error) {
+func parseRuleFlag(s string) (rule.Target, rule.Scenario, error) {
 	target, text, ok := strings.Cut(s, "=")
 	if !ok {
-		return netip.Prefix{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: want TARGET=RULE", s)
+		return rule.Target{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: want TARGET=RULE", s)
 	}
-	p, err := rule.ParsePrefix(target)
+	t, err := rule.ParseTarget(target)
 	if err != nil {
-		return netip.Prefix{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
+		return rule.Target{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
 	}
 	sc, err := rule.ParseScenario(text)
 	if err != nil {
-		return netip.Prefix{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
+		return rule.Target{}, rule.Scenario{}, fmt.Errorf("invalid -rule %q: %w", s, err)
 	}
-	return p, sc, nil
+	return t, sc, nil
 }
+
+// names reports whether the command needs name resolution: hosts given,
+// or rules written for names.
+func (s *settings) names() bool { return len(s.hosts) > 0 }
 
 func isHelp(err error) bool { return errors.Is(err, errHelp) }

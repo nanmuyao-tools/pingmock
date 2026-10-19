@@ -153,3 +153,40 @@ func TestParseSettingsHosts(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSettingsNameRules(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "c.yaml")
+	os.WriteFile(cfg, []byte("rules:\n  db.example.com: 30ms\n  10.99.0.253: 1ms\nhosts:\n  fixed.example.com: 10.99.0.7\n"), 0o644)
+	s, _, err := parse(t, "-config", cfg, "-rule", "api.example.com=20ms", "-rule", "fixed.example.com=timeout", "-rule", "DB.example.com=40ms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, r := range s.rules {
+		got = append(got, r.name+"@"+r.prefix.String()+"="+r.sc.String())
+	}
+	// Names get addresses from the top of the subnet down (.254 is the
+	// device, .253 is taken by an explicit rule), in name order; a name
+	// given with -host keeps that address; a -rule for a name the file
+	// has replaces its rule.
+	want := "@10.99.0.253/32=delay=1ms db.example.com@10.99.0.251/32=delay=40ms api.example.com@10.99.0.252/32=delay=20ms fixed.example.com@10.99.0.7/32=timeout"
+	if strings.Join(got, " ") != want {
+		t.Errorf("rules = %v\n  want %s", got, want)
+	}
+	hosts := []string{}
+	for _, h := range s.hosts {
+		hosts = append(hosts, h.Name+"="+h.Addr.String())
+	}
+	if strings.Join(hosts, " ") != "fixed.example.com=10.99.0.7 api.example.com=10.99.0.252 db.example.com=10.99.0.251" {
+		t.Errorf("hosts = %v", hosts)
+	}
+	if !s.names() {
+		t.Error("names() = false with name rules")
+	}
+	// Running out of addresses is an error, not a silent reuse.
+	args := []string{"-addr", "10.99.0.254/30"} // .252 network, .253 free, .254 device, .255 broadcast
+	args = append(args, "-rule", "a.example=1ms", "-rule", "b.example=1ms")
+	if _, _, err := parse(t, args...); err == nil || !strings.Contains(err.Error(), "no free address") {
+		t.Errorf("subnet exhausted: %v", err)
+	}
+}

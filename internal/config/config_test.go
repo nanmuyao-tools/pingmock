@@ -27,7 +27,7 @@ func describe(cfg *Config, rules []Rule) string {
 		fmt.Fprintf(&b, "default=%s ", cfg.Default)
 	}
 	for _, r := range rules {
-		fmt.Fprintf(&b, "%s=%s; ", r.Prefix, r.Scenario)
+		fmt.Fprintf(&b, "%s=%s; ", r.Target, r.Scenario)
 	}
 	return b.String()
 }
@@ -60,7 +60,7 @@ rules:
 	}
 	got := map[string]string{}
 	for _, r := range rules {
-		got[r.Prefix.String()] = r.Scenario.String()
+		got[r.Target.String()] = r.Scenario.String()
 	}
 	want := map[string]string{
 		"10.99.0.1/32":   "delay=20ms",
@@ -75,8 +75,8 @@ rules:
 		t.Errorf("rules:\n got %v\nwant %v", got, want)
 	}
 	// Rules come back sorted by their key as written.
-	if rules[0].Prefix.String() != "10.99.0.1/32" || rules[len(rules)-1].Prefix.String() != "fd99::1/128" {
-		t.Errorf("order: first %s, last %s", rules[0].Prefix, rules[len(rules)-1].Prefix)
+	if rules[0].Target.String() != "10.99.0.1/32" || rules[len(rules)-1].Target.String() != "fd99::1/128" {
+		t.Errorf("order: first %s, last %s", rules[0].Target, rules[len(rules)-1].Target)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestLoadEmpty(t *testing.T) {
 func TestLoadErrors(t *testing.T) {
 	cases := map[string]string{
 		"seed: 1\nrulez: {}\n":                                  "c.yaml:2: unknown field \"rulez\"",
-		"rules:\n  10.99.0.1: 5ms\n  nope: 6ms\n":               "c.yaml:3: rule \"nope\"",
+		"rules:\n  10.99.0.1: 5ms\n  -nope: 6ms\n":              "c.yaml:3: rule \"-nope\"",
 		"rules:\n  fe80::1%eth0: 5ms\n":                         "c.yaml:2: rule \"fe80::1%eth0\": fe80::1%eth0: zones are not supported",
 		"rules:\n  10.99.0.1: 5ms\n  10.99.0.2: 5ms; 6ms\n":     "c.yaml:3: rule \"10.99.0.2\": invalid rule \"5ms; 6ms\"",
 		"rules:\n  10.99.0.1: 5ms\n  10.99.0.1: 6ms\n":          "c.yaml:3: rule \"10.99.0.1\" is the same target 10.99.0.1/32 as on line 2",
@@ -182,5 +182,19 @@ func TestLoadHosts(t *testing.T) {
 		if _, _, err := Load(writeFile(t, "bad.yaml", bad)); err == nil {
 			t.Errorf("%q: expected error", bad)
 		}
+	}
+}
+
+func TestLoadNameRules(t *testing.T) {
+	_, rules, err := Load(writeFile(t, "n.yaml", "rules:\n  API.example.com.: 20ms\n  10.99.0.1: 5ms\n  db.example.com: timeout\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := describe(&Config{}, rules)
+	if got != "10.99.0.1/32=delay=5ms; api.example.com=delay=20ms; db.example.com=timeout; " {
+		t.Errorf("rules = %s", got)
+	}
+	if _, _, err := Load(writeFile(t, "dup.yaml", "rules:\n  api.example.com: 20ms\n  API.EXAMPLE.COM: 5ms\n")); err == nil || !strings.Contains(err.Error(), "same target") {
+		t.Errorf("duplicate name: %v", err)
 	}
 }

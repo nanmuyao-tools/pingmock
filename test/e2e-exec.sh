@@ -63,6 +63,30 @@ near "-host: ping by name gets the rule's delay" "$(echo "$resolved" | tail -1)"
 same "-host leaves the system's /etc/hosts alone" "$(md5sum /etc/hosts)" "$before"
 same "-host leaves no file behind" "$(ls /tmp/pingmock-hosts-* 2>/dev/null | wc -l)" 0
 
+# A rule for a name: the command's DNS server resolves it to an address
+# from the top of the subnet, both ways, and other names still resolve
+# through the host's resolver.
+before_resolv=$(md5sum /etc/resolv.conf 2>/dev/null || true)
+named=$(run -rule by-name.example=45ms -- sh -c "
+  getent hosts by-name.example | awk '{print \$1}'
+  getent hosts 10.99.0.253 | awk '{print \$2}'
+  ping -c 2 -i 0.2 by-name.example | awk -F/ '/^rtt/ {print \$5}'
+  getent hosts does-not-exist.invalid >/dev/null; echo \$?")
+same "a rule for a name resolves to the top of the subnet" "$(echo "$named" | sed -n 1p)" "10.99.0.253"
+same "the address resolves back to the name" "$(echo "$named" | sed -n 2p)" "by-name.example"
+near "ping by name gets the name's rule" "$(echo "$named" | sed -n 3p)" 45 5
+same "an unknown name does not resolve" "$(echo "$named" | sed -n 4p)" 2
+same "the system's resolv.conf is left alone" "$(md5sum /etc/resolv.conf 2>/dev/null || true)" "$before_resolv"
+if getent hosts github.com >/dev/null 2>&1; then
+  forwarded=$(run -rule by-name.example=1ms -- sh -c "getent hosts github.com | awk '{print \$1}' | head -1")
+  [ -n "$forwarded" ] && pass "a real name is forwarded to the host's resolver: $forwarded" || fail "github.com did not resolve inside exec"
+else
+  echo "SKIP forwarding to the host's resolver (this host cannot resolve github.com)"
+fi
+leftover=0
+for f in /tmp/pingmock-*; do [ -e "$f" ] && [ "$f" != /tmp/pingmock-e2e.log ] && leftover=$((leftover + 1)); done
+same "no temporary file is left behind" "$leftover" 0
+
 # The host network is untouched while a run is in progress.
 run -- sleep 2 &
 bg=$!

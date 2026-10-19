@@ -255,7 +255,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api`, `history` and, for `pingmock exec`, [`hosts`](#names-host).
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api`, `history` and, for `pingmock exec`, [`hosts`](#names); under `pingmock exec`, a rule's key may be a name.
 
 Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 
@@ -265,7 +265,7 @@ Flags given on the command line override the file, so one file can serve many te
 
 | Flag | Default | Description |
 |---|---|---|
-| `-rule` | | `TARGET=RULE`, repeatable |
+| `-rule` | | `TARGET=RULE`, repeatable; under `pingmock exec`, `TARGET` may be a [name](#names) |
 | `-default` | `0ms` | Rule used for targets without a matching rule |
 | `-config` | | YAML configuration file |
 | `-seed` | random | Seed for `loss` and `jitter`; the same seed reproduces the same run |
@@ -274,7 +274,7 @@ Flags given on the command line override the file, so one file can serve many te
 | `-dev` | `pingmock0` | Name of the virtual device |
 | `-api` | `127.0.0.1:9100` | Listen address of the control API; an empty string disables it |
 | `-history` | `1000` | Number of recent requests kept for `GET /history`; `0` disables it |
-| `-host` | | `NAME=ADDR`, repeatable, `pingmock exec` only: the command resolves `NAME` to `ADDR`, see [Names](#names-host) |
+| `-host` | | `NAME=ADDR`, repeatable, `pingmock exec` only: the command resolves `NAME` to `ADDR`, see [Names](#names) |
 | `-v` | `false` | Log every request |
 | `-version` | | Print the version and exit |
 
@@ -298,24 +298,31 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 
 Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access. So build programs before running them there: a `go run` (or `npm install`, `pip install`...) that needs to download dependencies fails with `network is unreachable`.
 
-### Names: -host
+### Names
 
-Much software pings a name rather than an address. Inside the private network there is no DNS, so give the command the names it needs with `-host NAME=ADDR`, repeatable, and rules for the addresses:
+Much software pings a name rather than an address. Under `pingmock exec`, a rule can be written for a name:
 
 ```bash
-pingmock exec -host api.example.com=10.99.0.1 -host backup.example.com=10.99.0.2 \
-  -rule 10.99.0.1=80ms -rule 10.99.0.2=timeout -- ./my-app
+pingmock exec -rule api.example.com=80ms -rule backup.example.com=timeout -- ./my-app
 ```
 
-The command gets its **own `/etc/hosts`**: the system's, with these names on top, in a mount namespace of its own. Everything that resolves names through `/etc/hosts` sees them: `ping` and other programs using the C library, Go programs, Python... The system's file is not changed, nothing is left behind, and no root is needed. In a configuration file, the same is written as:
+The command resolves `api.example.com` to a mocked address and gets the rule when it pings it. The address comes from the top of the subnet down (`10.99.0.253`, `10.99.0.252`, ...), the same one on every run, and the startup log says which: `rule api.example.com (10.99.0.253): delay=80ms`. To choose the address yourself, or to make a name resolve to an IPv6 address, use `-host NAME=ADDR`, repeatable:
+
+```bash
+pingmock exec -host api.example.com=fd99::1 -rule api.example.com=80ms -- ./my-app
+```
+
+How it works: in a mount namespace of its own, the command gets its **own `/etc/hosts`** (the system's, with the mocked names on top) and a **`resolv.conf` that points at a small DNS server** pingmock runs for it. That server answers for the mocked names, both ways (the address resolves back to the name), and forwards every other name to the host's resolver, so real names keep resolving even though their addresses are unreachable from the private network. Everything that resolves names sees the same thing: `ping` and other programs using the C library, Go, Python... The system's files are not changed, nothing is left behind, and no root is needed. In a configuration file, the same is written as:
 
 ```yaml
-hosts:
-  api.example.com: 10.99.0.1
-  backup.example.com: 10.99.0.2
+rules:
+  api.example.com: 80ms
+  backup.example.com: timeout
+hosts:                            # only to choose the addresses
+  api.example.com: fd99::1
 ```
 
-`-host` is for `pingmock exec` only. When pingmock runs for the whole machine with `sudo pingmock`, add the names to the machine's `/etc/hosts`.
+Names are for `pingmock exec` only. When pingmock runs for the whole machine with `sudo pingmock`, add the names to the machine's `/etc/hosts` and write the rules for the addresses.
 
 ### Requirements
 

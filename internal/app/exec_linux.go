@@ -11,7 +11,9 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/nanmuyao/pingmock/internal/dns"
 	"github.com/nanmuyao/pingmock/internal/tun"
 )
 
@@ -36,13 +38,15 @@ once, and pingmock exits with CMD's exit status. When CMD exits, any
 processes it left running are stopped.
 
 CMD can reach the control API at the address in $PINGMOCK_API. It has no
-network access other than the mocked targets. With -host, CMD resolves a
-name to a mocked address through a private /etc/hosts; the system's file
-is not touched.
+network access other than the mocked targets. A rule may be written for a
+name: CMD then resolves it to a mocked address, through a private
+/etc/hosts and a DNS server that forwards other names to the host's
+resolver; the system's files are not touched. -host picks the address.
 
 Examples:
   pingmock exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
   pingmock exec -seed 42 -rule 8.8.8.8=120ms -- ./my-app
+  pingmock exec -rule api.example.com=80ms -rule db.example.com=timeout -- ./my-app
   pingmock exec -host api.example.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./my-app
   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 
@@ -79,9 +83,26 @@ func runExec(args []string) int {
 	// command started in the background outlives the run. Pdeathsig does
 	// the same if pingmock exec itself is killed.
 	attr := &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET | syscall.CLONE_NEWPID, Pdeathsig: syscall.SIGKILL}
-	if len(s.hosts) > 0 {
-		// A mount namespace, for the command's own /etc/hosts.
+	var childEnd *os.File
+	if s.names() {
+		// A mount namespace, for the command's own /etc/hosts and
+		// resolv.conf, and a socket pair on which this process, which keeps
+		// the host's network, resolves the names the child's DNS server
+		// does not know.
 		attr.Cloneflags |= syscall.CLONE_NEWNS
+		fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
+		if err != nil {
+			log.Printf("pingmock exec: %v", err)
+			return 1
+		}
+		parentEnd := os.NewFile(uintptr(fds[0]), "dns-relay")
+		childEnd = os.NewFile(uintptr(fds[1]), "dns-relay")
+		child.ExtraFiles = []*os.File{childEnd} // relayFD in the child
+		forward := dns.Forwarder(dns.Nameservers(resolvFile), 2*time.Second)
+		go func() {
+			defer parentEnd.Close()
+			dns.ServeRelay(parentEnd, forward)
+		}()
 	}
 	rootless := os.Geteuid() != 0
 	if rootless {
@@ -92,7 +113,11 @@ func runExec(args []string) int {
 		child.Env = append(child.Env, envRootless+"=1")
 	}
 	child.SysProcAttr = attr
-	if err := child.Start(); err != nil {
+	err = child.Start()
+	if childEnd != nil {
+		childEnd.Close() // the child has its own copy now
+	}
+	if err != nil {
 		if rootless {
 			log.Printf("pingmock exec: cannot create a user namespace: %v\n"+
 				"Unprivileged user namespaces seem to be disabled on this system. Run pingmock exec with sudo,\n"+
@@ -118,16 +143,23 @@ func runExecChild(args []string) int {
 		log.Print(err)
 		return 2
 	}
-	if len(s.hosts) > 0 {
-		if err := mountHosts(s.hosts); err != nil {
+	if s.names() {
+		if err := setupNames(s.hosts); err != nil {
 			log.Print(explain(err, rootless))
 			return 1
 		}
 	}
-	// The new namespace starts with loopback down; the API listens on it.
+	// The new namespace starts with loopback down; the API and the DNS
+	// server listen on it.
 	if err := tun.IP("link", "set", "lo", "up"); err != nil {
 		log.Print(explain(err, rootless))
 		return 1
+	}
+	if s.names() {
+		if err := serveDNS(s.hosts); err != nil {
+			log.Print(explain(err, rootless))
+			return 1
+		}
 	}
 	in, err := start(s)
 	if err != nil {

@@ -43,7 +43,7 @@ type Config struct {
 
 // Rule is a parsed entry of Config.Rules.
 type Rule struct {
-	Prefix   netip.Prefix
+	Target   rule.Target
 	Scenario rule.Scenario
 }
 
@@ -56,17 +56,14 @@ type Host struct {
 // ParseHost validates a host entry, from the file or from -host NAME=ADDR.
 func ParseHost(name, addr string) (Host, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || strings.ContainsAny(name, " \t#") || strings.HasPrefix(name, "-") || strings.HasPrefix(name, ".") {
-		return Host{}, fmt.Errorf("invalid host name %q", name)
-	}
-	if _, err := netip.ParseAddr(name); err == nil {
-		return Host{}, fmt.Errorf("host name %q is an address; want a name such as api.example.com", name)
+	if err := rule.ValidName(name); err != nil {
+		return Host{}, err
 	}
 	a, err := netip.ParseAddr(strings.TrimSpace(addr))
 	if err != nil || a.Zone() != "" {
 		return Host{}, fmt.Errorf("host %s: invalid address %q", name, addr)
 	}
-	return Host{Name: name, Addr: a}, nil
+	return Host{Name: strings.ToLower(strings.TrimSuffix(name, ".")), Addr: a.Unmap()}, nil
 }
 
 // SortedHosts returns the file's hosts, validated and sorted by name.
@@ -111,17 +108,17 @@ func Load(path string) (*Config, []Rule, error) {
 	}
 	sort.Strings(keys)
 	rules := make([]Rule, 0, len(keys))
-	seen := map[netip.Prefix]string{}
+	seen := map[string]string{}
 	for _, k := range keys {
-		p, err := rule.ParsePrefix(k)
+		t, err := rule.ParseTarget(k)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%s: rule %q: %w", path, k, err)
 		}
-		if other, dup := seen[p]; dup {
-			return nil, nil, fmt.Errorf("%s: rules %q and %q are the same target %s", path, other, k, p)
+		if other, dup := seen[t.String()]; dup {
+			return nil, nil, fmt.Errorf("%s: rules %q and %q are the same target %s", path, other, k, t)
 		}
-		seen[p] = k
-		rules = append(rules, Rule{p, cfg.Rules[k]})
+		seen[t.String()] = k
+		rules = append(rules, Rule{t, cfg.Rules[k]})
 	}
 	if _, err := cfg.SortedHosts(path); err != nil {
 		return nil, nil, err
