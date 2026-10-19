@@ -39,6 +39,40 @@ type Config struct {
 	//	hosts:
 	//	  api.example.com: 10.99.0.1
 	Hosts map[string]string `json:"hosts"`
+	// Paths gives targets a route, for traceroute and mtr:
+	//
+	//	paths:
+	//	  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
+	Paths map[string]rule.Path `json:"paths"`
+}
+
+// PathRule is a parsed entry of Config.Paths.
+type PathRule struct {
+	Target rule.Target
+	Path   rule.Path
+}
+
+// SortedPaths returns the file's paths, validated and sorted by target.
+func (c *Config) SortedPaths(path string) ([]PathRule, error) {
+	keys := make([]string, 0, len(c.Paths))
+	for k := range c.Paths {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]PathRule, 0, len(keys))
+	seen := map[string]string{}
+	for _, k := range keys {
+		t, err := rule.ParseTarget(k)
+		if err != nil || (t.Name == "" && !t.Prefix.IsSingleIP()) {
+			return nil, fmt.Errorf("%s: path %q: want a single address or a name", path, k)
+		}
+		if other, dup := seen[t.String()]; dup {
+			return nil, fmt.Errorf("%s: paths %q and %q are the same target %s", path, other, k, t)
+		}
+		seen[t.String()] = k
+		out = append(out, PathRule{t, c.Paths[k]})
+	}
+	return out, nil
 }
 
 // Rule is a parsed entry of Config.Rules.
@@ -121,6 +155,9 @@ func Load(path string) (*Config, []Rule, error) {
 		rules = append(rules, Rule{t, cfg.Rules[k]})
 	}
 	if _, err := cfg.SortedHosts(path); err != nil {
+		return nil, nil, err
+	}
+	if _, err := cfg.SortedPaths(path); err != nil {
 		return nil, nil, err
 	}
 	if cfg.History != nil && *cfg.History < 0 {

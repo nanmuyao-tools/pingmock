@@ -190,3 +190,28 @@ func TestParseSettingsNameRules(t *testing.T) {
 		t.Errorf("subnet exhausted: %v", err)
 	}
 }
+
+func TestParseSettingsPaths(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "c.yaml")
+	os.WriteFile(cfg, []byte("rules:\n  api.example.com: 30ms\npaths:\n  api.example.com: 10.0.0.1@2ms > *\n  8.8.8.8: 10.0.0.2@3ms\n"), 0o644)
+	s, _, err := parse(t, "-config", cfg, "-path", "8.8.8.8=10.0.0.9@9ms", "-path", "db.example.com=10.0.0.3@1ms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, p := range s.paths {
+		got = append(got, p.name+"@"+p.addr.String()+"="+p.path.String())
+	}
+	// The file's paths in target order, a -path for the same target
+	// replacing one; names get the address of their rule, or one of
+	// their own.
+	want := "@8.8.8.8=10.0.0.9@delay=9ms api.example.com@10.99.0.253=10.0.0.1@delay=2ms > * db.example.com@10.99.0.252=10.0.0.3@delay=1ms"
+	if strings.Join(got, " ") != want {
+		t.Errorf("paths = %v\n  want %s", got, want)
+	}
+	for _, bad := range []string{"nope", "10.0.0.0/24=1.1.1.1@1ms", "8.8.8.8=", "8.8.8.8=x@1ms"} {
+		if _, _, err := parse(t, "-path", bad); err == nil {
+			t.Errorf("-path %q: expected error", bad)
+		}
+	}
+}

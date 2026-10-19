@@ -275,6 +275,7 @@ Flags given on the command line override the file, so one file can serve many te
 | `-api` | `127.0.0.1:9100` | Listen address of the control API; an empty string disables it |
 | `-history` | `1000` | Number of recent requests kept for `GET /history`; `0` disables it |
 | `-host` | | `NAME=ADDR`, repeatable, `pingmock exec` only: the command resolves `NAME` to `ADDR`, see [Names](#names) |
+| `-path` | | `TARGET=PATH`, repeatable: the route traceroute and mtr see to `TARGET`, see [Paths](#paths-traceroute-and-mtr) |
 | `-v` | `false` | Log every request |
 | `-version` | | Print the version and exit |
 
@@ -323,6 +324,50 @@ hosts:                            # only to choose the addresses
 ```
 
 Names are for `pingmock exec` only. When pingmock runs for the whole machine with `sudo pingmock`, add the names to the machine's `/etc/hosts` and write the rules for the addresses.
+
+## Paths: traceroute and mtr
+
+For software that looks at the route, not just the destination, a target can get a **path**: the routers between here and it, each answering probes whose TTL runs out there, as real routers do. traceroute and mtr then show the hops, in every probe mode (UDP, ICMP and TCP), and reach the target.
+
+```bash
+sudo pingmock -rule 8.8.8.8=30ms \
+  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
+```
+
+```
+$ traceroute -n 8.8.8.8
+ 1  192.168.1.1  2.3 ms
+ 2  10.0.0.1  15.8 ms
+ 3  *
+ 4  72.14.0.1  25.4 ms
+ 5  8.8.8.8  30.6 ms
+```
+
+A path is hops separated by `>`, each `ADDR@SETTINGS`, or `*` for a router that never answers. The settings are:
+
+| Setting | Meaning |
+|---|---|
+| `2ms`, `delay=2ms` | Round trip to this hop |
+| `jitter=3ms` | Delay uniform in ±3ms |
+| `loss=10%` | This hop does not answer 10% of the probes that end there, as routers that rate-limit ICMP errors do. Nothing else is affected: mtr shows loss on that line only |
+| `cut=5%` | This hop loses 5% of everything going through it: the probes for later hops and the target, and the pings to the target. A lossy link looks like this: loss from that hop on |
+| `ttl=250` | TTL of this hop's answers (default 64) |
+
+The target's own rule still decides what the target answers: its delay and loss apply to pings as before, and to traceroute's last line. A target with a path also answers UDP probes with port unreachable and TCP probes with a SYN-ACK, which is how traceroute's UDP and TCP modes know they arrived; targets without a path keep ignoring UDP and TCP. The hops' addresses get routes to the virtual device, so the kernel accepts their answers under strict reverse-path filtering; inside `pingmock exec` this touches nothing outside the command. Randomness comes from the seed, per target, so `loss` and `cut` repeat exactly with `-seed`.
+
+In a configuration file (quote a path that starts with `*`, which YAML would read as an alias) and through the API:
+
+```yaml
+paths:
+  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
+```
+
+```bash
+curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
+curl -X DELETE localhost:9100/paths/8.8.8.8
+```
+
+The Go client has `SetPath` and `DeletePath`. `GET /rules` lists the paths, and the history records each probe with its `ttl`, the `hop` that answered or lost it and the address it answered `from`; a probe's `result` is `time-exceeded` from a hop, `port-unreachable` or `syn-ack` from the target.
 
 ### Requirements
 
@@ -417,7 +462,7 @@ Each history event looks like this. `result` is `reply`, `drop` or `unreachable`
 | [pro-bing](https://github.com/prometheus-community/pro-bing), Go | raw, and unprivileged ping sockets |
 | [icmplib](https://github.com/ValentinBELYN/icmplib), Python | raw, and unprivileged ping sockets |
 
-traceroute and mtr do not work yet; see [Limitations](#limitations).
+traceroute and mtr show the hops of targets that have a [path](#paths-traceroute-and-mtr), in UDP, ICMP and TCP mode; CI checks all three. Targets without a path look one hop away, and only answer pings.
 
 The easiest way is to run the tests themselves under `pingmock exec`: no root, no setup or teardown code, and every run is isolated. Fix the seed so random loss and jitter are the same on every run.
 
@@ -515,7 +560,7 @@ make e2e-docker   # the container image and the Compose example
 
 - Only ping (ICMP and ICMPv6 Echo) is mocked. TCP and UDP traffic to mocked addresses gets no response.
 - Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
-- traceroute and mtr see no route: pingmock ignores the TTL, so a mocked target looks one hop away, and traceroute's default UDP probes get no answer, so it never reaches the target. Simulating paths is planned.
+- Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr, and only its pings are answered: UDP and TCP probes to it get nothing. With a path, UDP and TCP probes get the answers that mean "reached", but no data is exchanged: pingmock mocks no service.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.
 - Linux only. `pingmock exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).

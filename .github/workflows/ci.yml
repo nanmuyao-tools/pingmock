@@ -49,6 +49,12 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Build
         run: go build -o pingmock .
+      # traceroute and mtr, for the path checks of the end-to-end tests.
+      - name: Install traceroute and mtr
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q traceroute mtr-tiny
+          traceroute --version 2>&1 | head -n 1; mtr --version
       - name: End-to-end test
         run: sudo REQUIRE_IPV6=1 test/e2e.sh
       # Ubuntu 24.04 and later restrict unprivileged user namespaces with

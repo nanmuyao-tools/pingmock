@@ -152,4 +152,37 @@ if [ -e /proc/net/if_inet6 ]; then
 fi
 ip link del pmhost0
 
+# Paths: traceroute and mtr see the hops, in every probe mode, and reach
+# the target; a hop written * never answers.
+if command -v traceroute >/dev/null; then
+  start -seed 1 -rule 10.99.0.80=30ms -path '10.99.0.80=192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms'
+  hops() { traceroute "$@" -n -q 1 -w 1 -m 8 10.99.0.80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' '; }
+  want="192.168.1.1 10.0.0.1 * 72.14.0.1 10.99.0.80 "
+  same "traceroute (UDP) shows the path" "$(hops)" "$want"
+  same "traceroute -I shows the path" "$(hops -I)" "$want"
+  same "traceroute -T shows the path" "$(hops -T)" "$want"
+  hop2=$(traceroute -n -q 1 -w 1 -m 8 10.99.0.80 2>/dev/null | awk 'NR==3 {print $3}')
+  near "the second hop answers after its own delay" "$hop2" 15 5
+  near "ping still gets the target's rule" "$(avg 10.99.0.80 2)" 30 5
+  if command -v mtr >/dev/null; then
+    same "mtr shows the path" "$(mtr -n -r -c 1 10.99.0.80 | tail -n +3 | awk '{print $2}' | tr '\n' ' ')" "192.168.1.1 10.0.0.1 ??? 72.14.0.1 10.99.0.80 "
+  fi
+  # cut= loses everything beyond the hop: the target becomes unreachable.
+  curl -sf -X PUT localhost:9100/paths/10.99.0.80 -d '192.168.1.1@2ms,cut=100% > 10.0.0.1@15ms' >/dev/null
+  same "a cut hop still answers its own probe" "$(hops | awk '{print $1}')" "192.168.1.1"
+  if ping -c 1 -W 1 10.99.0.80 >/dev/null 2>&1; then fail "a ping got through a cut hop"; fi
+  pass "a cut hop loses pings to the target"
+  events=$(curl -sf "localhost:9100/history?target=10.99.0.80" | grep -c '"result": "time-exceeded"' || true)
+  [ "$events" -ge 8 ] && pass "the history records the hops' answers ($events time-exceeded)" || fail "history has $events time-exceeded events"
+  stop
+  if [ -e /proc/net/if_inet6 ]; then
+    start -seed 1 -rule fd99::80=30ms -path 'fd99::80=fd99::1:1@2ms > * > fd99::1:3@25ms'
+    same "IPv6: traceroute shows the path" "$(traceroute -6 -n -q 1 -w 1 -m 6 fd99::80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' ')" "fd99::1:1 * fd99::1:3 fd99::80 "
+    same "IPv6: traceroute -I shows the path" "$(traceroute -6 -I -n -q 1 -w 1 -m 6 fd99::80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' ')" "fd99::1:1 * fd99::1:3 fd99::80 "
+    stop
+  fi
+else
+  echo "SKIP paths: traceroute is not installed"
+fi
+
 echo "all checks passed"

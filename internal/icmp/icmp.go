@@ -172,42 +172,11 @@ func BuildUnreachable(req []byte, code rule.UnreachCode, ttl uint8) []byte {
 }
 
 func unreachable4(req []byte, code rule.UnreachCode, ttl uint8) []byte {
-	total := int(binary.BigEndian.Uint16(req[2:4]))
-	quote := req[:min(total, maxError4-ipv4Header-8)]
-	out := make([]byte, ipv4Header+8+len(quote))
-	out[0] = 0x45
-	binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
-	out[8] = ttl
-	out[9] = protoICMP
-	copy(out[12:16], req[16:20]) // from the target
-	copy(out[16:20], req[12:16]) // to the client
-	binary.BigEndian.PutUint16(out[10:12], Checksum(out[:ipv4Header]))
-
-	msg := out[ipv4Header:]
-	msg[0] = icmpUnreachable
-	msg[1] = unreachCodes4[code]
-	copy(msg[8:], quote)
-	binary.BigEndian.PutUint16(msg[2:4], Checksum(msg))
-	return out
+	return icmpError4(req, netip.AddrFrom4([4]byte(req[16:20])), icmpUnreachable, unreachCodes4[code], ttl)
 }
 
 func unreachable6(req []byte, code rule.UnreachCode, ttl uint8) []byte {
-	total := ipv6Header + int(binary.BigEndian.Uint16(req[4:6]))
-	quote := req[:min(total, maxError6-ipv6Header-8)]
-	out := make([]byte, ipv6Header+8+len(quote))
-	out[0] = 0x60
-	binary.BigEndian.PutUint16(out[4:6], uint16(8+len(quote)))
-	out[6] = protoICMPv6
-	out[7] = ttl
-	copy(out[8:24], req[24:40]) // from the target
-	copy(out[24:40], req[8:24]) // to the client
-
-	msg := out[ipv6Header:]
-	msg[0] = icmp6Unreachable
-	msg[1] = unreachCodes6[code]
-	copy(msg[8:], quote)
-	binary.BigEndian.PutUint16(msg[2:4], checksum6(out[8:24], out[24:40], msg))
-	return out
+	return icmpError6(req, netip.AddrFrom16([16]byte(req[24:40])), icmp6Unreachable, unreachCodes6[code], ttl)
 }
 
 // Checksum computes the Internet checksum (RFC 1071).

@@ -275,6 +275,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 | `-api` | `127.0.0.1:9100` | 控制 API 的监听地址，设为空字符串则关闭 |
 | `-history` | `1000` | `GET /history` 保留的最近请求数，`0` 表示关闭 |
 | `-host` | | `域名=地址`，可重复，仅限 `pingmock exec`：命令把域名解析成这个地址，见[域名](#域名) |
+| `-path` | | `目标=路径`，可重复：traceroute 和 mtr 看到的、到目标的路径，见[路径](#路径traceroute-和-mtr) |
 | `-v` | `false` | 打印每个请求的处理日志 |
 | `-version` | | 打印版本号并退出 |
 
@@ -323,6 +324,50 @@ hosts:                            # 只在需要指定地址时写
 ```
 
 域名只用于 `pingmock exec`。用 `sudo pingmock` 为整台机器模拟时，请把域名加到机器的 `/etc/hosts` 里，规则写地址。
+
+## 路径：traceroute 和 mtr
+
+有些软件看的不只是终点，还有去往终点的路。可以给目标设置一条**路径**：从这里到它之间的每一台路由器，像真实路由器一样回应 TTL 在它那里耗尽的探测包。traceroute 和 mtr 就能看到每一跳，三种探测方式（UDP、ICMP、TCP）都能到达终点。
+
+```bash
+sudo pingmock -rule 8.8.8.8=30ms \
+  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
+```
+
+```
+$ traceroute -n 8.8.8.8
+ 1  192.168.1.1  2.3 ms
+ 2  10.0.0.1  15.8 ms
+ 3  *
+ 4  72.14.0.1  25.4 ms
+ 5  8.8.8.8  30.6 ms
+```
+
+路径是用 `>` 连接的若干跳，每跳写成 `地址@设置`，或者用 `*` 表示一台从不回应的路由器。设置项有：
+
+| 设置 | 含义 |
+|---|---|
+| `2ms`、`delay=2ms` | 到这一跳的往返延迟 |
+| `jitter=3ms` | 延迟在 ±3ms 内均匀波动 |
+| `loss=10%` | 这一跳对 10% 的、在它这里终止的探测包不回应，就像限制 ICMP 速率的路由器。其他都不受影响：mtr 只在这一行显示丢包 |
+| `cut=5%` | 这一跳丢掉 5% 经过它的包：发给后面各跳和终点的探测包，还有发给终点的 ping。有问题的链路就是这样：从这一跳起都有丢包 |
+| `ttl=250` | 这一跳回应的 TTL（默认 64） |
+
+终点自己的规则仍然决定终点怎么回应：它的延迟和丢包像以前一样作用于 ping，也作用于 traceroute 的最后一行。设置了路径的目标还会用"端口不可达"回应 UDP 探测、用 SYN-ACK 回应 TCP 探测，traceroute 的 UDP 和 TCP 模式就是靠这个知道到达了终点；没有路径的目标仍然不理会 UDP 和 TCP。各跳的地址会被加上指向虚拟网卡的路由，这样在严格的反向路径检查下内核也接受它们的回应；在 `pingmock exec` 里这不会影响命令之外的任何东西。随机数来自 seed、按目标独立，所以 `loss` 和 `cut` 在 `-seed` 下可以精确复现。
+
+配置文件里的写法（以 `*` 开头的路径要加引号，否则 YAML 会当成别名）和 API：
+
+```yaml
+paths:
+  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
+```
+
+```bash
+curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
+curl -X DELETE localhost:9100/paths/8.8.8.8
+```
+
+Go 客户端有 `SetPath` 和 `DeletePath`。`GET /rules` 会列出路径；历史记录里每个探测包都带有 `ttl`、回应或丢掉它的 `hop`，以及回应来自哪个地址（`from`）；探测包的 `result` 是某一跳回的 `time-exceeded`，或者终点回的 `port-unreachable`、`syn-ack`。
 
 ### 系统要求
 
@@ -417,7 +462,7 @@ CI 会在 Ubuntu 24.04 和 26.04 上，用 [`test/e2e-compat.sh`](test/e2e-compa
 | [pro-bing](https://github.com/prometheus-community/pro-bing)（Go） | 原始套接字，以及免 root 的 ping 套接字 |
 | [icmplib](https://github.com/ValentinBELYN/icmplib)（Python） | 原始套接字，以及免 root 的 ping 套接字 |
 
-traceroute 和 mtr 目前还不能使用，参见[限制](#限制)。
+设置了[路径](#路径traceroute-和-mtr)的目标，traceroute 和 mtr 能看到各跳，UDP、ICMP、TCP 三种模式都可以，CI 都有检查。没有路径的目标看起来就在一跳之外，而且只回应 ping。
 
 最简单的方式是让测试本身运行在 `pingmock exec` 下：不需要 root，不需要启动和清理的代码，每次运行都相互隔离。建议固定种子，让随机的丢包和抖动每次都一样。
 
@@ -515,7 +560,7 @@ make e2e-docker   # 容器镜像和 Compose 示例
 
 - 只模拟 ping（ICMP 和 ICMPv6 Echo）。发往模拟地址的 TCP、UDP 流量不会得到响应。
 - **绑定网卡**的 ping 不会被模拟：`ping -I eth0 8.8.8.8` 无论路由怎样都会从 `eth0` 发出，因此绕过了 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）则照常被模拟。
-- traceroute 和 mtr 看不到路径：pingmock 不理会 TTL，所以模拟的目标看起来就在一跳之外；traceroute 默认发送的 UDP 探测得不到回应，所以永远到不了目标。路径模拟已在计划中。
+- 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外，而且只回应 ping：发给它的 UDP 和 TCP 探测得不到任何回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，但不会交换任何数据：pingmock 不模拟任何服务。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
 - 不支持分片的请求（例如 `ping -s 2000`）和带扩展头的 IPv6 请求，这类请求会被忽略。
 - 只支持 Linux。普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。

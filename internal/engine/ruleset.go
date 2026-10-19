@@ -19,6 +19,7 @@ type Stats struct {
 	Replied     uint64 `json:"replied"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
+	Hops        uint64 `json:"hops,omitempty"` // probes answered by a hop of the path
 }
 
 // entry is a scenario installed for a prefix (or as the default). Every
@@ -49,6 +50,11 @@ type Decision struct {
 	TTL     uint8            // IP TTL or hop limit of the answer
 	Rule    string           // matching prefix, or "default"
 	Phase   int              // the phase that applied, counting from 1
+	// For targets with a path: the hop that handled the probe, counting
+	// from 1, or 0 for the destination, and the address the answer comes
+	// from (the hop's, or the destination's).
+	Hop  int
+	From netip.Addr
 }
 
 // RuleSet maps targets to scenarios. The most specific matching prefix
@@ -61,12 +67,14 @@ type RuleSet struct {
 	def     *entry
 	rules   map[netip.Prefix]*entry
 	targets map[netip.Addr]*target
+	paths   map[netip.Addr]rule.Path // targets whose route traceroute can see
 
-	// baseline is what Reset restores: the default and the rules as of
-	// SaveBaseline, or of NewRuleSet if it was never called.
+	// baseline is what Reset restores: the default, the rules and the
+	// paths as of SaveBaseline, or of NewRuleSet if it was never called.
 	baseline struct {
 		def   rule.Scenario
 		rules map[netip.Prefix]rule.Scenario
+		paths map[netip.Addr]rule.Path
 	}
 }
 
@@ -85,6 +93,7 @@ func NewRuleSet(def rule.Scenario, seed uint64, opts ...Option) *RuleSet {
 		now:     time.Now,
 		rules:   map[netip.Prefix]*entry{},
 		targets: map[netip.Addr]*target{},
+		paths:   map[netip.Addr]rule.Path{},
 	}
 	for _, o := range opts {
 		o(rs)
@@ -104,6 +113,10 @@ func (rs *RuleSet) SaveBaseline() {
 	for p, e := range rs.rules {
 		rs.baseline.rules[p] = e.sc
 	}
+	rs.baseline.paths = make(map[netip.Addr]rule.Path, len(rs.paths))
+	for a, p := range rs.paths {
+		rs.baseline.paths[a] = p
+	}
 }
 
 // Reset puts the default and the rules back as they were at the baseline
@@ -116,6 +129,10 @@ func (rs *RuleSet) Reset() {
 	rs.rules = make(map[netip.Prefix]*entry, len(rs.baseline.rules))
 	for p, sc := range rs.baseline.rules {
 		rs.rules[p] = rs.newEntry(sc)
+	}
+	rs.paths = make(map[netip.Addr]rule.Path, len(rs.baseline.paths))
+	for a, p := range rs.baseline.paths {
+		rs.paths[a] = p
 	}
 	rs.targets = map[netip.Addr]*target{}
 }
@@ -268,7 +285,16 @@ func (rs *RuleSet) Snapshot() map[string]any {
 		}
 		targets[a.String()] = st
 	}
-	return map[string]any{"seed": rs.seed, "default": rs.def.sc, "rules": rules, "stats": targets}
+	pathKeys := make([]netip.Addr, 0, len(rs.paths))
+	for a := range rs.paths {
+		pathKeys = append(pathKeys, a)
+	}
+	sort.Slice(pathKeys, func(i, j int) bool { return pathKeys[i].Less(pathKeys[j]) })
+	paths := make([]map[string]any, 0, len(pathKeys))
+	for _, a := range pathKeys {
+		paths = append(paths, map[string]any{"target": a.String(), "path": rs.paths[a]})
+	}
+	return map[string]any{"seed": rs.seed, "default": rs.def.sc, "rules": rules, "paths": paths, "stats": targets}
 }
 
 // ResetStats zeroes the counters without touching scenario positions.

@@ -87,6 +87,16 @@ leftover=0
 for f in /tmp/pingmock-*; do [ -e "$f" ] && [ "$f" != /tmp/pingmock-e2e.log ] && leftover=$((leftover + 1)); done
 same "no temporary file is left behind" "$leftover" 0
 
+# A path inside exec: traceroute, which opens raw sockets, works there
+# without root, and sees the hops.
+if command -v traceroute >/dev/null; then
+  seen=$(run -rule 10.99.0.80=30ms -path '10.99.0.80=192.168.1.1@2ms > * > 72.14.0.1@25ms' -- sh -c \
+    "traceroute -n -q 1 -w 1 -m 6 10.99.0.80 2>/dev/null | tail -n +2 | awk '{print \$2}' | tr '\n' ' '")
+  same "traceroute inside exec shows the path" "$seen" "192.168.1.1 * 72.14.0.1 10.99.0.80 "
+else
+  echo "SKIP paths inside exec: traceroute is not installed"
+fi
+
 # The host network is untouched while a run is in progress.
 run -- sleep 2 &
 bg=$!

@@ -41,6 +41,15 @@ type settings struct {
 	def           rule.Scenario
 	rules         []targetRule
 	hosts         []config.Host // names the command resolves; exec only
+	paths         []targetPath
+}
+
+// targetPath is a path to install at startup, for one target address; a
+// path given for a name gets its address with the name's rule.
+type targetPath struct {
+	addr netip.Addr
+	name string
+	path rule.Path
 }
 
 // errHelp is returned when -h or -help was given; usage has been printed.
@@ -80,6 +89,7 @@ type flagValues struct {
 	verbose                                *bool
 	rules                                  ruleFlags
 	hosts                                  ruleFlags
+	paths                                  ruleFlags
 
 	given map[string]bool // flags given on the command line
 
@@ -89,6 +99,7 @@ type flagValues struct {
 	cfgSeed         *uint64
 	cfgRules        []config.Rule
 	cfgHosts        []config.Host
+	cfgPaths        []config.PathRule
 }
 
 func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Writer) (*flagValues, *flag.FlagSet) {
@@ -106,6 +117,7 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	f.history = fs.Int("history", 1000, "number of recent requests kept for GET /history (0 disables)")
 	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, ttl=128, or phases such as \"50ms for 3 pings; timeout\"")
 	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, pingmock exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
+	fs.Var(&f.paths, "path", "TARGET=PATH, repeatable: the route traceroute and mtr see to TARGET, hops separated by \">\", each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for one that never answers, e.g. '8.8.8.8=192.168.1.1@2ms > * > 72.14.0.1@25ms'")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
 }
@@ -134,7 +146,10 @@ func (f *flagValues) applyConfig(path string) error {
 		*f.history = *cfg.History
 	}
 	f.cfgDefault, f.cfgSeed, f.cfgRules = cfg.Default, cfg.Seed, rules
-	f.cfgHosts, err = cfg.SortedHosts(path)
+	if f.cfgHosts, err = cfg.SortedHosts(path); err != nil {
+		return err
+	}
+	f.cfgPaths, err = cfg.SortedPaths(path)
 	return err
 }
 
@@ -194,6 +209,24 @@ func (f *flagValues) resolve() (*settings, error) {
 		}
 		s.addHost(h)
 	}
+	for _, p := range f.cfgPaths {
+		s.addPath(p.Target, p.Path)
+	}
+	for _, text := range f.paths {
+		target, pathText, ok := strings.Cut(text, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid -path %q: want TARGET=PATH", text)
+		}
+		t, err := rule.ParseTarget(target)
+		if err != nil || (t.Name == "" && !t.Prefix.IsSingleIP()) {
+			return nil, fmt.Errorf("invalid -path %q: want a single address or a name as the target", text)
+		}
+		p, err := rule.ParsePath(pathText)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -path %q: %w", text, err)
+		}
+		s.addPath(t, p)
+	}
 	if err := s.allocateNames(); err != nil {
 		return nil, err
 	}
@@ -251,10 +284,18 @@ func (s *settings) allocateNames() error {
 			taken[r.prefix.Addr()] = true
 		}
 	}
+	seen := map[string]bool{}
 	var names []string
 	for _, r := range s.rules {
-		if r.name != "" {
+		if r.name != "" && !seen[r.name] {
+			seen[r.name] = true
 			names = append(names, r.name)
+		}
+	}
+	for _, p := range s.paths {
+		if p.name != "" && !seen[p.name] {
+			seen[p.name] = true
+			names = append(names, p.name)
 		}
 	}
 	sort.Strings(names)
@@ -279,8 +320,25 @@ func (s *settings) allocateNames() error {
 				s.rules[i].prefix = netip.PrefixFrom(a, a.BitLen())
 			}
 		}
+		for i := range s.paths {
+			if s.paths[i].name == name {
+				s.paths[i].addr = a
+			}
+		}
 	}
 	return nil
+}
+
+// addPath adds a path, or replaces the one for the same target.
+func (s *settings) addPath(t rule.Target, p rule.Path) {
+	addr := t.Prefix.Addr()
+	for i := range s.paths {
+		if s.paths[i].name == t.Name && (t.Name != "" || s.paths[i].addr == addr) {
+			s.paths[i].path = p
+			return
+		}
+	}
+	s.paths = append(s.paths, targetPath{addr: addr, name: t.Name, path: p})
 }
 
 // lastAddr is the last address of p, the broadcast address of an IPv4 subnet.

@@ -198,3 +198,27 @@ func TestLoadNameRules(t *testing.T) {
 		t.Errorf("duplicate name: %v", err)
 	}
 }
+
+func TestLoadPaths(t *testing.T) {
+	// A * in the middle of a value is fine; one at the start would be a
+	// YAML alias, so that value is quoted.
+	cfg, _, err := Load(writeFile(t, "p.yaml", "paths:\n  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms\n  api.example.com: \"* > 10.0.0.2@5ms\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := cfg.SortedPaths("p.yaml")
+	if err != nil || len(paths) != 2 || paths[0].Target.String() != "8.8.8.8/32" || paths[0].Path.String() != "192.168.1.1@delay=2ms > 10.0.0.1@delay=15ms > * > 72.14.0.1@delay=25ms" || paths[1].Target.Name != "api.example.com" {
+		t.Errorf("paths = %+v, %v", paths, err)
+	}
+	for in, want := range map[string]string{
+		"paths:\n  8.8.8.8: * > 2.2.2.2@3ms\n":    "",               // an unquoted leading * is a YAML alias: any error will do
+		"paths:\n  10.0.0.0/24: 1.1.1.1@2ms\n":    "single address", // a prefix cannot be traced
+		"paths:\n  8.8.8.8: 1.1.1.1@nope\n":       "p.yaml:2: path \"8.8.8.8\"",
+		"paths:\n  8.8.8.8:\n    - 1.1.1.1@2ms\n": "want a string",
+	} {
+		_, _, err := Load(writeFile(t, "p.yaml", in))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: error %v, want it to contain %q", in, err, want)
+		}
+	}
+}

@@ -222,12 +222,13 @@ paths:
 
 #### 实现时要做的
 
-- [ ] 规则层：解析路径的写法，配置文件和 API 中的路径
-- [ ] 决策层：按 TTL 选择中间节点或终点，中间节点的随机数和丢包同样可以用 `-seed` 复现
-- [ ] 数据包：构造 ICMP Time Exceeded、Port Unreachable（IPv4 和 IPv6），引用原包的方式和现有的不可达消息相同
-- [ ] 路由：为中间节点的地址添加路由；先验证 IPv6
-- [ ] 历史和统计：记录中间节点的回复（结果为 time-exceeded、port-unreachable，以及第几跳）
-- [ ] traceroute、mtr 加入兼容性测试；中英文文档
+- [x] 规则层：解析路径的写法，配置文件和 API 中的路径：`rule.Path`/`rule.Hop`，`ParsePath`；每跳 `delay`、`jitter`、`loss`（这一跳不回应）、`cut`（链路丢包，之后的跳和终点都收不到）、`ttl`；`-path` 参数、配置文件 `paths:`（以 `*` 开头要加引号，错误信息会提示）、`PUT/DELETE /paths/{target}`、Go 客户端 `SetPath`/`DeletePath`；目标可以是域名（`exec` 下，和规则共用地址分配）
+- [x] 决策层：按 TTL 选择中间节点或终点，中间节点的随机数和丢包同样可以用 `-seed` 复现：`RuleSet.DecideProbe`，经过的每跳先按 `cut` 判断是否丢失，TTL 耗尽的那跳按 `loss` 判断是否回应，超过路径长度则由终点原有规则决定——回显请求照旧，UDP 探测回 Port Unreachable，TCP SYN 回 SYN-ACK；没有路径的目标行为完全不变（不理会 TTL，忽略 UDP/TCP）。`/reset` 也恢复路径
+- [x] 数据包：构造 ICMP Time Exceeded、Port Unreachable（IPv4 和 IPv6），引用原包的方式和现有的不可达消息相同：`icmp.ParseProbe` 统一解析回显请求、UDP、TCP SYN 并读出 TTL；`BuildTimeExceeded`、`BuildPortUnreachable`、`BuildSynAck`（IPv4 和 IPv6，TCP 校验和含伪头部）；原有的不可达消息改用同一个构造函数
+- [x] 路由：为中间节点的地址添加路由；先验证 IPv6：启动和 API 设置路径时为目标和每一跳加 /32 或 /128 路由。IPv6 在本容器无法运行，端到端测试里 IPv6 路径的 traceroute 检查放在 CI（`REQUIRE_IPV6=1`）
+- [x] 历史和统计：记录中间节点的回复（结果为 time-exceeded、port-unreachable，以及第几跳）：事件新增 `probe`（udp/tcp）、`ttl`、`hop`、`from`；统计新增 `hops`（由中间节点回应的探测数）
+- [x] traceroute、mtr 加入兼容性测试；中英文文档：`test/e2e.sh` 用 traceroute 的 UDP/ICMP/TCP 三种模式和 mtr 检查路径、第二跳的延迟、`cut` 的效果、历史记录，IPv6 路径在 CI 检查；`test/e2e-exec.sh` 在免 root 的 `exec` 里跑 traceroute；CI 安装 traceroute 和 mtr-tiny。README 新增「路径：traceroute 和 mtr」一节，限制一节和「经过测试的工具」同步更新。本容器里实测：traceroute 三种模式和 mtr 都正确显示四跳和终点（`*` 那一跳显示为 `*`/`???`），第二跳延迟 13～18ms（15ms±3ms 抖动）
+- [ ] Trippy 的 28 个场景文件作为验收清单：未做，Trippy 是 Rust 程序，需要单独安装；留给后续
 
 ### 之后：等需求再决定
 

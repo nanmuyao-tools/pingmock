@@ -30,7 +30,56 @@ func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip
 	mux.HandleFunc("DELETE /history", h.clearHistory)         // forget recorded requests
 	mux.HandleFunc("POST /reset", h.reset)                    // everything as at startup
 	mux.HandleFunc("GET /version", h.getVersion)              // {"version": "v0.6.0"}
+	mux.HandleFunc("PUT /paths/{target...}", h.setPath)       // body: hops such as "10.0.0.1@2ms > * > 10.0.0.3@20ms"
+	mux.HandleFunc("DELETE /paths/{target...}", h.deletePath) // the target has no route again
 	return mux
+}
+
+// setPath gives a target a route. The target and its hops get routes to
+// the device first, so that hops can answer from their addresses.
+func (h *handler) setPath(w http.ResponseWriter, r *http.Request) {
+	p, err := rule.ParsePrefix(r.PathValue("target"))
+	if err != nil || !p.IsSingleIP() {
+		httpError(w, http.StatusBadRequest, fmt.Errorf("a path's target must be a single address: %q", r.PathValue("target")))
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	text := strings.TrimSpace(string(body))
+	var path rule.Path
+	if strings.HasPrefix(text, "\"") {
+		err = json.Unmarshal([]byte(text), &path)
+	} else {
+		path, err = rule.ParsePath(text)
+	}
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	for _, a := range append(path.Addrs(), p.Addr()) {
+		if err := h.ensureRoute(netip.PrefixFrom(a, a.BitLen())); err != nil {
+			httpError(w, http.StatusInternalServerError, err)
+			return
+		}
+	}
+	h.rules.SetPath(p.Addr(), path)
+	writeJSON(w, http.StatusOK, map[string]any{"target": p.Addr().String(), "path": path})
+}
+
+func (h *handler) deletePath(w http.ResponseWriter, r *http.Request) {
+	p, err := rule.ParsePrefix(r.PathValue("target"))
+	if err != nil || !p.IsSingleIP() {
+		httpError(w, http.StatusBadRequest, fmt.Errorf("a path's target must be a single address: %q", r.PathValue("target")))
+		return
+	}
+	if !h.rules.DeletePath(p.Addr()) {
+		httpError(w, http.StatusNotFound, fmt.Errorf("no path to %s", p.Addr()))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type handler struct {
@@ -154,6 +203,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.WriteHeader(code)
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false) // paths contain ">", which should read as such
 	enc.Encode(v)
 }
 

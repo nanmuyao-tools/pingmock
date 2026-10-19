@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nanmuyao/pingmock/internal/engine"
+	"github.com/nanmuyao/pingmock/internal/icmp"
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
@@ -225,5 +226,59 @@ func TestAPIResetAndVersion(t *testing.T) {
 	}
 	if code := f.do("GET", "/reset", "", nil); code != 405 {
 		t.Errorf("GET /reset: %d, want 405", code)
+	}
+}
+
+func TestAPIPaths(t *testing.T) {
+	f := newAPIFixture(t)
+	var resp struct{ Target, Path string }
+	if code := f.do("PUT", "/paths/8.8.8.8", "192.168.1.1@2ms > * > 72.14.0.1@delay=25ms,cut=5%", &resp); code != 200 {
+		t.Fatalf("PUT /paths: %d", code)
+	}
+	if resp.Target != "8.8.8.8" || resp.Path != "192.168.1.1@delay=2ms > * > 72.14.0.1@delay=25ms,cut=5%" {
+		t.Errorf("response = %+v", resp)
+	}
+	// Routes for the hops and the target, so that their answers are accepted.
+	routed := []string{}
+	for _, p := range f.routed {
+		routed = append(routed, p.String())
+	}
+	if strings.Join(routed, " ") != "192.168.1.1/32 72.14.0.1/32 8.8.8.8/32" {
+		t.Errorf("ensureRoute calls: %v", routed)
+	}
+	if code := f.do("PUT", "/paths/fd99::9", `"fd99::1:1@3ms"`, &resp); code != 200 || resp.Path != "fd99::1:1@delay=3ms" {
+		t.Errorf("PUT JSON string: %d %+v", code, resp)
+	}
+	var snap struct {
+		Paths []struct{ Target, Path string }
+	}
+	f.do("GET", "/rules", "", &snap)
+	if len(snap.Paths) != 2 || snap.Paths[0].Target != "8.8.8.8" || snap.Paths[1].Target != "fd99::9" {
+		t.Errorf("paths in snapshot = %+v", snap.Paths)
+	}
+	if d := f.rs.DecideProbe(netip.MustParseAddr("8.8.8.8"), 1, icmp.UDP); d.Outcome != rule.TimeExceeded || d.From.String() != "192.168.1.1" {
+		t.Errorf("path not installed: %+v", d)
+	}
+	for _, c := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{"PUT", "/paths/10.0.0.0/24", "1.1.1.1@1ms", 400},
+		{"PUT", "/paths/8.8.8.8", "nope", 400},
+		{"PUT", "/paths/8.8.8.8", "", 400},
+		{"DELETE", "/paths/1.1.1.1", "", 404},
+		{"DELETE", "/paths/8.8.8.8", "", 204},
+		{"DELETE", "/paths/8.8.8.8", "", 404},
+	} {
+		if code := f.do(c.method, c.path, c.body, nil); code != c.want {
+			t.Errorf("%s %s %q: %d, want %d", c.method, c.path, c.body, code, c.want)
+		}
+	}
+	f.fail = true
+	if code := f.do("PUT", "/paths/9.9.9.9", "1.1.1.1@1ms", nil); code != 500 {
+		t.Errorf("route failure: %d, want 500", code)
+	}
+	if _, ok := f.rs.Path(netip.MustParseAddr("9.9.9.9")); ok {
+		t.Error("path installed although routing failed")
 	}
 }

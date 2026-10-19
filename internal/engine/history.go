@@ -13,12 +13,17 @@ type Event struct {
 	Dst    netip.Addr `json:"dst"`
 	ID     uint16     `json:"id"`
 	Seq    uint16     `json:"seq"`
-	Result string     `json:"result"`          // "reply", "drop" or "unreachable"
+	Result string     `json:"result"`          // "reply", "drop", "unreachable", or for paths "time-exceeded", "port-unreachable", "syn-ack"
 	Code   string     `json:"code,omitempty"`  // unreachable code: "host", "net" or "admin"
 	Reply  bool       `json:"reply"`           // true for echo replies; kept for compatibility
 	Delay  string     `json:"delay,omitempty"` // for replies and unreachable messages
 	Rule   string     `json:"rule"`
 	Phase  int        `json:"phase"` // 1-based
+	// For targets with a path.
+	Probe string     `json:"probe,omitempty"` // "udp" or "tcp"; echo requests leave it out
+	TTL   uint8      `json:"ttl,omitempty"`   // the probe's TTL, as traceroute set it
+	Hop   int        `json:"hop,omitempty"`   // the hop that answered or lost it, from 1
+	From  netip.Addr `json:"from,omitempty"`  // the address the answer came from
 }
 
 // History keeps the most recent events in a fixed-size ring buffer.

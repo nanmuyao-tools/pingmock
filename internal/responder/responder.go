@@ -4,6 +4,7 @@ package responder
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -51,26 +52,36 @@ func (r *Responder) Serve(dev io.ReadWriter) error {
 
 // handle decides how to answer one packet and records the request. It
 // returns the packet to send and when, or nil if there is nothing to send:
-// the packet was not an echo request, or the rule drops it.
+// the packet was not a probe, the target has no path and it was not an
+// echo request, or the rule drops it.
 func (r *Responder) handle(pkt []byte) ([]byte, time.Duration) {
-	req, ok := icmp.ParseEchoRequest(pkt)
+	req, ok := icmp.ParseProbe(pkt)
 	if !ok {
 		return nil, 0
 	}
-	d := r.Rules.Decide(req.Dst)
+	d := r.Rules.DecideProbe(req.Dst, req.TTL, req.Kind)
+	if d.Rule == "none" {
+		return nil, 0 // a UDP or TCP packet to a target without a path: not ours
+	}
 	var answer []byte
 	switch d.Outcome {
 	case rule.Reply:
 		answer = icmp.BuildEchoReply(pkt, d.TTL)
 	case rule.Unreachable:
 		answer = icmp.BuildUnreachable(pkt, d.Code, d.TTL)
+	case rule.TimeExceeded:
+		answer = icmp.BuildTimeExceeded(pkt, d.From, d.TTL)
+	case rule.PortUnreachable:
+		answer = icmp.BuildPortUnreachable(pkt, d.TTL)
+	case rule.SynAck:
+		answer = icmp.BuildSynAck(pkt, d.TTL)
 	}
 	r.record(req, d, answer != nil)
 	return answer, d.Delay
 }
 
 // record adds the request to the history and logs it if asked to.
-func (r *Responder) record(req icmp.EchoRequest, d engine.Decision, answered bool) {
+func (r *Responder) record(req icmp.Probe, d engine.Decision, answered bool) {
 	ev := engine.Event{
 		Time: time.Now(), Src: req.Src, Dst: req.Dst, ID: req.ID, Seq: req.Seq,
 		Result: d.Outcome.String(), Reply: d.Outcome == rule.Reply, Rule: d.Rule, Phase: d.Phase,
@@ -81,6 +92,12 @@ func (r *Responder) record(req icmp.EchoRequest, d engine.Decision, answered boo
 	if answered {
 		ev.Delay = d.Delay.String()
 	}
+	if req.Kind != icmp.Echo {
+		ev.Probe = req.Kind.String()
+	}
+	if d.Hop > 0 || d.Rule == "path" || req.Kind != icmp.Echo {
+		ev.TTL, ev.Hop, ev.From = req.TTL, d.Hop, d.From
+	}
 	r.History.Add(ev)
 	if r.Verbose {
 		what := ev.Result
@@ -90,6 +107,9 @@ func (r *Responder) record(req icmp.EchoRequest, d engine.Decision, answered boo
 		if ev.Code != "" {
 			what += " (" + ev.Code + ")"
 		}
-		log.Printf("%s -> %s id=%d seq=%d: %s [rule %s, phase %d]", req.Src, req.Dst, req.ID, req.Seq, what, d.Rule, ev.Phase)
+		if ev.Hop > 0 {
+			what += fmt.Sprintf(" at hop %d (%s)", ev.Hop, ev.From)
+		}
+		log.Printf("%s -> %s %s ttl=%d id=%d seq=%d: %s [rule %s, phase %d]", req.Src, req.Dst, req.Kind, req.TTL, req.ID, req.Seq, what, d.Rule, ev.Phase)
 	}
 }

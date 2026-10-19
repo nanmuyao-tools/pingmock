@@ -40,3 +40,9 @@ rules:
   # A real address, mocked: nothing on this machine reaches the real 8.8.8.8
   # while pingmock runs.
   8.8.8.8: timeout
+
+# The route traceroute and mtr see to a target: hops separated by ">",
+# each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for a router that
+# never answers. Quote a path that starts with *, which YAML reads as an alias.
+paths:
+  10.99.0.1: 192.168.1.1@2ms > 10.0.0.1@delay=8ms,jitter=2ms > * > 72.14.0.1@15ms

@@ -15,7 +15,7 @@ import (
 // knownFields are the top-level keys of a configuration file.
 var knownFields = map[string]bool{
 	"dev": true, "addr": true, "addr6": true, "api": true,
-	"seed": true, "history": true, "default": true, "rules": true, "hosts": true,
+	"seed": true, "history": true, "default": true, "rules": true, "hosts": true, "paths": true,
 }
 
 // yamlToJSON converts a YAML configuration into the equivalent JSON, which
@@ -59,6 +59,10 @@ func yamlToJSON(data []byte, path string) ([]byte, error) {
 			}
 		case key.Value == "hosts":
 			if err := checkHosts(val, path); err != nil {
+				return nil, err
+			}
+		case key.Value == "paths":
+			if err := checkPaths(val, path); err != nil {
 				return nil, err
 			}
 		}
@@ -117,6 +121,31 @@ func checkHosts(n *yaml.Node, path string) error {
 		}
 		if _, err := ParseHost(key.Value, val.Value); err != nil {
 			return fmt.Errorf("%s:%d: hosts: %w", path, key.Line, err)
+		}
+	}
+	return nil
+}
+
+// checkPaths validates the paths mapping, reporting the line of the first
+// bad target or path. A value starting with "*" needs quotes in YAML,
+// which is the mistake to explain.
+func checkPaths(n *yaml.Node, path string) error {
+	if n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
+		return nil
+	}
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s:%d: paths must be a mapping of targets to paths", path, n.Line)
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key, val := n.Content[i], n.Content[i+1]
+		if _, err := rule.ParseTarget(key.Value); err != nil {
+			return fmt.Errorf("%s:%d: path %q: %w", path, key.Line, key.Value, err)
+		}
+		if val.Kind != yaml.ScalarNode || val.Tag == "!!null" {
+			return fmt.Errorf("%s:%d: path %q: want a string such as \"192.168.1.1@2ms > * > 10.0.0.1@20ms\" (quote it when a hop is *)", path, val.Line, key.Value)
+		}
+		if _, err := rule.ParsePath(val.Value); err != nil {
+			return fmt.Errorf("%s:%d: path %q: %w", path, val.Line, key.Value, err)
 		}
 	}
 	return nil

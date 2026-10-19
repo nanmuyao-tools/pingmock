@@ -5,13 +5,17 @@ import (
 	"strings"
 )
 
-// Outcome is how a single echo request is answered.
+// Outcome is how a single request is answered.
 type Outcome uint8
 
 const (
 	Reply       Outcome = iota // echo reply after the delay
 	Drop                       // no answer at all
 	Unreachable                // ICMP destination unreachable after the delay
+	// For targets with a path:
+	TimeExceeded    // ICMP time exceeded from the hop where the TTL ran out
+	PortUnreachable // ICMP port unreachable from the destination, to a UDP probe
+	SynAck          // TCP SYN-ACK from the destination, to a TCP probe
 )
 
 func (o Outcome) String() string {
@@ -20,6 +24,12 @@ func (o Outcome) String() string {
 		return "drop"
 	case Unreachable:
 		return "unreachable"
+	case TimeExceeded:
+		return "time-exceeded"
+	case PortUnreachable:
+		return "port-unreachable"
+	case SynAck:
+		return "syn-ack"
 	}
 	return "reply"
 }

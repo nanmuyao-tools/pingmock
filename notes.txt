@@ -1,0 +1,28 @@
+pingmock v0.7.0
+
+Rules can be written for **names**, which `pingmock exec` resolves for the command; tests can **reset** pingmock between them; answers can carry a chosen **TTL**. Existing rules behave exactly as before: with the same seed and rules, targets get the same results as in v0.5.2.
+
+## New
+
+- **Names under `pingmock exec`.** A rule may be written for a name, on the command line or in the configuration file, and the command resolves it to a mocked address:
+  ```bash
+  pingmock exec -rule api.example.com=80ms -rule backup.example.com=timeout -- ./my-app
+  ```
+  The address comes from the top of the subnet down (`10.99.0.253`, `10.99.0.252`, ...), the same on every run; `-host NAME=ADDR` (or `hosts:` in the configuration file) chooses it, also for IPv6. The command gets its own `/etc/hosts` and a `resolv.conf` pointing at a small DNS server pingmock runs for it, which answers for the mocked names both ways and forwards every other name to the host's resolver, so real names keep resolving. The system's files are not changed, nothing is left behind, and no root is needed. See [Names](https://github.com/nanmuyao/pingmock/blob/v0.7.0/README.md#names).
+- **`POST /reset`** puts pingmock back as it was at startup: the rules and default from the command line and configuration file, no statistics, no history; targets restart their scenarios and random sequences, so a test that resets first sees the same results on every run. **`GET /version`** reports the running build. The Go client gets `Reset` and `Version`; the Python example's fixture resets before each test instead of restoring rules one by one.
+- **`ttl=128`** in a rule (1 to 255) sets the TTL, or IPv6 hop limit, of the answers, so software that infers the system or the distance from it can be tested. Without it, answers keep TTL 64.
+
+## Documentation and examples
+
+- A new section says [when to use pingmock, `tc netem` or Toxiproxy](https://github.com/nanmuyao/pingmock/blob/v0.7.0/README.md#when-to-use-it-and-when-to-use-something-else).
+- [`examples/pinglib-demo`](https://github.com/nanmuyao/pingmock/tree/v0.7.0/examples/pinglib-demo): tests of a ping library itself (pro-bing, taken as it is) against hosts that never answer, answer unreachable, lose every other ping or answer with TTL 128.
+- [How the roadmap is worked out](https://github.com/nanmuyao/pingmock/blob/v0.7.0/docs/planning.md), and the roadmap.
+
+## Changed
+
+- `sudo pingmock` refuses `-host` and rules for names, with a pointer to the machine's `/etc/hosts`, instead of ignoring them.
+- The configuration file accepts `hosts:` and name keys under `rules:`; unknown keys are still rejected.
+
+## 中文说明
+
+规则可以直接写域名，`pingmock exec` 会为命令解析它：地址从网段高端往下自动分配，`-host 域名=地址` 可以指定；命令得到自己的 `/etc/hosts` 和指向 pingmock 内置小型 DNS 服务的 `resolv.conf`，模拟的域名正反向都能解析，其余域名转发给宿主机的解析器，系统文件不变、不需要 root。新增 `POST /reset`（恢复到启动时的状态，让每个测试从同样的状态出发）和 `GET /version`，Go 客户端对应 `Reset`、`Version`；规则新增 `ttl=128`。新增 pingmock、`tc netem`、Toxiproxy 的定位说明，以及测试 ping 库本身的示例 `examples/pinglib-demo`。已有规则的行为完全不变：同一 seed 和规则下，结果与 v0.5.2 一致。详见[中文文档](https://github.com/nanmuyao/pingmock/blob/v0.7.0/README.zh-CN.md)。

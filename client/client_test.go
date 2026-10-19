@@ -177,3 +177,27 @@ func TestResetAndVersion(t *testing.T) {
 		t.Errorf("Version() = %q, %v", v, err)
 	}
 }
+
+func TestPaths(t *testing.T) {
+	c, rs, _ := serve(t)
+	ctx := context.Background()
+	if err := c.SetPath(ctx, "8.8.8.8", "192.168.1.1@2ms > * > 72.14.0.1@25ms"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.State(ctx)
+	if err != nil || len(s.Paths) != 1 || s.Paths[0] != (Path{"8.8.8.8", "192.168.1.1@delay=2ms > * > 72.14.0.1@delay=25ms"}) {
+		t.Errorf("paths = %+v, %v", s.Paths, err)
+	}
+	if _, ok := rs.Path(netip.MustParseAddr("8.8.8.8")); !ok {
+		t.Error("path not installed")
+	}
+	if err := c.SetPath(ctx, "8.8.8.8", "nope"); err == nil {
+		t.Error("a bad path was accepted")
+	}
+	if err := c.DeletePath(ctx, "8.8.8.8"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeletePath(ctx, "8.8.8.8"); !IsNotFound(err) {
+		t.Errorf("second delete: %v", err)
+	}
+}

@@ -54,6 +54,22 @@ func start(s *settings) (*instance, error) {
 		}
 		rs.Set(r.prefix, r.sc)
 	}
+	for _, p := range s.paths {
+		// The target and every hop need a route to the device: hops
+		// answer from their own addresses, which the kernel accepts only
+		// if they are reachable through the device the answer came in on.
+		if err := router.Ensure(netip.PrefixFrom(p.addr, p.addr.BitLen())); err != nil {
+			dev.Close()
+			return nil, err
+		}
+		for _, h := range p.path.Addrs() {
+			if err := router.Ensure(netip.PrefixFrom(h, h.BitLen())); err != nil {
+				dev.Close()
+				return nil, err
+			}
+		}
+		rs.SetPath(p.addr, p.path)
+	}
 	rs.SaveBaseline() // what POST /reset goes back to
 	hist := engine.NewHistory(s.history)
 
@@ -125,6 +141,13 @@ func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
 			log.Printf("rule %s (%s): %s", r.name, r.prefix.Addr(), r.sc)
 		} else {
 			log.Printf("rule %s: %s", r.prefix, r.sc)
+		}
+	}
+	for _, p := range s.paths {
+		if p.name != "" {
+			log.Printf("path to %s (%s): %s", p.name, p.addr, p.path)
+		} else {
+			log.Printf("path to %s: %s", p.addr, p.path)
 		}
 	}
 	for _, h := range s.hosts {

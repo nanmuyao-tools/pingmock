@@ -119,11 +119,13 @@ func (c *Client) SetDefault(ctx context.Context, rule string) error {
 	return c.do(ctx, http.MethodPut, "/default", rule, nil)
 }
 
-// State is a snapshot of the seed, the rules and the per-target statistics.
+// State is a snapshot of the seed, the rules, the paths and the
+// per-target statistics.
 type State struct {
 	Seed    uint64                 `json:"seed"`
 	Default string                 `json:"default"`
 	Rules   []Rule                 `json:"rules"`
+	Paths   []Path                 `json:"paths"`
 	Stats   map[string]TargetStats `json:"stats"`
 }
 
@@ -133,14 +135,36 @@ type Rule struct {
 	Rule   string `json:"rule"`   // canonical text form
 }
 
+// Path is the route to a target, as traceroute and mtr see it.
+type Path struct {
+	Target string `json:"target"` // address, e.g. "8.8.8.8"
+	Path   string `json:"path"`   // canonical text form, hops separated by " > "
+}
+
 // TargetStats counts the requests to one target address.
 type TargetStats struct {
 	Requests    uint64 `json:"requests"`
 	Replied     uint64 `json:"replied"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
+	Hops        uint64 `json:"hops"`  // probes answered by a hop of the target's path
 	Rule        string `json:"rule"`  // matching prefix, or "default"
 	Phase       int    `json:"phase"` // current phase, 1-based
+}
+
+// SetPath gives target, an address, a route: traceroute and mtr see its
+// hops, and UDP and TCP probes to it get answered. path is written as for
+// the -path flag: hops separated by ">", each "ADDR@SETTINGS" (delay,
+// jitter, loss, cut, ttl) or "*" for a hop that never answers, such as
+// "192.168.1.1@2ms > * > 72.14.0.1@25ms".
+func (c *Client) SetPath(ctx context.Context, target, path string) error {
+	return c.do(ctx, http.MethodPut, "/paths/"+target, path, nil)
+}
+
+// DeletePath removes the route to target. It fails with an error for
+// which IsNotFound is true if there is none.
+func (c *Client) DeletePath(ctx context.Context, target string) error {
+	return c.do(ctx, http.MethodDelete, "/paths/"+target, "", nil)
 }
 
 // State returns the current rules and statistics.
@@ -174,12 +198,17 @@ type Event struct {
 	Dst    string    `json:"dst"`
 	ID     uint16    `json:"id"`
 	Seq    uint16    `json:"seq"`
-	Result string    `json:"result"` // "reply", "drop" or "unreachable"
+	Result string    `json:"result"` // "reply", "drop", "unreachable"; with a path also "time-exceeded", "port-unreachable", "syn-ack"
 	Code   string    `json:"code"`   // for "unreachable": "host", "net" or "admin"
 	Reply  bool      `json:"reply"`
 	Delay  string    `json:"delay"` // empty for drops
 	Rule   string    `json:"rule"`
 	Phase  int       `json:"phase"` // 1-based
+	// For targets with a path.
+	Probe string `json:"probe"` // "udp" or "tcp"; empty for echo requests
+	TTL   uint8  `json:"ttl"`   // the probe's TTL
+	Hop   int    `json:"hop"`   // the hop that answered or lost it, from 1; 0 for the destination
+	From  string `json:"from"`  // the address the answer came from
 }
 
 // History returns recent requests, oldest first. target, if not empty, is
