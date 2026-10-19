@@ -20,7 +20,7 @@ CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks 
 
 ## How the code is organized
 
-[docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. In short:
+[docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. In short: [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on.
 
 ```
 main.go                  entry point; calls internal/app
@@ -35,7 +35,7 @@ internal/
   config/                YAML configuration files (-config)
 client/                  public Go client for the control API
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
-docs/                    the code tour, the packet path and the packet anatomy
+docs/                    the code tour, the packet path, the packet anatomy, and how the roadmap is planned
 examples/                example configuration, Compose file, and complete examples in Go, Python and shell
 test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-compat.sh, e2e-docker.sh;
                          test/compat holds the libraries e2e-compat.sh uses, as its own module

@@ -6,7 +6,7 @@
 
 ## v0.5 的收尾（已完成，推广暂缓）
 
-接下来的工作见[技术方向](#技术方向v06)。
+接下来的工作见[技术路线](#技术路线)。
 
 ### 1. 升级 GitHub Actions 的版本
 
@@ -36,7 +36,7 @@
 
 ### 5. 起草推广帖子，由作者本人发布
 
-**暂缓**：先专注项目本身，见下面的[技术方向](#技术方向v06)。另外，查过三个社区的规定：Hacker News、Reddit r/golang 和 V2EX 都禁止 AI 生成的帖子或回复，所以帖子和回复都要由作者本人来写；AI 可以准备素材、核对事实、帮作者弄懂读者的技术问题。
+**暂缓**：先专注项目本身，见下面的[技术路线](#技术路线)。另外，查过三个社区的规定：Hacker News、Reddit r/golang 和 V2EX 都禁止 AI 生成的帖子或回复，所以帖子和回复都要由作者本人来写；AI 可以准备素材、核对事实、帮作者弄懂读者的技术问题。
 
 每个社区先读一遍发帖规则；发帖后作者本人在评论区回答问题。
 
@@ -69,66 +69,79 @@
 - [x] 修复：添加路由前先查询是否已有完全相同网段的路由；有的话拆成两个更精确的半网段（再冲突就继续拆），原有的路由保持不动，pingmock 被强制终止也不会留下问题；单个地址已有自己的路由时拒绝启动，并建议使用 `pingmock exec`。单元测试覆盖拆分逻辑，端到端测试覆盖 IPv4 和 IPv6，并确认 v0.5.1 会在这项测试上失败
 - [x] 发布 v0.5.2：已发布，用发布页下载的程序重复 VLAN 实验，运行中和退出后原有的路由都保留；示例中的版本号已更新为 v0.5.2
 
-## 技术方向（v0.6）
+## 技术路线
 
-推广暂缓，先专注项目本身。方向来自两次调研。
+这条路线是怎样得出的、依据了哪些证据，记录在[技术路线是怎样得出的](docs/planning.zh-CN.md)中。下一次规划时，按那份文档的方法重做一遍。
 
-### 调研结论
+**原则**：测试应用，而不是测试协议。**用户**按人数从多到少：
 
-**兼容性测试**：在 pingmock 下运行常见的 ping 工具和程序库：
-
-| 工具 / 库 | 结果 |
+| 用户 | 他们要测什么 |
 |---|---|
-| 系统 `ping`（iputils）、fping、Go pro-bing、Python icmplib（原始套接字和免 root 的 ping 套接字） | 正常：延迟、确定性丢包、不可达、劫持真实地址都正确 |
-| traceroute（默认 UDP 模式） | 每一跳都是 `*`，到不了终点：pingmock 不回应 UDP 探测 |
-| traceroute -I、mtr | 只显示一跳：pingmock 不理会 TTL，无法模拟一条有中间节点的路径 |
+| ① 应用开发者 | 程序在网络变慢、断开、不可达时的表现。pingmock 的核心 |
+| ② ping 库的开发者 | 超时、不可达、丢包、TTL 等行为（pro-bing 的测试依赖 `www.google.com`） |
+| ③ 网络诊断工具的开发者 | traceroute / mtr 类工具对路径的处理（Trippy #1552、#1554） |
 
-**网上的需求**（2026-10 搜集，来自公开讨论，样本有限，没有量化数据）：
+每一版都能独立发布、独立带来价值。每一版都按这个流程：
 
-| 需求 | 证据 | 和 pingmock 的关系 |
-|---|---|---|
-| 只给某个目标加延迟 | 需求最大，几乎都用 `tc netem`，而且很容易出错：照着示例只想延迟一个地址，结果所有出站流量都被延迟；不加过滤会拖慢自己的 SSH；只能作用于出站方向 | 这些人想延迟的通常是**所有流量**，属于流量整形，是 netem、Toxiproxy 的领域。pingmock 不做，但可以在文档里说清楚定位 |
-| 测试调用 ping 的代码 | Hawkular 的 Pinger 测试 ping 真实网站，网站宕机测试就失败；有 Python 用户用 pytest-mock 替换 `icmplib.async_ping`，因为替换位置不对而不生效 | **pingmock 的核心**，已经解决得很好 |
-| 测试网络诊断工具 | [Trippy #759](https://github.com/fujiapple852/trippy/issues/759)（traceroute/mtr 类工具，8000 star）：最重要的集成测试方案是用 TUN 设备模拟网络，回应 ICMP、UDP 和 TCP 探测。现有的路径伪造工具（[fakert](https://github.com/sehaas/fakert)、traceroute-haiku、rdnstun）都是娱乐性质，没有延迟和丢包控制 | 需要**路径模拟**；面向测试的路径模拟是空白 |
-| 故障注入工具 | [Toxiproxy](https://github.com/Shopify/toxiproxy)（12000 star）：后台进程 + HTTP API + 10 种语言的客户端，只支持 TCP | 和 pingmock 互补，设计上值得借鉴 |
-
-**Toxiproxy**：维护者在 [#39](https://github.com/Shopify/toxiproxy/issues/39) 中说，三层代理需要折腾 TUN/TAP，等于大规模重写；他们看重跨平台；原则是"测试应用，而不是测试 TCP"。所以向它贡献 ping 支持不可行，pingmock 保持独立、和它互补。值得借鉴的是：`POST /reset`、`GET /version`、多语言客户端、README 里说清楚"为什么需要这个工具"，以及"测试应用，而不是测试协议"这个原则。
+1. 用户可见的写法先出设计方案，和维护者确认
+2. 动手之前，用实验验证技术前提
+3. 实现：单元测试、端到端测试、兼容性测试，并确认测试能发现问题
+4. 中英文文档、示例同步更新
+5. 发布，用发布页下载的程序再验证一遍
 
 ### 已完成：兼容性测试进 CI
 
 - [x] 把 fping、pro-bing、icmplib 的测试固定下来（`test/e2e-compat.sh`），在 Ubuntu 24.04 和 26.04 上运行，保护后面对 `icmp`、`engine` 的修改：20 项检查（3 个工具、两种套接字、4 种情况），变异测试确认能发现问题；README 新增了经过测试的工具和库，并在限制中写明 traceroute 和 mtr 目前不能使用
 - [x] 测试用的程序库固定版本，放在独立的目录里，不给主模块增加依赖：`test/compat` 是独立的模块，pro-bing v0.9.1、icmplib 3.0.4
 
-### 1. 测试体验：`POST /reset` 和 `GET /version`
+### v0.6　测试体验
 
-借鉴 Toxiproxy。工作量小，直接改善每个用户写测试的体验。
+小而快，所有用户受益，不涉及架构变化。
 
 - [x] `POST /reset`：规则、默认规则、统计和历史都恢复到启动时（命令行和配置文件）的样子，让每个测试从干净的状态开始。每个目标的场景位置和随机序列也重新开始，所以同一 seed 下 reset 之后的结果和刚启动时完全一样（有测试验证）
 - [x] `GET /version`：返回 pingmock 的版本，方便测试确认用的是哪个版本
 - [x] Go 客户端增加 `Reset` 和 `Version`；python-demo 的 fixture 改用 `/reset`：去掉了保存、逐条恢复规则的代码，改为每个测试开始前 reset
+- [ ] 自定义回复的 TTL（比如 `ttl=128`）：测试程序对 TTL 的处理。证据：pro-bing #116（记录收到的 TTL）、#27（设置 TTL），go-ping #192（TTL 和预期不符）
+- [ ] 定位说明：README 中说明 pingmock、`tc netem`、Toxiproxy 各适合什么场景（给真实流量加延迟用 netem，TCP 层的故障用 Toxiproxy，测试依赖 ping 的程序用 pingmock）；突出配置文件中声明故障、可复现的随机、按网段设置，这是 Toxiproxy 用户呼声最高的需求（#281、#447、#274、#273）
+- [ ] 新示例：测试 ping 库的超时和不可达行为，服务用户 ②，场景参考 pro-bing #70（超时没有返回错误、不可达的主机让 `Run()` 一直阻塞）
+- [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI
 
-### 2. 域名支持：`pingmock exec` 中按域名模拟
+### v0.7　域名：让 `pingmock exec` 真正好用
 
-很多软件 ping 的是域名。实验（`ping www.baidu.com`）发现：`pingmock exec` 中域名解析会失败（访问不到 DNS 服务器）；改 `/etc/hosts` 能解决，但它是宿主机上的同一个文件，违背了 `exec` 不影响宿主机的初衷。
+很多软件 ping 的是域名，而 `exec` 中目前无法解析（实验：`ping www.baidu.com`）。
 
-- [ ] 设想：`pingmock exec -host www.baidu.com=10.99.0.1 -- CMD`，在独立的挂载命名空间里只为被测程序替换 `/etc/hosts`；进一步可以直接写 `-rule www.baidu.com=80ms`，自动分配模拟地址
-- [ ] 先验证：普通用户能否在用户命名空间里替换 `/etc/hosts`；glibc、Go、Python 等解析域名时是否都会读它；IPv6（AAAA）怎么处理
-- [ ] root 模式下继续推荐 `/etc/hosts` 的做法，在 README 中写清楚
+**第 1 步：私有的 `/etc/hosts`**
 
-### 3. Python 客户端包
+```bash
+pingmock exec -host www.baidu.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./app
+```
 
-借鉴 Toxiproxy 的多语言客户端。
+- [x] 前提已验证：普通用户可以在用户命名空间 + 挂载命名空间中覆盖 `/etc/hosts`；glibc、Go（纯 Go 解析器）、Python 都读到新的内容；宿主机的文件不受影响
+- [ ] `exec` 增加挂载命名空间，实现 `-host`
+- [ ] root 模式下继续推荐改 `/etc/hosts` 的做法，在 README 中写清楚
 
-- [ ] 把 [python-demo](examples/python-demo/conftest.py) 中的客户端整理成正式的包，发布到 PyPI，附带 pytest fixture
-- [ ] 只用标准库，和 Go 客户端提供相同的操作
+**第 2 步：内置的小型 DNS 服务**
 
-### 4. 定位说明
+```bash
+pingmock exec -rule www.baidu.com=80ms -- ./app      # 自动分配模拟地址
+```
 
-- [ ] README 中说明 pingmock、`tc netem`、Toxiproxy 各适合什么场景：给真实流量加延迟用 netem，TCP 层的故障用 Toxiproxy，测试依赖 ping 的程序用 pingmock
+- [ ] 回答 `-host` 和按域名写的规则，自动分配模拟地址
+- [ ] 为模拟的地址提供反向解析（v0.8 中 traceroute 显示中间节点的名字）
+- [ ] 不认识的域名，通过仍在宿主机网络中的父进程转发给真实的 DNS 服务器
+- [ ] 动手之前先逐项验证（来自 slirp4netns 用户踩过的坑）：`/etc/resolv.conf` 是符号链接（包括多层）；DNS 服务器是 `127.0.0.53`（systemd-resolved，在 `exec` 的独立网络中访问不到）；多个 DNS 服务器；搜索域；IPv6 的 AAAA 记录；父进程转发的可行性；默认网段和用户网络重叠
 
-### 5. 路径模拟：traceroute 和 mtr
+### v0.8　路径：traceroute 和 mtr
 
-面向网络工具的开发者，人群比前几项窄，但有真实需求（Trippy #759）。
+放在 v0.7 之后：traceroute 和 mtr 默认会反向解析每一跳，用到 v0.7 的 DNS 服务；服务的人群（③）也最窄。
+
+**这次调研对设计的补充**（设计方案本身见下文）：
+
+- [ ] **TCP 探测**：终点只需回一个 SYN-ACK，代价很小，从暂缓并入这一版（Trippy 的模拟测试就是这样做的）
+- [ ] **两种丢包**：每一跳区分**链路丢包**（同一轮中之后的跳也丢失）和**只是不回应**（ICMP 限速，只影响这一跳）。依据 Trippy #1554；后一种在 mtr 中很常见，也最容易被误判为网络有问题
+- [ ] **IPv6**：TTL 超时是 ICMPv6 类型 3、代码 0；端口不可达是类型 1、代码 4（pingmock 现在的 IPv6 不可达还不支持代码 4）；引用原包不超过 1280 字节（fakert 没有这个限制，是个问题）
+- [ ] **自动生成中间节点**的简化写法有了先例（traceroute-haiku 按规则生成）
+- [ ] 兼容性测试加入 traceroute、mtr 和 Trippy 本身，Trippy 的 28 个场景文件作为验收清单
 
 **状态：设计方案待确认，还没有决定是否这样做、什么时候做。** 下面是方案和已经验证过的技术前提。
 
@@ -180,7 +193,7 @@ paths:
 - [ ] **中间节点的地址自动加路由**：这是严格模式下可用的必要条件。副作用是发往这些地址的流量也交给 pingmock，和劫持真实地址的效果一样；在 `pingmock exec` 里不影响宿主机
 - [ ] **只有设置了路径的目标才回应 UDP**：如果对所有目标都回 Port Unreachable，现有用户的程序会从"UDP 请求超时"变成"立即被拒绝"，所以做成需要主动开启
 - [ ] 是否也需要一种更简单的写法，比如只给出跳数和总延迟，自动生成中间节点？
-- [ ] 不在范围内：TCP 模式的 traceroute（`traceroute -T`）
+- [x] ~~不在范围内：TCP 模式的 traceroute（`traceroute -T`）~~ 已改变：终点只需回一个 SYN-ACK，并入这一版（见上面的补充）
 
 #### 实现时要做的
 
@@ -191,17 +204,31 @@ paths:
 - [ ] 历史和统计：记录中间节点的回复（结果为 time-exceeded、port-unreachable，以及第几跳）
 - [ ] traceroute、mtr 加入兼容性测试；中英文文档
 
-### 暂缓和不做
+### 之后：等需求再决定
 
-| 方向 | 说明 | 决定 |
-|---|---|---|
-| 更多异常行为 | 重复回复（`DUP!`）、损坏的回复、自定义 TTL | 暂缓：调研中没有找到明确的需求；按"测试应用，而不是测试协议"的原则，放在后面 |
-| TCP 探测、TCP 连接延迟模拟 | Trippy 提到了 TCP 探测；但 TCP 层面已有 Toxiproxy | 暂缓，放在路径模拟之后再看 |
-| 通用的流量整形 | 给所有流量加延迟，需求最大 | **不做**：netem、Toxiproxy 等已经很成熟，做了会偏离定位 |
-| 向 Toxiproxy 贡献 ping 支持 | | **不做**：维护者认为需要 TUN、等于重写，而且他们看重跨平台 |
-| 用 netlink 替代 `ip` 命令 | 去掉运行时对 iproute2 的依赖 | 暂缓：代码量增加不少，目前没有用户因此遇到问题 |
-| 分片重组 | 支持 `ping -s 2000` 这类超过 MTU 的请求 | 暂缓：使用场景很少 |
-| 其他系统（macOS 等） | | 暂缓：`exec` 依赖 Linux 命名空间，工作量大 |
+| 方向 | 说明 |
+|---|---|
+| `exec` 的外网访问 | 检测到系统装有 pasta 或 slirp4netns 时，借助它们为 `exec` 提供外网，解决不能下载依赖、不能访问真实服务的问题 |
+| 更多异常行为 | 重复回复（`DUP!`）、损坏的回复：没有找到明确的需求 |
+| TCP 连接延迟 | 和 Toxiproxy 的领域重叠，需要明确的需求 |
+| 用 netlink 替代 `ip` 命令 | 去掉运行时对 iproute2 的依赖；fakert 用的 vishvananda/netlink 可以参考 |
+| 分片重组、其他系统（macOS 等） | 使用场景少，或者工作量大（`exec` 依赖 Linux 命名空间） |
+
+### 不做
+
+| 方向 | 原因 |
+|---|---|
+| 通用的流量整形 | 需求最大，但 netem、Toxiproxy 等已经很成熟，做了会偏离定位 |
+| 向 Toxiproxy 贡献 ping 支持 | 维护者认为三层代理需要 TUN、等于重写，而且他们看重跨平台（#39） |
+
+### 和外部项目的互动
+
+由作者本人进行；先在 issue 中问维护者是否欢迎，不直接提交依赖 pingmock 的代码。
+
+| 时机 | 机会 |
+|---|---|
+| v0.6 之后 | [pro-bing #70](https://github.com/prometheus-community/pro-bing/issues/70)：贡献修复，附带用 pingmock 测试超时行为的用例 |
+| v0.8 之后 | [Trippy #1552](https://github.com/fujiapple852/trippy/issues/1552)：作者想要一个独立的模拟工具，介绍 pingmock 作为 Linux 上的选择 |
 
 ## 维护
 
