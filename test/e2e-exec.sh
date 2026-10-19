@@ -75,7 +75,13 @@ named=$(run -rule by-name.example=45ms -- sh -c "
 same "a rule for a name resolves to the top of the subnet" "$(echo "$named" | sed -n 1p)" "10.99.0.253"
 same "the address resolves back to the name" "$(echo "$named" | sed -n 2p)" "by-name.example"
 near "ping by name gets the name's rule" "$(echo "$named" | sed -n 3p)" 45 5
-same "an unknown name does not resolve" "$(echo "$named" | sed -n 4p)" 2
+# Docker Desktop's resolver answers every name with a made-up address, so
+# this check only means something where the host does not resolve the name.
+if getent hosts does-not-exist.invalid >/dev/null 2>&1; then
+  echo "SKIP an unknown name does not resolve (this host's resolver answers for does-not-exist.invalid)"
+else
+  same "an unknown name does not resolve" "$(echo "$named" | sed -n 4p)" 2
+fi
 same "the system's resolv.conf is left alone" "$(md5sum /etc/resolv.conf 2>/dev/null || true)" "$before_resolv"
 if getent hosts github.com >/dev/null 2>&1; then
   forwarded=$(run -rule by-name.example=1ms -- sh -c "getent hosts github.com | awk '{print \$1}' | head -1")

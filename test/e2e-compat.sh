@@ -12,9 +12,10 @@ cd "$(dirname "$0")/.."
 
 PM=""
 GROUPS_BEFORE=$(cat /proc/sys/net/ipv4/ping_group_range)
+GROUPS_CHANGED=""
 cleanup() {
   [ -n "$PM" ] && { kill "$PM" 2>/dev/null || true; wait "$PM" 2>/dev/null || true; }
-  echo "$GROUPS_BEFORE" >/proc/sys/net/ipv4/ping_group_range
+  [ -n "$GROUPS_CHANGED" ] && echo "$GROUPS_BEFORE" >/proc/sys/net/ipv4/ping_group_range
   rm -rf "$WORK"
 }
 WORK=$(mktemp -d)
@@ -23,8 +24,14 @@ trap cleanup EXIT
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; exit 1; }
 
-# The libraries' unprivileged mode needs ping sockets to be allowed.
-echo "0 2147483647" >/proc/sys/net/ipv4/ping_group_range
+# The libraries' unprivileged mode needs ping sockets to be allowed for
+# every group. Containers already allow them, and their /proc/sys is read
+# only, so the range is only written when it has to be.
+read -r lo hi <<<"$GROUPS_BEFORE"
+if [ "$lo" -gt 0 ] || [ "$hi" -lt 2147483647 ]; then
+  echo "0 2147483647" >/proc/sys/net/ipv4/ping_group_range
+  GROUPS_CHANGED=1
+fi
 
 (cd test/compat && go build -o "$WORK/probing" .)
 
