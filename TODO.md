@@ -249,7 +249,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 
 - [x] nscd 修复（见上表）
 - [x] `exec` 的 DNS 服务监听 TCP，TCP 查询也经 TCP 转发；每个查询各自处理，中继给查询加标签，可以同时转发多个；宿主机不回应时也不回应（中继等 5 秒，glibc 的默认超时），不再 2 秒后回 SERVFAIL。单元测试：慢查询不挡 UDP 和同一 TCP 连接上的其他查询、中继乱序返回、TCP 转发 3000 字节的回复；e2e：`RES_OPTIONS=use-vc` 下模拟的域名和转发的域名都能解析。变异：串行处理、串行中继、不监听 TCP 都会失败（不监听 TCP 时 glibc 读 TCP 不设超时会一直等，检查加了 `timeout 10`）
-- [ ] `-dns` 实现。语法维护者 2026-10-20 确认按推荐来：
+- [x] `-dns` 实现（2026-10-20）。语法维护者 2026-10-20 确认按推荐来：
   - `-dns NAME=RULE`、`dns:`、`PUT/DELETE /dns/{name}`，root 模式拒绝（和 `-host` 一样）
   - 故障先做 `nxdomain`、`servfail`，加上 `timeout`/`loss=`、延迟，pattern 的 `n`、`s`
   - 按（域名, 类型）计数，重试也算；README 按结果说明一次解析会发几个查询
@@ -257,6 +257,9 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
   - search 域带出的查询照常转发，在文档中说明（透明优先）
   - 不做通配；PTR 不受影响
   - 有 `-dns` 规则的域名不写进私有 `/etc/hosts`；`-dns` 本身也要打开 `exec` 的域名设置
+  - 实现：`rule`（协议种类代替原来的 TCP 开关，`nxdomain`、`servfail`、pattern 的 `n`、`s`，DNS 规则拒绝 `unreachable`、`ttl`，ping 和 TCP 规则拒绝 DNS 设置）、`engine`（按名字的规则表，按（域名, 类型）的状态和随机流，`dns`/`dns_stats`，`/reset`）、`dns`（规则在查表和转发之前决定，故障不转发，延迟在转发之后）、`app`（`-dns`、`dns:`，root 拒绝，有规则的域名从私有 hosts 里拿掉、连系统 hosts 里的同名条目一起）、`api`（`PUT/DELETE /dns/{name}`，命令 hosts 里的域名和没有 DNS 服务的 exec 返回 400 并给出办法；`GET /history?target=域名`）、`client`（`SetDNS`、`DeleteDNS`、`DNSStats`；顺带补上 v0.10.0 漏掉的 `TCPStats.Closed`、`Reset`）
+  - 验证（开发容器，root 和免 root）：nxdomain → `EAI_NONAME`、servfail → `EAI_AGAIN`、timeout（`timeout:1 attempts:1`）→ `EAI_AGAIN`、延迟 60ms 实测 62ms、`nxdomain for 2 requests` 让两次解析失败后第三次解析出地址、没有规则的域名照旧、有规则的域名不在 hosts 里、统计按类型计数、历史、API 设置和删除。变异：有规则的域名留在 hosts 里时延迟检查失败
+  - [ ] 推送后看 CI
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
