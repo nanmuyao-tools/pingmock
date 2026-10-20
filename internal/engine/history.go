@@ -13,7 +13,7 @@ type Event struct {
 	Dst    netip.Addr `json:"dst"`
 	ID     uint16     `json:"id"`
 	Seq    uint16     `json:"seq"`
-	Result string     `json:"result"`          // "reply", "drop", "unreachable", for paths "time-exceeded", "port-unreachable", "syn-ack", for TCP rules also "refused"
+	Result string     `json:"result"`          // "reply", "drop", "unreachable", for paths "time-exceeded", "port-unreachable", "syn-ack", for TCP rules also "refused", "closed" and "reset"
 	Code   string     `json:"code,omitempty"`  // unreachable code: "host", "net" or "admin"
 	Reply  bool       `json:"reply"`           // true for echo replies; kept for compatibility
 	Delay  string     `json:"delay,omitempty"` // for replies and unreachable messages

@@ -4,8 +4,9 @@ programs do, and prints one line per target for test/e2e-compat.sh:
     python 10.99.0.11:80 accepted 201ms read=timeout
     python 10.99.0.12:80 refused
 
-An accepted connection is then read from, to show that pingmock holds it
-open without sending anything. Standard library only.
+On an accepted connection the client writes a request and reads the
+answer, which shows what pingmock does after the handshake: nothing
+(timeout), close (closed) or reset (reset). Standard library only.
 """
 
 import socket
@@ -16,6 +17,8 @@ import time
 def outcome(err):
     if isinstance(err, ConnectionRefusedError):
         return "refused"
+    if isinstance(err, ConnectionResetError):
+        return "reset"
     if isinstance(err, (socket.timeout, TimeoutError)):
         return "timeout"
     if isinstance(err, OSError) and err.errno in (113, 101):  # EHOSTUNREACH, ENETUNREACH
@@ -34,6 +37,7 @@ for target in sys.argv[1:]:
     took = round((time.monotonic() - start) * 1000)
     conn.settimeout(0.3)
     try:
+        conn.sendall(b"hello\n")
         read = "data" if conn.recv(1) else "closed"
     except OSError as err:
         read = outcome(err)

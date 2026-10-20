@@ -41,13 +41,21 @@ func (r *Responder) Serve(dev io.ReadWriter) error {
 		if answer == nil {
 			continue
 		}
-		time.AfterFunc(delay, func() {
+		write := func() {
 			wmu.Lock()
 			defer wmu.Unlock()
 			if _, err := dev.Write(answer); err != nil && !errors.Is(err, os.ErrClosed) {
 				log.Printf("write: %v", err)
 			}
-		})
+		}
+		// Answers without a delay go out at once, in the order of what
+		// they answer: a timer each would let a reset overtake the FIN
+		// it follows.
+		if delay == 0 {
+			write()
+			continue
+		}
+		time.AfterFunc(delay, write)
 	}
 }
 
@@ -59,6 +67,16 @@ func (r *Responder) handle(pkt []byte) ([]byte, time.Duration) {
 	req, ok := icmp.ParseProbe(pkt)
 	if !ok {
 		return nil, 0
+	}
+	if req.Kind == icmp.Segment {
+		a, ok := r.Rules.DecideSegment(req)
+		if !ok {
+			return nil, 0 // not a connection pingmock closes or resets
+		}
+		if a.Action != nil {
+			r.record(req, *a.Action, true)
+		}
+		return icmp.BuildSegment(pkt, a.TTL, a.Flags, a.Seq, a.Ack), 0
 	}
 	d := r.Rules.DecideProbe(req)
 	if d.Rule == "none" {
@@ -98,7 +116,7 @@ func (r *Responder) record(req icmp.Probe, d engine.Decision, answered bool) {
 	if req.Kind != icmp.Echo {
 		ev.Probe = req.Kind.String()
 	}
-	if req.Kind == icmp.TCP {
+	if req.Kind == icmp.TCP || req.Kind == icmp.Segment {
 		ev.Port, ev.Repeat = req.DstPort, d.Repeat
 	}
 	if d.Hop > 0 || d.Rule == "path" || req.Kind != icmp.Echo {

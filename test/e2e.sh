@@ -204,6 +204,38 @@ pass "TCP: statistics count attempts, not SYNs"
 events=$(curl -sf "localhost:9100/history?target=10.99.0.25" | tr -d ' \n')
 echo "$events" | grep -q '"repeat":true' && echo "$events" | grep -q '"port":80' || fail "TCP: history lacks port or repeat: $events"
 pass "TCP: the history records the port and the retransmitted SYNs"
+# after=: what happens once the connection is accepted. curl sends its
+# request and gets an empty reply (exit 52) when pingmock closes, a reset
+# while receiving (56) when it resets, and every attempt gets the same.
+curl -sf -X PUT localhost:9100/tcp/10.99.0.27:80 -d 5ms,after=close >/dev/null
+curl -sf -X PUT localhost:9100/tcp/10.99.0.28:80 -d after=reset >/dev/null
+exits() { for _ in 1 2 3 4 5; do curl -s -o /dev/null -m 2 "$1"; echo -n "$? "; done; }
+same "TCP: after=close closes every connection (curl exit 52)" "$(exits http://10.99.0.27/)" "52 52 52 52 52 "
+same "TCP: after=reset resets every connection (curl exit 56)" "$(exits http://10.99.0.28/)" "56 56 56 56 56 "
+# Data written after pingmock's FIN gets a reset, as from a real server that
+# closed its socket, and no socket is left waiting for pingmock's ACK
+# (under after=hang, the default, a client that gives up is left waiting).
+same "TCP: after=close, then a write is refused (EPIPE)" "$(python3 -c '
+import socket, time
+s = socket.create_connection(("10.99.0.27", 80), timeout=2)
+s.sendall(b"x"); s.recv(1); time.sleep(0.2)
+try:
+    s.sendall(b"y"); print("written")
+except BrokenPipeError:
+    print("EPIPE")
+')" EPIPE
+# A client that closes without writing gets its FIN acknowledged.
+for _ in 1 2 3; do timeout 2 bash -c ': <>/dev/tcp/10.99.0.27/80'; done
+sleep 0.2
+same "TCP: no connection is left half closed" "$(ss -Htan exclude time-wait '( dst 10.99.0.27 or dst 10.99.0.28 )' | wc -l)" 0
+stats=$(curl -sf localhost:9100/rules | tr -d ' \n')
+echo "$stats" | grep -q '"10.99.0.27:80":{"requests":9,"accepted":9,[^}]*"closed":9,"reset":0' &&
+  echo "$stats" | grep -q '"10.99.0.28:80":{"requests":5,"accepted":5,[^}]*"closed":0,"reset":5' ||
+  fail "TCP: closed and reset counts: $stats"
+pass "TCP: statistics count closed and reset connections"
+events=$(curl -sf "localhost:9100/history?target=10.99.0.28" | tr -d ' \n')
+[ "$(grep -o '"result":"reset"' <<<"$events" | wc -l)" -eq 5 ] || fail "TCP: history of resets: $events"
+pass "TCP: the history records each reset once"
 # Rules change while running, through the API.
 curl -sf -X PUT localhost:9100/tcp/10.99.0.21:80 -d refuse >/dev/null
 read -r status _ <<<"$(connect http://10.99.0.21/ 2)"
@@ -215,6 +247,10 @@ if [ -e /proc/net/if_inet6 ]; then
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::22%5D:80' -d refuse >/dev/null
   read -r status _ <<<"$(connect 'http://[fd99::22]/' 2)"
   same "TCP over IPv6: refused" "$status" 7
+  curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::27%5D:80' -d after=close >/dev/null
+  curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::28%5D:80' -d after=reset >/dev/null
+  same "TCP over IPv6: after=close and after=reset (curl exits 52, 56)" \
+    "$(exits 'http://[fd99::27]/' | cut -d' ' -f1) $(exits 'http://[fd99::28]/' | cut -d' ' -f1)" "52 56"
 fi
 stop
 

@@ -26,6 +26,9 @@ type Spec struct {
 	// Refuse answers a TCP connection attempt with a reset, so that the
 	// connection is refused. TCP rules only.
 	Refuse bool
+	// After is what happens to a connection once it is accepted: it
+	// stays open (the default), is closed or is reset. TCP rules only.
+	After After
 }
 
 // DefaultTTL is the TTL of answers whose rule does not set one: what Linux
@@ -55,7 +58,7 @@ func (sp Spec) EffectiveTTL() uint8 {
 func ParseSpec(s string) (Spec, error) { return parseSpec(s, false) }
 
 // ParseTCPSpec parses a spec of a TCP rule: what ParseSpec accepts, plus
-// "refuse" and the pattern letter 'r'.
+// "refuse", "after=close|reset|hang" and the pattern letter 'r'.
 func ParseTCPSpec(s string) (Spec, error) { return parseSpec(s, true) }
 
 // parseSpec parses a spec; tcp allows the settings of TCP rules.
@@ -95,6 +98,12 @@ func parseSpec(s string, tcp bool) (Spec, error) {
 			sp.Unreachable, err = parseUnreachCode(val)
 		case "ttl":
 			sp.TTL, err = parseTTL(val)
+		case "after":
+			if !tcp {
+				err = fmt.Errorf("after is for TCP rules (-tcp)")
+			} else {
+				sp.After, err = parseAfter(val)
+			}
 		case "refuse":
 			switch {
 			case !tcp:
@@ -143,6 +152,15 @@ func (sp Spec) validateFor(tcp bool) error {
 			return fmt.Errorf("refuse and unreachable cannot be combined")
 		case sp.Pattern != "":
 			return fmt.Errorf("refuse and pattern cannot be combined; use r in the pattern")
+		}
+	}
+	if sp.After != AfterHang {
+		switch {
+		case !tcp:
+			return fmt.Errorf("after is for TCP rules (-tcp)")
+		case sp.Refuse || sp.Unreachable != UnreachNone || (sp.Loss == 1 && sp.Pattern == "") ||
+			(sp.Pattern != "" && !strings.Contains(sp.Pattern, ".")):
+			return fmt.Errorf("after=%s applies to accepted connections, and this rule accepts none", sp.After)
 		}
 	}
 	return nil
@@ -232,6 +250,9 @@ func (sp Spec) String() string {
 	}
 	if sp.Refuse {
 		parts = append(parts, "refuse")
+	}
+	if sp.After != AfterHang {
+		parts = append(parts, "after="+sp.After.String())
 	}
 	switch {
 	case sp.Unreachable == UnreachHost:

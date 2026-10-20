@@ -19,6 +19,12 @@ func TestParseTCPScenario(t *testing.T) {
 		{"delay=5ms,pattern=.r.x", "delay=5ms,pattern=.r.x"},
 		{"unreachable=admin", "delay=0s,unreachable=admin"},
 		{"delay=1ms,ttl=128", "delay=1ms,ttl=128"},
+		{"10ms,after=close", "delay=10ms,after=close"},
+		{"after=RESET", "delay=0s,after=reset"},
+		{"after=hang", "delay=0s"},
+		{"delay=5ms,pattern=.r,after=reset", "delay=5ms,pattern=.r,after=reset"},
+		{"loss=50%,after=close", "delay=0s,loss=50%,after=close"},
+		{"refuse for 1 request; after=close", "delay=0s,refuse for 1 request; delay=0s,after=close"},
 	}
 	for _, c := range cases {
 		got, err := ParseTCPScenario(c.in)
@@ -36,6 +42,8 @@ func TestParseTCPScenario(t *testing.T) {
 	}
 	for _, bad := range []string{
 		"refuse=yes", "refuse,unreachable", "refuse,pattern=.r", "pattern=.q", "refuse for 0 requests",
+		"after=shut", "after", "after=close:1s", "refuse,after=close", "unreachable,after=reset",
+		"loss=100%,after=close", "pattern=xr,after=reset",
 	} {
 		if _, err := ParseTCPScenario(bad); err == nil {
 			t.Errorf("ParseTCPScenario(%q) succeeded", bad)
@@ -47,7 +55,7 @@ func TestParseTCPScenario(t *testing.T) {
 // ways a ping rule or the default comes in: text (flags, the API) and
 // JSON (the configuration file, the API).
 func TestPingRulesRejectTCPSettings(t *testing.T) {
-	for _, text := range []string{"refuse", "delay=10ms,refuse", "pattern=.r", "10ms for 1 ping; refuse"} {
+	for _, text := range []string{"refuse", "delay=10ms,refuse", "pattern=.r", "10ms for 1 ping; refuse", "after=close", "10ms for 1 ping; after=reset"} {
 		if _, err := ParseScenario(text); err == nil || !strings.Contains(err.Error(), "TCP") {
 			t.Errorf("ParseScenario(%q) = %v, want an error naming TCP rules", text, err)
 		}
@@ -65,6 +73,7 @@ func TestPingRulesRejectTCPSettings(t *testing.T) {
 	for _, obj := range []string{
 		`{"refuse": true}`,
 		`{"delay": "10ms", "pattern": ".r"}`,
+		`{"after": "close"}`,
 		`{"phases": [{"spec": {"refuse": true}, "count": 1}, {"spec": "10ms"}]}`,
 		`{"phases": [{"spec": "refuse", "count": 1}, {"spec": "10ms"}]}`,
 	} {
@@ -87,7 +96,9 @@ func TestTCPScenarioJSON(t *testing.T) {
 		`{"refuse": true}`:               "delay=0s,refuse",
 		`{"delay": 50, "pattern": ".r"}`: "delay=50ms,pattern=.r",
 		`{"phases": [{"spec": {"refuse": true}, "count": 2}, {"spec": "10ms"}]}`: "delay=0s,refuse for 2 requests; delay=10ms",
-		`30`: "delay=30ms",
+		`30`:                                 "delay=30ms",
+		`{"delay": "5ms", "after": "reset"}`: "delay=5ms,after=reset",
+		`{"after": "hang"}`:                  "delay=0s",
 	} {
 		var sc TCPScenario
 		if err := json.Unmarshal([]byte(in), &sc); err != nil {
@@ -109,6 +120,16 @@ func TestTCPScenarioJSON(t *testing.T) {
 	}
 	if b, _ := json.Marshal(Spec{Refuse: true}); !strings.Contains(string(b), `"refuse":true`) {
 		t.Errorf("refusing spec JSON %s", b)
+	}
+	if b, _ := json.Marshal(Spec{After: AfterClose}); !strings.Contains(string(b), `"after":"close"`) {
+		t.Errorf("closing spec JSON %s", b)
+	}
+	if b, _ := json.Marshal(Spec{}); strings.Contains(string(b), "after") {
+		t.Errorf("ping spec JSON %s mentions after", b)
+	}
+	// A delay before the action is reserved for later, and says so.
+	if _, err := ParseTCPScenario("after=close:1s"); err == nil || !strings.Contains(err.Error(), "not supported yet") {
+		t.Errorf("after=close:1s: %v", err)
 	}
 }
 

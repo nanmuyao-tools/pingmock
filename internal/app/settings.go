@@ -130,7 +130,7 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, ttl=128, or phases such as \"50ms for 3 pings; timeout\"")
 	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, pingmock exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
 	fs.Var(&f.paths, "path", "TARGET=PATH, repeatable: the route traceroute and mtr see to TARGET, hops separated by \">\", each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for one that never answers, e.g. '8.8.8.8=192.168.1.1@2ms > * > 72.14.0.1@25ms'")
-	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443); no port means every port. RULE is as for -rule, plus refuse (answer with a reset) and r in a pattern, e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
+	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443); no port means every port. RULE is as for -rule, plus refuse (answer with a reset), r in a pattern and after=close|reset|hang (what happens once a connection is accepted), e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
 }

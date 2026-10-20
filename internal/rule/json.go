@@ -22,6 +22,7 @@ type specJSON struct {
 	Unreachable *string     `json:"unreachable,omitempty"` // "host", "net", "admin" or "" for host
 	TTL         numOrString `json:"ttl,omitempty"`         // 1 to 255; unset means rule.DefaultTTL
 	Refuse      bool        `json:"refuse,omitempty"`      // TCP rules only
+	After       string      `json:"after,omitempty"`       // "close", "reset" or "hang"; TCP rules only
 }
 
 // numOrString holds a JSON string or number as text. Configuration files,
@@ -65,6 +66,9 @@ func (sp Spec) MarshalJSON() ([]byte, error) {
 		j.TTL = numOrString(strconv.Itoa(int(sp.TTL)))
 	}
 	j.Refuse = sp.Refuse
+	if sp.After != AfterHang {
+		j.After = sp.After.String()
+	}
 	return json.Marshal(j)
 }
 
@@ -125,6 +129,14 @@ func (sp *Spec) unmarshal(b []byte, tcp bool) error {
 		}
 	}
 	out.Refuse = j.Refuse
+	if j.After != "" {
+		if !tcp {
+			return fmt.Errorf("after is for TCP rules (-tcp)")
+		}
+		if out.After, err = parseAfter(j.After); err != nil {
+			return err
+		}
+	}
 	if err := out.validateFor(tcp); err != nil {
 		return err
 	}

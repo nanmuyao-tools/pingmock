@@ -17,6 +17,11 @@ import (
 // covers Linux's default of 6 retries, which give up after about 127s.
 const repeatWindow = 2 * time.Minute
 
+// idleWindow is how long a connection accepted under after=close or
+// after=reset is remembered after its last segment. A client that waits
+// longer before sending gets nothing, as under after=hang.
+const idleWindow = 10 * time.Minute
+
 // TCPStats counts what happened to connection attempts to one address
 // and port. Repeated SYNs of an attempt are not counted again.
 type TCPStats struct {
@@ -25,6 +30,9 @@ type TCPStats struct {
 	Refused     uint64 `json:"refused"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
+	// Accepted connections that pingmock then closed or reset (after=).
+	Closed uint64 `json:"closed"`
+	Reset  uint64 `json:"reset"`
 }
 
 // tcpRuleKey is what a TCP rule applies to: a prefix, and a port or 0 for
@@ -57,12 +65,36 @@ type answered struct {
 	at time.Time
 }
 
+// conn identifies a connection by its addresses and ports.
+type conn struct {
+	src, dst         netip.Addr
+	srcPort, dstPort uint16
+}
+
+// Where an accepted connection with after=close or after=reset is.
+const (
+	connOpen    = iota // accepted, nothing done yet
+	connClosing        // pingmock sent its FIN
+	connDone           // closed or reset; later segments get the answers of a closed port
+)
+
+// connState is an accepted connection whose rule says what to do after
+// the handshake. The action is decided with the SYN, so a phase that ends
+// in between does not change it.
+type connState struct {
+	after rule.After
+	stage int
+	d     Decision // what the SYN got: rule and phase, for the history
+	at    time.Time
+}
+
 // tcpState holds the TCP rules and what they have done so far.
 type tcpState struct {
 	rules   map[tcpRuleKey]*entry
 	targets map[netip.AddrPort]*tcpTarget
 	seen    map[attempt]answered
-	inserts int // since the last pruning of seen
+	conns   map[conn]*connState
+	inserts int // since the last pruning of seen and conns
 }
 
 func newTCPState() tcpState {
@@ -70,6 +102,7 @@ func newTCPState() tcpState {
 		rules:   map[tcpRuleKey]*entry{},
 		targets: map[netip.AddrPort]*tcpTarget{},
 		seen:    map[attempt]answered{},
+		conns:   map[conn]*connState{},
 	}
 }
 
@@ -171,6 +204,12 @@ func (rs *RuleSet) DecideTCP(p icmp.Probe) (Decision, bool) {
 	d := Decision{Outcome: out, Code: code, Delay: delay, TTL: sp.EffectiveTTL(),
 		Rule: "tcp " + key.String(), Phase: t.phase + 1, From: p.Dst}
 
+	c := conn{p.Src, p.Dst, p.SrcPort, p.DstPort}
+	if out == rule.SynAck && sp.After != rule.AfterHang {
+		rs.tcp.conns[c] = &connState{after: sp.After, d: d, at: now}
+	} else {
+		delete(rs.tcp.conns, c) // a new attempt from the same port
+	}
 	rs.tcp.seen[at] = answered{d, now}
 	if rs.tcp.inserts++; rs.tcp.inserts >= 256 {
 		rs.tcp.inserts = 0
@@ -179,8 +218,87 @@ func (rs *RuleSet) DecideTCP(p icmp.Probe) (Decision, bool) {
 				delete(rs.tcp.seen, a)
 			}
 		}
+		for c, cs := range rs.tcp.conns {
+			if now.Sub(cs.at) >= idleWindow {
+				delete(rs.tcp.conns, c)
+			}
+		}
 	}
 	return d, true
+}
+
+// SegmentAnswer is what to send in answer to a segment of an accepted
+// connection: a segment without data with these flags and numbers.
+type SegmentAnswer struct {
+	Flags    byte
+	Seq, Ack uint32
+	TTL      uint8 // the TTL of the rule that accepted the connection
+	// Action is set when the answer closes or resets the connection, once
+	// per connection: Outcome is rule.Closed or rule.Reset, with the rule
+	// and phase the SYN got. The answers that follow, such as the ACK of
+	// the client's FIN, leave it nil and are not recorded.
+	Action *Decision
+}
+
+// DecideSegment decides how to answer a segment p, other than a SYN, of a
+// connection accepted under after=close or after=reset. It reports false
+// for every other segment, which gets no answer, as under after=hang:
+// pingmock acknowledges nothing and sends no data.
+//
+// after=close sends a FIN as soon as the client completes the handshake.
+// after=reset waits for the client's first data or FIN: a reset on the
+// handshake's final ACK would race with the client's connect, which then
+// fails in some runs and succeeds in others. Data after pingmock's FIN
+// gets a reset, as from a real server that closed its socket.
+func (rs *RuleSet) DecideSegment(p icmp.Probe) (SegmentAnswer, bool) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	cs := rs.tcp.conns[conn{p.Src, p.Dst, p.SrcPort, p.DstPort}]
+	if cs == nil {
+		return SegmentAnswer{}, false
+	}
+	const next = icmp.SynAckSeq + 1 // our sequence number after the SYN-ACK
+	if p.TCPFlags&icmp.FlagACK == 0 || (p.TCPAck != next && p.TCPAck != next+1) {
+		return SegmentAnswer{}, false // not acknowledging our SYN-ACK or FIN: another connection
+	}
+	now := rs.now()
+	cs.at = now
+	fin := p.TCPFlags&icmp.FlagFIN != 0
+	end := p.TCPSeq + uint32(p.TCPData) // what the client sent up to
+	if fin {
+		end++
+	}
+	ttl := cs.d.TTL
+	reset := SegmentAnswer{Flags: icmp.FlagRST | icmp.FlagACK, Seq: p.TCPAck, Ack: end, TTL: ttl}
+	action := func(out rule.Outcome) *Decision {
+		t := rs.tcp.targets[netip.AddrPortFrom(p.Dst, p.DstPort)]
+		if t != nil && out == rule.Closed {
+			t.stats.Closed++
+		} else if t != nil {
+			t.stats.Reset++
+		}
+		d := cs.d
+		d.Outcome, d.Delay, d.Repeat = out, 0, false
+		return &d
+	}
+	switch {
+	case cs.stage == connOpen && cs.after == rule.AfterClose:
+		cs.stage = connClosing
+		return SegmentAnswer{Flags: icmp.FlagFIN | icmp.FlagACK, Seq: next, Ack: end, TTL: ttl, Action: action(rule.Closed)}, true
+	case cs.stage == connOpen && (p.TCPData > 0 || fin):
+		cs.stage = connDone
+		reset.Action = action(rule.Reset)
+		return reset, true
+	case cs.stage == connOpen:
+		return SegmentAnswer{}, false // the handshake's ACK: wait for data
+	case p.TCPData > 0:
+		cs.stage = connDone
+		return reset, true
+	case fin && cs.after == rule.AfterClose:
+		cs.stage = connDone
+		return SegmentAnswer{Flags: icmp.FlagACK, Seq: next + 1, Ack: end, TTL: ttl}, true
+	}
+	return SegmentAnswer{}, false // the ACK of our FIN
 }
 
 // TCPTargetState is the API view of one address and port.

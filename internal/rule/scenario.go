@@ -157,8 +157,8 @@ func (sc Scenario) format(unit string) string {
 }
 
 // TCPScenario is the scenario of a TCP rule. It accepts what a Scenario
-// accepts, plus the settings only TCP rules have ("refuse", and 'r' in a
-// pattern), and its phases count requests rather than pings.
+// accepts, plus the settings only TCP rules have ("refuse", "after=", and
+// 'r' in a pattern), and its phases count requests rather than pings.
 type TCPScenario struct{ Scenario }
 
 // ParseTCPScenario parses the scenario of a TCP rule, such as

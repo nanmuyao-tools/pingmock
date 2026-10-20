@@ -18,6 +18,9 @@ const (
 	SynAck          // TCP SYN-ACK from the destination, to a TCP probe
 	// For TCP rules:
 	Refused // TCP RST: the connection is refused
+	// For TCP rules, on a connection already accepted (see After):
+	Closed // TCP FIN: pingmock closed the connection
+	Reset  // TCP RST: pingmock reset the connection
 )
 
 func (o Outcome) String() string {
@@ -34,8 +37,40 @@ func (o Outcome) String() string {
 		return "syn-ack"
 	case Refused:
 		return "refused"
+	case Closed:
+		return "closed"
+	case Reset:
+		return "reset"
 	}
 	return "reply"
+}
+
+// After is what pingmock does on a TCP connection it accepted.
+type After uint8
+
+const (
+	AfterHang  After = iota // nothing: the connection stays open, nothing is sent or acknowledged
+	AfterClose              // close it (FIN) as soon as the handshake completes
+	AfterReset              // reset it (RST) when the client first sends data or closes
+)
+
+var afterNames = map[After]string{AfterHang: "hang", AfterClose: "close", AfterReset: "reset"}
+
+func (a After) String() string { return afterNames[a] }
+
+func parseAfter(s string) (After, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if v, d, ok := strings.Cut(s, ":"); ok {
+		if _, err := parseDuration(d); err == nil && v != "" {
+			return AfterHang, fmt.Errorf("after=%s: a delay before closing or resetting is not supported yet", s)
+		}
+	}
+	for a, name := range afterNames {
+		if s == name {
+			return a, nil
+		}
+	}
+	return AfterHang, fmt.Errorf("unknown after %q: want close, reset or hang", s)
 }
 
 // UnreachCode is the reason given in a destination unreachable message.

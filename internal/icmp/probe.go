@@ -9,9 +9,10 @@ import (
 type Kind int
 
 const (
-	Echo Kind = iota // ICMP or ICMPv6 echo request: ping, traceroute -I, mtr
-	UDP              // a UDP datagram: traceroute's default probes
-	TCP              // a TCP SYN: traceroute -T, mtr --tcp
+	Echo    Kind = iota // ICMP or ICMPv6 echo request: ping, traceroute -I, mtr
+	UDP                 // a UDP datagram: traceroute's default probes
+	TCP                 // a TCP SYN: traceroute -T, mtr --tcp
+	Segment             // any other TCP segment from the client, except a reset
 )
 
 func (k Kind) String() string {
@@ -20,7 +21,7 @@ func (k Kind) String() string {
 		return "echo"
 	case UDP:
 		return "udp"
-	case TCP:
+	case TCP, Segment:
 		return "tcp"
 	}
 	return "?"
@@ -38,7 +39,20 @@ type Probe struct {
 	SrcPort  uint16 // UDP and TCP
 	DstPort  uint16
 	TCPSeq   uint32 // TCP: the SYN's sequence number, to acknowledge
+	// Segments: the acknowledgment number, the flags and how many bytes of
+	// data the segment carries.
+	TCPAck   uint32
+	TCPFlags byte
+	TCPData  int
 }
+
+// TCP flags.
+const (
+	FlagFIN = 0x01
+	FlagSYN = 0x02
+	FlagRST = 0x04
+	FlagACK = 0x10
+)
 
 const (
 	protoTCP = 6
@@ -116,10 +130,25 @@ func transport(p Probe, proto byte, msg []byte, echoType byte) (Probe, bool) {
 		p.SrcPort = binary.BigEndian.Uint16(msg[0:2])
 		p.DstPort = binary.BigEndian.Uint16(msg[2:4])
 	case proto == protoTCP:
-		if len(msg) < 20 || msg[13]&0x12 != 0x02 { // not a SYN, or a SYN-ACK
+		if len(msg) < 20 {
 			return Probe{}, false
 		}
-		p.Kind = TCP
+		flags := msg[13]
+		switch {
+		case flags&(FlagSYN|FlagACK) == FlagSYN:
+			p.Kind = TCP
+		case flags&(FlagSYN|FlagRST) == 0:
+			off := int(msg[12]>>4) * 4
+			if off < 20 || off > len(msg) {
+				return Probe{}, false
+			}
+			p.Kind = Segment
+			p.TCPFlags = flags
+			p.TCPAck = binary.BigEndian.Uint32(msg[8:12])
+			p.TCPData = len(msg) - off
+		default: // a SYN-ACK or a reset
+			return Probe{}, false
+		}
 		p.SrcPort = binary.BigEndian.Uint16(msg[0:2])
 		p.DstPort = binary.BigEndian.Uint16(msg[2:4])
 		p.TCPSeq = binary.BigEndian.Uint32(msg[4:8])
@@ -199,20 +228,42 @@ func icmpError6(req []byte, from netip.Addr, typ, code, ttl byte) []byte {
 // kernel, which never opened the connection, answers it with a reset,
 // which closes the matter.
 func BuildSynAck(req []byte, ttl uint8) []byte {
-	return buildTCPAnswer(req, ttl, 0x12, 0x70696e67, 65535) // SYN, ACK; our sequence number: "ping"
+	return buildTCPAnswer(req, ttl, FlagSYN|FlagACK, SynAckSeq, 65535, tcpSeq(req)+1)
 }
+
+// SynAckSeq is the sequence number of every SYN-ACK pingmock sends: "ping".
+// The SYN-ACK uses it up, so what pingmock sends next on the connection
+// starts at SynAckSeq+1.
+const SynAckSeq = 0x70696e67
 
 // BuildRST answers a TCP SYN as a host with the port closed would: a
 // reset acknowledging the SYN (RFC 9293 3.10.7.1), so that the sender's
 // connect fails at once with "connection refused".
 func BuildRST(req []byte, ttl uint8) []byte {
-	return buildTCPAnswer(req, ttl, 0x14, 0, 0) // RST, ACK
+	return buildTCPAnswer(req, ttl, FlagRST|FlagACK, 0, 0, tcpSeq(req)+1)
+}
+
+// BuildSegment answers a segment req of an accepted connection with a
+// segment without data, from the connection's server side, with the given
+// flags, sequence and acknowledgment numbers: a FIN to close it, the ACK
+// of the client's FIN, or a reset.
+func BuildSegment(req []byte, ttl uint8, flags byte, seq, ack uint32) []byte {
+	return buildTCPAnswer(req, ttl, flags, seq, 65535, ack)
+}
+
+// tcpSeq returns the sequence number of the TCP segment in pkt.
+func tcpSeq(pkt []byte) uint32 {
+	ihl := ipv6Header
+	if pkt[0]>>4 == 4 {
+		ihl = int(pkt[0]&0x0f) * 4
+	}
+	return binary.BigEndian.Uint32(pkt[ihl+4:])
 }
 
 // buildTCPAnswer builds a TCP segment without data from the destination
-// of the SYN req back to its sender, with the given flags, sequence
-// number and window, acknowledging the SYN.
-func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16) []byte {
+// of the TCP segment req back to its sender, with the given flags,
+// sequence number, window and acknowledgment number.
+func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16, ack uint32) []byte {
 	var out, seg []byte
 	var src, dst []byte
 	if req[0]>>4 == 6 {
@@ -239,11 +290,11 @@ func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16
 	if req[0]>>4 == 4 {
 		ihl = int(req[0]&0x0f) * 4
 	}
-	syn := req[ihl:]
-	copy(seg[0:2], syn[2:4]) // from the probed port
-	copy(seg[2:4], syn[0:2]) // to the sender's port
+	in := req[ihl:]
+	copy(seg[0:2], in[2:4]) // from the probed port
+	copy(seg[2:4], in[0:2]) // to the sender's port
 	binary.BigEndian.PutUint32(seg[4:8], seq)
-	binary.BigEndian.PutUint32(seg[8:12], binary.BigEndian.Uint32(syn[4:8])+1)
+	binary.BigEndian.PutUint32(seg[8:12], ack)
 	seg[12] = 5 << 4 // data offset: 20 bytes
 	seg[13] = flags
 	binary.BigEndian.PutUint16(seg[14:16], window)

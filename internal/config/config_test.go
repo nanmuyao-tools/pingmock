@@ -239,6 +239,10 @@ func TestLoadTCP(t *testing.T) {
       - {spec: refuse, count: 2}
       - spec: 10ms
   db.example.com:5432: loss=30%
+  10.99.0.6:80: 10ms,after=close
+  10.99.0.7:80:
+    delay: 1ms
+    after: reset
 `))
 	if err != nil {
 		t.Fatal(err)
@@ -257,6 +261,8 @@ func TestLoadTCP(t *testing.T) {
 		"10.99.0.2/32:5432=delay=5ms",
 		"10.99.0.3/32:443=delay=0s,refuse for 3 requests; delay=20ms",
 		"10.99.0.5/32:80=delay=0s,refuse for 2 requests; delay=10ms",
+		"10.99.0.6/32:80=delay=10ms,after=close",
+		"10.99.0.7/32:80=delay=1ms,after=reset",
 		"[fd99::1/128]:443=delay=200ms,jitter=20ms",
 		"db.example.com:5432=delay=0s,loss=30%",
 	}
@@ -271,6 +277,8 @@ func TestLoadTCP(t *testing.T) {
 		"rules:\n  10.99.0.1: refuse\n":                          "TCP rules", // ping rules do not refuse
 		"default: delay=1ms,pattern=.r\n":                        "TCP rules",
 		"rules:\n  10.99.0.1: {refuse: true}\n":                  "TCP rules",
+		"rules:\n  10.99.0.1: {after: close}\n":                  "TCP rules",
+		"tcp:\n  10.99.0.1:80: refuse,after=close\n":             "accepts none",
 	} {
 		_, _, err := Load(writeFile(t, "t.yaml", in))
 		if err == nil || !strings.Contains(err.Error(), want) {

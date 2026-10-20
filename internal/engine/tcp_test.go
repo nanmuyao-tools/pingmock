@@ -218,3 +218,159 @@ func TestTCPResetAndStats(t *testing.T) {
 		t.Errorf("after Reset:\n%s\nwant\n%s", again, first)
 	}
 }
+
+// seg describes a segment of the connection that syn opened: flags, the
+// client's sequence number, what it acknowledges and how much data it
+// carries.
+func seg(dst string, port, srcPort uint16, flags byte, seq, ack uint32, data int) icmp.Probe {
+	return icmp.Probe{Kind: icmp.Segment, Src: addr("10.99.0.254"), Dst: addr(dst), TTL: 64,
+		SrcPort: srcPort, DstPort: port, TCPSeq: seq, TCPAck: ack, TCPFlags: flags, TCPData: data}
+}
+
+const (
+	ack    = icmp.FlagACK
+	finAck = icmp.FlagFIN | icmp.FlagACK
+	next   = icmp.SynAckSeq + 1
+)
+
+func TestTCPAfterClose(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "0ms", 1)
+	setTCP(t, rs, "10.99.0.1:80", "5ms,ttl=50,after=close")
+	if d := rs.DecideProbe(syn("10.99.0.1", 80, 40000, 100)); d.Outcome != rule.SynAck {
+		t.Fatalf("SYN: %+v", d)
+	}
+	// The handshake's final ACK: a FIN, acknowledging the SYN.
+	a, ok := rs.DecideSegment(seg("10.99.0.1", 80, 40000, ack, 101, next, 0))
+	if !ok || a.Flags != finAck || a.Seq != next || a.Ack != 101 || a.TTL != 50 || a.Action == nil ||
+		a.Action.Outcome != rule.Closed || a.Action.Rule != "tcp 10.99.0.1/32:80" || a.Action.Phase != 1 {
+		t.Fatalf("final ACK: %+v %v (action %+v)", a, ok, a.Action)
+	}
+	// The ACK of our FIN: nothing.
+	if a, ok := rs.DecideSegment(seg("10.99.0.1", 80, 40000, ack, 101, next+1, 0)); ok {
+		t.Errorf("ACK of our FIN answered: %+v", a)
+	}
+	// The client closes too: its FIN is acknowledged, not recorded.
+	a, ok = rs.DecideSegment(seg("10.99.0.1", 80, 40000, finAck, 101, next+1, 0))
+	if !ok || a.Flags != ack || a.Seq != next+1 || a.Ack != 102 || a.Action != nil {
+		t.Errorf("client's FIN: %+v %v", a, ok)
+	}
+	// Sent again, because our ACK was lost: acknowledged again.
+	if a, ok := rs.DecideSegment(seg("10.99.0.1", 80, 40000, finAck, 101, next+1, 0)); !ok || a.Flags != ack {
+		t.Errorf("client's FIN again: %+v %v", a, ok)
+	}
+
+	// Another connection writes after our FIN: reset, as by a real server
+	// that closed its socket, and only once recorded as closed.
+	rs.DecideProbe(syn("10.99.0.1", 80, 40001, 500))
+	rs.DecideSegment(seg("10.99.0.1", 80, 40001, ack, 501, next, 0))
+	a, ok = rs.DecideSegment(seg("10.99.0.1", 80, 40001, ack, 501, next+1, 18))
+	if !ok || a.Flags != icmp.FlagRST|icmp.FlagACK || a.Seq != next+1 || a.Ack != 519 || a.Action != nil {
+		t.Errorf("data after our FIN: %+v %v", a, ok)
+	}
+	st := rs.Snapshot()["tcp_stats"].(map[string]TCPTargetState)["10.99.0.1:80"]
+	if st.Requests != 2 || st.Accepted != 2 || st.Closed != 2 || st.Reset != 0 {
+		t.Errorf("stats: %+v", st)
+	}
+}
+
+func TestTCPAfterReset(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "0ms", 1)
+	setTCP(t, rs, "10.99.0.1:5432", "after=reset")
+	rs.DecideProbe(syn("10.99.0.1", 5432, 40000, 100))
+	// The handshake's final ACK: nothing yet, so that connect succeeds.
+	if a, ok := rs.DecideSegment(seg("10.99.0.1", 5432, 40000, ack, 101, next, 0)); ok {
+		t.Fatalf("final ACK answered: %+v", a)
+	}
+	// The first data: a reset, at the sequence number the client expects.
+	a, ok := rs.DecideSegment(seg("10.99.0.1", 5432, 40000, ack|0x08, 101, next, 40))
+	if !ok || a.Flags != icmp.FlagRST|icmp.FlagACK || a.Seq != next || a.Ack != 141 || a.Action == nil || a.Action.Outcome != rule.Reset {
+		t.Fatalf("first data: %+v %v", a, ok)
+	}
+	// A client that closes without sending: reset on its FIN.
+	rs.DecideProbe(syn("10.99.0.1", 5432, 40001, 7))
+	rs.DecideSegment(seg("10.99.0.1", 5432, 40001, ack, 8, next, 0))
+	if a, ok := rs.DecideSegment(seg("10.99.0.1", 5432, 40001, finAck, 8, next, 0)); !ok || a.Flags != icmp.FlagRST|icmp.FlagACK || a.Ack != 9 || a.Action == nil {
+		t.Errorf("client's FIN: %+v %v", a, ok)
+	}
+	st := rs.Snapshot()["tcp_stats"].(map[string]TCPTargetState)["10.99.0.1:5432"]
+	if st.Accepted != 2 || st.Reset != 2 || st.Closed != 0 {
+		t.Errorf("stats: %+v", st)
+	}
+}
+
+// What after= must leave alone: connections under after=hang, segments
+// that are not of an accepted connection, and the action decided with the
+// SYN, whatever phase comes next.
+func TestTCPAfterScope(t *testing.T) {
+	rs, clock := newTestRuleSet(t, "0ms", 1)
+	setTCP(t, rs, "10.99.0.1:80", "10ms")
+	setTCP(t, rs, "10.99.0.2:80", "after=close for 1 request; after=reset")
+	setTCP(t, rs, "10.99.0.3:80", "refuse")
+	rs.DecideProbe(syn("10.99.0.1", 80, 40000, 1))
+	if a, ok := rs.DecideSegment(seg("10.99.0.1", 80, 40000, ack|0x08, 2, next, 10)); ok {
+		t.Errorf("after=hang answered data: %+v", a)
+	}
+	rs.DecideProbe(syn("10.99.0.3", 80, 40000, 1))
+	if a, ok := rs.DecideSegment(seg("10.99.0.3", 80, 40000, ack, 2, next, 0)); ok {
+		t.Errorf("a refused connection answered: %+v", a)
+	}
+	if a, ok := rs.DecideSegment(seg("10.99.0.9", 80, 40000, ack, 2, next, 0)); ok {
+		t.Errorf("no rule: %+v", a)
+	}
+
+	// The first connection is in the close phase; the second one starts
+	// the reset phase before the first completes its handshake.
+	rs.DecideProbe(syn("10.99.0.2", 80, 40001, 1))
+	rs.DecideProbe(syn("10.99.0.2", 80, 40002, 1))
+	if a, ok := rs.DecideSegment(seg("10.99.0.2", 80, 40001, ack, 2, next, 0)); !ok || a.Action.Outcome != rule.Closed || a.Action.Phase != 1 {
+		t.Errorf("first connection: %+v %v", a, ok)
+	}
+	if a, ok := rs.DecideSegment(seg("10.99.0.2", 80, 40002, ack, 2, next, 0)); ok {
+		t.Errorf("second connection closed on its ACK: %+v", a)
+	}
+	// A segment that acknowledges something else is not of this connection.
+	if a, ok := rs.DecideSegment(seg("10.99.0.2", 80, 40002, ack, 2, 12345, 5)); ok {
+		t.Errorf("unrelated segment: %+v", a)
+	}
+	// A segment without ACK neither.
+	if a, ok := rs.DecideSegment(seg("10.99.0.2", 80, 40002, 0, 2, 0, 5)); ok {
+		t.Errorf("segment without ACK: %+v", a)
+	}
+
+	// A new attempt from the same port that is refused forgets the old one.
+	setTCP(t, rs, "10.99.0.2:80", "refuse")
+	rs.DecideProbe(syn("10.99.0.2", 80, 40002, 99))
+	if a, ok := rs.DecideSegment(seg("10.99.0.2", 80, 40002, ack, 2, next, 5)); ok {
+		t.Errorf("connection replaced by a refused attempt still answered: %+v", a)
+	}
+
+	// Idle connections are forgotten after idleWindow.
+	setTCP(t, rs, "10.99.0.4:80", "after=reset")
+	rs.DecideProbe(syn("10.99.0.4", 80, 40000, 1))
+	clock.advance(idleWindow)
+	for i := 0; i < 256; i++ {
+		rs.DecideProbe(syn("10.99.0.1", 80, uint16(41000+i), 1))
+	}
+	if a, ok := rs.DecideSegment(seg("10.99.0.4", 80, 40000, ack, 2, next, 5)); ok {
+		t.Errorf("idle connection still answered: %+v", a)
+	}
+}
+
+// after= draws nothing from the random stream: the same seed gives the
+// same delays and losses with and without it.
+func TestTCPAfterKeepsSeededSequence(t *testing.T) {
+	run := func(text string) string {
+		rs, _ := newTestRuleSet(t, "0ms", 42)
+		setTCP(t, rs, "10.99.0.1:80", text)
+		var out []string
+		for i := 0; i < 20; i++ {
+			d := rs.DecideProbe(syn("10.99.0.1", 80, uint16(40000+i), 1))
+			out = append(out, fmt.Sprint(d.Outcome, d.Delay))
+			rs.DecideSegment(seg("10.99.0.1", 80, uint16(40000+i), ack, 2, next, 0))
+		}
+		return fmt.Sprint(out)
+	}
+	if a, b := run("delay=20ms,jitter=10ms,loss=30%"), run("delay=20ms,jitter=10ms,loss=30%,after=close"); a != b {
+		t.Errorf("after=close changed the sequence:\n%s\n%s", a, b)
+	}
+}

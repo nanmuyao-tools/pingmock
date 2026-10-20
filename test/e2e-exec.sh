@@ -104,6 +104,14 @@ near "TCP inside exec: accepted after the rule's delay" "$(echo "$tcp" | sed -n 
 same "TCP inside exec: a rule for a name refuses" "$(echo "$tcp" | sed -n 2p)" "Connection refused"
 same "TCP inside exec: a port without a rule is not answered" "$(echo "$tcp" | sed -n 3p)" "0.000000"
 
+# after= inside exec, on a name: curl's exit status tells an empty reply
+# (52, the connection closed) from a reset while receiving (56).
+tcp=$(run -tcp db.example.com:80=after=close -tcp db.example.com:81=after=reset -- bash -c "
+  curl -s -o /dev/null -m 2 http://db.example.com/; echo \$?
+  curl -s -o /dev/null -m 2 http://db.example.com:81/; echo \$?")
+same "TCP inside exec: after=close closes the connection (curl exit 52)" "$(echo "$tcp" | sed -n 1p)" 52
+same "TCP inside exec: after=reset resets it (curl exit 56)" "$(echo "$tcp" | sed -n 2p)" 56
+
 # A path inside exec: traceroute, which opens raw sockets, works there
 # without root, and sees the hops.
 if command -v traceroute >/dev/null; then

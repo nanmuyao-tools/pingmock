@@ -5,13 +5,15 @@
 //	go 10.99.0.12:80 refused
 //
 // The outcome is one of accepted, refused, timeout, unreachable or the
-// error itself. An accepted connection is then read from, to show that
-// pingmock holds it open without sending anything.
+// error itself. On an accepted connection the client writes a request and
+// reads the answer, which shows what pingmock does after the handshake:
+// nothing (timeout), close (closed) or reset (reset).
 package main
 
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"syscall"
@@ -25,9 +27,11 @@ func main() {
 		took := time.Since(start).Milliseconds()
 		switch {
 		case err == nil:
-			conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+			conn.SetDeadline(time.Now().Add(300 * time.Millisecond))
 			read := "data"
-			if _, err := conn.Read(make([]byte, 1)); err != nil {
+			if _, err := conn.Write([]byte("hello\n")); err != nil {
+				read = outcome(err)
+			} else if _, err := conn.Read(make([]byte, 1)); err != nil {
 				read = outcome(err)
 			}
 			conn.Close()
@@ -44,6 +48,10 @@ func outcome(err error) string {
 	switch {
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return "refused"
+	case errors.Is(err, syscall.ECONNRESET):
+		return "reset"
+	case errors.Is(err, io.EOF):
+		return "closed"
 	case errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.ENETUNREACH):
 		return "unreachable"
 	case errors.As(err, &ne) && ne.Timeout():
