@@ -248,8 +248,15 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 需求：两个小项目（probeboard-api #74、network-doctor #368、#394）在 2026 年 9、10 月自己做了按域名注入错误的办法，反应数 0 到 1，证据弱。
 
 - [x] nscd 修复（见上表）
-- [ ] `exec` 的 DNS 服务监听 TCP，转发也支持 TCP；每个查询各自处理，转发可以并行；宿主机不回应时不回 SERVFAIL 而是不回应
-- [ ] `-dns` 的语法，等维护者确认后实现
+- [x] `exec` 的 DNS 服务监听 TCP，TCP 查询也经 TCP 转发；每个查询各自处理，中继给查询加标签，可以同时转发多个；宿主机不回应时也不回应（中继等 5 秒，glibc 的默认超时），不再 2 秒后回 SERVFAIL。单元测试：慢查询不挡 UDP 和同一 TCP 连接上的其他查询、中继乱序返回、TCP 转发 3000 字节的回复；e2e：`RES_OPTIONS=use-vc` 下模拟的域名和转发的域名都能解析。变异：串行处理、串行中继、不监听 TCP 都会失败（不监听 TCP 时 glibc 读 TCP 不设超时会一直等，检查加了 `timeout 10`）
+- [ ] `-dns` 实现。语法维护者 2026-10-20 确认按推荐来：
+  - `-dns NAME=RULE`、`dns:`、`PUT/DELETE /dns/{name}`，root 模式拒绝（和 `-host` 一样）
+  - 故障先做 `nxdomain`、`servfail`，加上 `timeout`/`loss=`、延迟，pattern 的 `n`、`s`
+  - 按（域名, 类型）计数，重试也算；README 按结果说明一次解析会发几个查询
+  - 只针对某一类型的规则（`NAME/AAAA`）先不做，写法保留
+  - search 域带出的查询照常转发，在文档中说明（透明优先）
+  - 不做通配；PTR 不受影响
+  - 有 `-dns` 规则的域名不写进私有 `/etc/hosts`；`-dns` 本身也要打开 `exec` 的域名设置
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
