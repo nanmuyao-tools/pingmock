@@ -355,6 +355,8 @@ The rule is written as for `-rule`, and means:
 
 Phases count connection attempts: `for 3 requests` (or `connections`). An attempt is counted once, however many times the client's kernel sends its SYN again while waiting, so `timeout for 2 requests` means two attempts whatever the kernel's retry timer. When several rules match, the most specific prefix wins, then a rule for the port over one for every port.
 
+As with ping rules, a TCP rule for a real address in root mode routes **all** traffic to that address to pingmock, see [Mocking real addresses](#mocking-real-addresses); `pingmock exec` affects only the command.
+
 An accepted connection is held open, but nothing is ever sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. pingmock mocks no service. Ports without a TCP rule are not answered, as before.
 
 In a configuration file (quote a key with brackets) and through the API:
@@ -493,7 +495,7 @@ curl localhost:9100/version
 
 `POST /reset` at the start of each test gives it the same state on every run, whatever the tests before it changed.
 
-Each history event looks like this. `result` is `reply`, `drop` or `unreachable`, `code` is present for unreachable answers, `delay` for anything that was answered, and `phase` counts from 1:
+Each history event looks like this. `result` is `reply`, `drop` or `unreachable`, `code` is present for unreachable answers, `delay` for anything that was answered, and `phase` counts from 1. Connection attempts and the probes of traceroute and mtr add fields, described in [TCP connections](#tcp-connections) and [Paths](#paths-traceroute-and-mtr):
 
 ```json
 {"time": "2026-10-17T11:16:10.113Z", "src": "10.99.0.254", "dst": "10.99.0.1",

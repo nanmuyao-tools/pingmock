@@ -355,6 +355,8 @@ pingmock exec \
 
 场景按连接请求计数：`for 3 requests`（也可以写 `connections`）。一次连接请求只算一次，不管客户端的内核在等待期间重发了几次 SYN，所以 `timeout for 2 requests` 就是两次连接请求，和内核的重传时间无关。多条规则匹配时，先比网段谁更精确，再比有端口的优先于不带端口的。
 
+和 ping 的规则一样，root 模式下为真实地址设置 TCP 规则，会把发往这个地址的**所有**流量交给 pingmock，见[模拟真实地址](#模拟真实地址)；`pingmock exec` 只影响它运行的命令。
+
 接受的连接会保持打开，但不会发送任何数据：程序读取时会遇到读取超时，可以和连接超时区分开。pingmock 不模拟任何服务。没有 TCP 规则的端口和以前一样不回应。
 
 配置文件（带方括号的键要加引号）和 API 中的写法：
@@ -493,7 +495,7 @@ curl localhost:9100/version
 
 每个测试开始时先 `POST /reset`，不管前面的测试改过什么，它每次都从同样的状态出发。
 
-每条历史记录的格式如下。`result` 是 `reply`、`drop` 或 `unreachable`；`code` 只在不可达时出现；`delay` 在有响应时出现；`phase` 从 1 开始计数：
+每条历史记录的格式如下。`result` 是 `reply`、`drop` 或 `unreachable`；`code` 只在不可达时出现；`delay` 在有响应时出现；`phase` 从 1 开始计数。连接请求和 traceroute、mtr 的探测还有其他字段，见 [TCP 连接](#tcp-连接)和[路径](#路径traceroute-和-mtr)：
 
 ```json
 {"time": "2026-10-17T11:16:10.113Z", "src": "10.99.0.254", "dst": "10.99.0.1",
