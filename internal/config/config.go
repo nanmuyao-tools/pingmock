@@ -44,6 +44,42 @@ type Config struct {
 	//	paths:
 	//	  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
 	Paths map[string]rule.Path `json:"paths"`
+	// TCP gives addresses and ports TCP rules:
+	//
+	//	tcp:
+	//	  10.99.0.1:5432: timeout
+	//	  "[fd99::1]:443": refuse
+	TCP map[string]rule.TCPScenario `json:"tcp"`
+}
+
+// TCPRule is a parsed entry of Config.TCP.
+type TCPRule struct {
+	Target   rule.TCPTarget
+	Scenario rule.Scenario
+}
+
+// SortedTCP returns the file's TCP rules, validated and sorted by target
+// as written.
+func (c *Config) SortedTCP(path string) ([]TCPRule, error) {
+	keys := make([]string, 0, len(c.TCP))
+	for k := range c.TCP {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]TCPRule, 0, len(keys))
+	seen := map[string]string{}
+	for _, k := range keys {
+		t, err := rule.ParseTCPTarget(k)
+		if err != nil {
+			return nil, fmt.Errorf("%s: tcp %q: %w", path, k, err)
+		}
+		if other, dup := seen[t.String()]; dup {
+			return nil, fmt.Errorf("%s: tcp %q and %q are the same target %s", path, other, k, t)
+		}
+		seen[t.String()] = k
+		out = append(out, TCPRule{t, c.TCP[k].Scenario})
+	}
+	return out, nil
 }
 
 // PathRule is a parsed entry of Config.Paths.
@@ -158,6 +194,9 @@ func Load(path string) (*Config, []Rule, error) {
 		return nil, nil, err
 	}
 	if _, err := cfg.SortedPaths(path); err != nil {
+		return nil, nil, err
+	}
+	if _, err := cfg.SortedTCP(path); err != nil {
 		return nil, nil, err
 	}
 	if cfg.History != nil && *cfg.History < 0 {

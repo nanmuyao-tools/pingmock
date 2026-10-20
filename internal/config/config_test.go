@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 func writeFile(t *testing.T, name, content string) string {
@@ -217,6 +219,60 @@ func TestLoadPaths(t *testing.T) {
 		"paths:\n  8.8.8.8:\n    - 1.1.1.1@2ms\n": "want a string",
 	} {
 		_, _, err := Load(writeFile(t, "p.yaml", in))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: error %v, want it to contain %q", in, err, want)
+		}
+	}
+}
+
+func TestLoadTCP(t *testing.T) {
+	cfg, _, err := Load(writeFile(t, "t.yaml", `tcp:
+  10.99.0.1:5432: timeout
+  10.99.0.2:5432: 5ms
+  10.99.0.3:443: refuse for 3 requests; 20ms
+  "[fd99::1]:443": delay=200ms,jitter=20ms
+  10.99.0.0/24:
+    delay: 50ms
+    refuse: true
+  10.99.0.5:80:
+    phases:
+      - {spec: refuse, count: 2}
+      - spec: 10ms
+  db.example.com:5432: loss=30%
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcp, err := cfg.SortedTCP("t.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range tcp {
+		got = append(got, r.Target.String()+"="+(rule.TCPScenario{Scenario: r.Scenario}).String())
+	}
+	want := []string{
+		"10.99.0.0/24=delay=50ms,refuse",
+		"10.99.0.1/32:5432=timeout",
+		"10.99.0.2/32:5432=delay=5ms",
+		"10.99.0.3/32:443=delay=0s,refuse for 3 requests; delay=20ms",
+		"10.99.0.5/32:80=delay=0s,refuse for 2 requests; delay=10ms",
+		"[fd99::1/128]:443=delay=200ms,jitter=20ms",
+		"db.example.com:5432=delay=0s,loss=30%",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("tcp =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	for in, want := range map[string]string{
+		"tcp:\n  fd99::1:443: 10ms\n":                            "t.yaml:2: tcp \"fd99::1:443\": ", // brackets needed
+		"tcp:\n  10.99.0.1:443: pattern=.q\n":                    "t.yaml:2: tcp \"10.99.0.1:443\"", // not a rule
+		"tcp:\n  10.99.0.1:443: 10ms\n  10.99.0.1/32:443: 5ms\n": "same target",                     // duplicates
+		"tcp:\n  - 10.99.0.1:443\n":                              "tcp must be a mapping",
+		"rules:\n  10.99.0.1: refuse\n":                          "TCP rules", // ping rules do not refuse
+		"default: delay=1ms,pattern=.r\n":                        "TCP rules",
+		"rules:\n  10.99.0.1: {refuse: true}\n":                  "TCP rules",
+	} {
+		_, _, err := Load(writeFile(t, "t.yaml", in))
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: error %v, want it to contain %q", in, err, want)
 		}

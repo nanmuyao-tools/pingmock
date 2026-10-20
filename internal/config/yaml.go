@@ -16,6 +16,7 @@ import (
 var knownFields = map[string]bool{
 	"dev": true, "addr": true, "addr6": true, "api": true,
 	"seed": true, "history": true, "default": true, "rules": true, "hosts": true, "paths": true,
+	"tcp": true,
 }
 
 // yamlToJSON converts a YAML configuration into the equivalent JSON, which
@@ -65,6 +66,10 @@ func yamlToJSON(data []byte, path string) ([]byte, error) {
 			if err := checkPaths(val, path); err != nil {
 				return nil, err
 			}
+		case key.Value == "tcp":
+			if err := checkTCP(val, path); err != nil {
+				return nil, err
+			}
 		}
 	}
 	var v any
@@ -103,6 +108,50 @@ func checkRules(n *yaml.Node, path string) error {
 		}
 	}
 	return nil
+}
+
+// checkTCP validates the tcp mapping, reporting the line of the first bad
+// target or rule.
+func checkTCP(n *yaml.Node, path string) error {
+	if n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
+		return nil
+	}
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s:%d: tcp must be a mapping of targets to rules, such as 10.99.0.1:5432: timeout", path, n.Line)
+	}
+	seen := map[string]int{}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key, val := n.Content[i], n.Content[i+1]
+		t, err := rule.ParseTCPTarget(key.Value)
+		if err != nil {
+			return fmt.Errorf("%s:%d: tcp %q: %w", path, key.Line, key.Value, err)
+		}
+		if line, dup := seen[t.String()]; dup {
+			return fmt.Errorf("%s:%d: tcp %q is the same target %s as on line %d", path, key.Line, key.Value, t, line)
+		}
+		seen[t.String()] = key.Line
+		if err := checkTCPRule(val); err != nil {
+			return fmt.Errorf("%s:%d: tcp %q: %w", path, val.Line, key.Value, err)
+		}
+	}
+	return nil
+}
+
+// checkTCPRule decodes one TCP rule as the JSON decoding will.
+func checkTCPRule(n *yaml.Node) error {
+	var v any
+	if err := n.Decode(&v); err != nil {
+		return err
+	}
+	if v == nil {
+		return errors.New("empty rule")
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	var sc rule.TCPScenario
+	return json.Unmarshal(b, &sc)
 }
 
 // checkHosts validates the hosts mapping, reporting the line of the first
