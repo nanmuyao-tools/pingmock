@@ -240,8 +240,8 @@ func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16
 		ihl = int(req[0]&0x0f) * 4
 	}
 	syn := req[ihl:]
-	copy(seg[0:2], syn[2:4])                         // from the probed port
-	copy(seg[2:4], syn[0:2])                         // to the sender's port
+	copy(seg[0:2], syn[2:4]) // from the probed port
+	copy(seg[2:4], syn[0:2]) // to the sender's port
 	binary.BigEndian.PutUint32(seg[4:8], seq)
 	binary.BigEndian.PutUint32(seg[8:12], binary.BigEndian.Uint32(syn[4:8])+1)
 	seg[12] = 5 << 4 // data offset: 20 bytes

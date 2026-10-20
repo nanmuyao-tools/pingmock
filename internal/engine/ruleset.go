@@ -31,15 +31,20 @@ type entry struct {
 	setAt time.Time
 }
 
-// target is the per-address state: where it is in its scenario and the
-// random source used for its loss and jitter.
-type target struct {
+// position is where a target is in its scenario, and the random source
+// used for its loss and jitter.
+type position struct {
 	entryID    uint64
 	phase      int
 	phaseStart time.Time
 	phaseReqs  int
 	rng        *rand.Rand
-	stats      Stats
+}
+
+// target is the per-address state of ping and paths.
+type target struct {
+	position
+	stats Stats
 }
 
 // Decision is the outcome for one echo request.
@@ -55,6 +60,9 @@ type Decision struct {
 	// from (the hop's, or the destination's).
 	Hop  int
 	From netip.Addr
+	// For TCP rules: the answer repeats the one given to the same
+	// connection attempt, whose SYN the sender's kernel sent again.
+	Repeat bool
 }
 
 // RuleSet maps targets to scenarios. The most specific matching prefix
@@ -68,6 +76,7 @@ type RuleSet struct {
 	rules   map[netip.Prefix]*entry
 	targets map[netip.Addr]*target
 	paths   map[netip.Addr]rule.Path // targets whose route traceroute can see
+	tcp     tcpState
 
 	// baseline is what Reset restores: the default, the rules and the
 	// paths as of SaveBaseline, or of NewRuleSet if it was never called.
@@ -75,6 +84,7 @@ type RuleSet struct {
 		def   rule.Scenario
 		rules map[netip.Prefix]rule.Scenario
 		paths map[netip.Addr]rule.Path
+		tcp   map[tcpRuleKey]rule.Scenario
 	}
 }
 
@@ -94,6 +104,7 @@ func NewRuleSet(def rule.Scenario, seed uint64, opts ...Option) *RuleSet {
 		rules:   map[netip.Prefix]*entry{},
 		targets: map[netip.Addr]*target{},
 		paths:   map[netip.Addr]rule.Path{},
+		tcp:     newTCPState(),
 	}
 	for _, o := range opts {
 		o(rs)
@@ -117,6 +128,10 @@ func (rs *RuleSet) SaveBaseline() {
 	for a, p := range rs.paths {
 		rs.baseline.paths[a] = p
 	}
+	rs.baseline.tcp = make(map[tcpRuleKey]rule.Scenario, len(rs.tcp.rules))
+	for k, e := range rs.tcp.rules {
+		rs.baseline.tcp[k] = e.sc
+	}
 }
 
 // Reset puts the default and the rules back as they were at the baseline
@@ -135,6 +150,10 @@ func (rs *RuleSet) Reset() {
 		rs.paths[a] = p
 	}
 	rs.targets = map[netip.Addr]*target{}
+	rs.tcp = newTCPState()
+	for k, sc := range rs.baseline.tcp {
+		rs.tcp.rules[k] = rs.newEntry(sc)
+	}
 }
 
 func (rs *RuleSet) Seed() uint64 { return rs.seed }
@@ -209,7 +228,7 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 		t.entryID, t.phase, t.phaseStart, t.phaseReqs = e.id, 0, e.setAt, 0
 		t.rng = rs.rngFor(dst)
 	}
-	advance(t, e.sc, now)
+	advance(&t.position, e.sc, now)
 	sp := e.sc.Phases[t.phase].Spec
 	out, code, delay := sp.Decide(t.phaseReqs, t.rng)
 	t.phaseReqs++
@@ -226,7 +245,7 @@ func (rs *RuleSet) Decide(dst netip.Addr) Decision {
 }
 
 // advance moves t past every phase of sc that has ended by now.
-func advance(t *target, sc rule.Scenario, now time.Time) {
+func advance(t *position, sc rule.Scenario, now time.Time) {
 	last := len(sc.Phases) - 1
 	for {
 		p := sc.Phases[t.phase]
@@ -294,7 +313,9 @@ func (rs *RuleSet) Snapshot() map[string]any {
 	for _, a := range pathKeys {
 		paths = append(paths, map[string]any{"target": a.String(), "path": rs.paths[a]})
 	}
-	return map[string]any{"seed": rs.seed, "default": rs.def.sc, "rules": rules, "paths": paths, "stats": targets}
+	tcpRules, tcpStats := rs.tcpSnapshot()
+	return map[string]any{"seed": rs.seed, "default": rs.def.sc, "rules": rules, "paths": paths, "stats": targets,
+		"tcp": tcpRules, "tcp_stats": tcpStats}
 }
 
 // ResetStats zeroes the counters without touching scenario positions.
@@ -302,6 +323,9 @@ func (rs *RuleSet) ResetStats() {
 	rs.mu.Lock()
 	for _, t := range rs.targets {
 		t.stats = Stats{}
+	}
+	for _, t := range rs.tcp.targets {
+		t.stats = TCPStats{}
 	}
 	rs.mu.Unlock()
 }

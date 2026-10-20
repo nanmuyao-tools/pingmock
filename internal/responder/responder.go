@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/netip"
 	"os"
 	"sync"
 	"time"
@@ -59,7 +60,7 @@ func (r *Responder) handle(pkt []byte) ([]byte, time.Duration) {
 	if !ok {
 		return nil, 0
 	}
-	d := r.Rules.DecideProbe(req.Dst, req.TTL, req.Kind)
+	d := r.Rules.DecideProbe(req)
 	if d.Rule == "none" {
 		return nil, 0 // a UDP or TCP packet to a target without a path: not ours
 	}
@@ -75,6 +76,8 @@ func (r *Responder) handle(pkt []byte) ([]byte, time.Duration) {
 		answer = icmp.BuildPortUnreachable(pkt, d.TTL)
 	case rule.SynAck:
 		answer = icmp.BuildSynAck(pkt, d.TTL)
+	case rule.Refused:
+		answer = icmp.BuildRST(pkt, d.TTL)
 	}
 	r.record(req, d, answer != nil)
 	return answer, d.Delay
@@ -95,6 +98,9 @@ func (r *Responder) record(req icmp.Probe, d engine.Decision, answered bool) {
 	if req.Kind != icmp.Echo {
 		ev.Probe = req.Kind.String()
 	}
+	if req.Kind == icmp.TCP {
+		ev.Port, ev.Repeat = req.DstPort, d.Repeat
+	}
 	if d.Hop > 0 || d.Rule == "path" || req.Kind != icmp.Echo {
 		ev.TTL, ev.Hop = req.TTL, d.Hop
 		if d.From.IsValid() {
@@ -113,6 +119,13 @@ func (r *Responder) record(req icmp.Probe, d engine.Decision, answered bool) {
 		if ev.Hop > 0 {
 			what += fmt.Sprintf(" at hop %d (%s)", ev.Hop, ev.From)
 		}
-		log.Printf("%s -> %s %s ttl=%d id=%d seq=%d: %s [rule %s, phase %d]", req.Src, req.Dst, req.Kind, req.TTL, req.ID, req.Seq, what, d.Rule, ev.Phase)
+		if ev.Repeat {
+			what += " (SYN sent again)"
+		}
+		dst := req.Dst.String()
+		if req.Kind != icmp.Echo {
+			dst = netip.AddrPortFrom(req.Dst, req.DstPort).String()
+		}
+		log.Printf("%s -> %s %s ttl=%d id=%d seq=%d: %s [rule %s, phase %d]", req.Src, dst, req.Kind, req.TTL, req.ID, req.Seq, what, d.Rule, ev.Phase)
 	}
 }

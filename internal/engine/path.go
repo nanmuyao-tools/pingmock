@@ -43,17 +43,25 @@ func (rs *RuleSet) HopAddrs() []netip.Addr {
 	return out
 }
 
-// DecideProbe determines the outcome of a probe to dst sent with the
-// given TTL: for a target with a path, which hop answers (TimeExceeded
-// from it), whether a lossy hop on the way loses the probe, and, once the
-// probe reaches the destination, how it answers an echo request (its
-// rule, as always), a UDP probe (PortUnreachable) or a TCP SYN (SynAck).
-// A target without a path ignores the TTL and answers echo requests only.
-func (rs *RuleSet) DecideProbe(dst netip.Addr, ttl uint8, kind icmp.Kind) Decision {
+// DecideProbe determines the outcome of the probe p: for a target with a
+// path, which hop answers (TimeExceeded from it), whether a lossy hop on
+// the way loses the probe, and, once the probe reaches the destination,
+// how it answers an echo request (its rule, as always), a UDP probe
+// (PortUnreachable) or a TCP SYN (SynAck). A target without a path
+// ignores the TTL and answers echo requests only. A TCP SYN that reaches
+// its destination is answered by the TCP rule for its address and port
+// if there is one, with or without a path.
+func (rs *RuleSet) DecideProbe(p icmp.Probe) Decision {
+	dst, ttl, kind := p.Dst, p.TTL, p.Kind
 	rs.mu.Lock()
 	path, hasPath := rs.paths[dst]
 	rs.mu.Unlock()
 	if !hasPath {
+		if kind == icmp.TCP {
+			if d, ok := rs.DecideTCP(p); ok {
+				return d
+			}
+		}
 		if kind != icmp.Echo {
 			return Decision{Outcome: rule.Drop, Rule: "none"}
 		}
@@ -102,8 +110,14 @@ func (rs *RuleSet) DecideProbe(dst netip.Addr, ttl uint8, kind icmp.Kind) Decisi
 	}
 	rs.mu.Unlock()
 
-	// The destination: its rule decides, as for any target; a UDP or TCP
-	// probe gets the answer that means "reached" instead of an echo reply.
+	// The destination: a TCP rule for the port decides a SYN; otherwise
+	// the target's rule decides, as for any target, and a UDP or TCP probe
+	// gets the answer that means "reached" instead of an echo reply.
+	if kind == icmp.TCP {
+		if d, ok := rs.DecideTCP(p); ok {
+			return d
+		}
+	}
 	d := rs.Decide(dst)
 	d.From = dst
 	if d.Outcome == rule.Reply {

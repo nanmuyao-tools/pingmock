@@ -37,7 +37,7 @@ func TestDecideProbeWalksThePath(t *testing.T) {
 		{rule.TimeExceeded, "72.14.0.1", 25 * time.Millisecond, 64},
 	}
 	for i, w := range want {
-		d := rs.DecideProbe(target, uint8(i+1), icmp.UDP)
+		d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: uint8(i + 1), Kind: icmp.UDP})
 		if d.Outcome != w.out || d.From.String() != w.from || d.Delay != w.d || d.Hop != i+1 || (w.out == rule.TimeExceeded && d.TTL != w.ttl) {
 			t.Errorf("ttl %d: %+v", i+1, d)
 		}
@@ -45,13 +45,13 @@ func TestDecideProbeWalksThePath(t *testing.T) {
 	// Past the last hop: the destination answers by its rule, as the
 	// probe's kind requires.
 	for kind, out := range map[icmp.Kind]rule.Outcome{icmp.UDP: rule.PortUnreachable, icmp.TCP: rule.SynAck, icmp.Echo: rule.Reply} {
-		d := rs.DecideProbe(target, 5, kind)
+		d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 5, Kind: kind})
 		if d.Outcome != out || d.From != target || d.Delay != 30*time.Millisecond || d.Hop != 0 || d.Rule != "8.8.8.8/32" {
 			t.Errorf("%v at ttl 5: %+v", kind, d)
 		}
 	}
 	// A ping with the usual TTL reaches the destination.
-	if d := rs.DecideProbe(target, 64, icmp.Echo); d.Outcome != rule.Reply || d.From != target {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 64, Kind: icmp.Echo}); d.Outcome != rule.Reply || d.From != target {
 		t.Errorf("ping: %+v", d)
 	}
 	st := rs.Snapshot()["stats"].(map[string]TargetState)[target.String()]
@@ -61,11 +61,11 @@ func TestDecideProbeWalksThePath(t *testing.T) {
 	}
 	// A rule that drops or rejects applies to UDP and TCP probes too.
 	rs.Set(netip.MustParsePrefix("8.8.8.8/32"), mustScenario(t, "unreachable=admin"))
-	if d := rs.DecideProbe(target, 9, icmp.UDP); d.Outcome != rule.Unreachable || d.Code != rule.UnreachAdmin {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 9, Kind: icmp.UDP}); d.Outcome != rule.Unreachable || d.Code != rule.UnreachAdmin {
 		t.Errorf("unreachable destination: %+v", d)
 	}
 	rs.Set(netip.MustParsePrefix("8.8.8.8/32"), mustScenario(t, "timeout"))
-	if d := rs.DecideProbe(target, 9, icmp.TCP); d.Outcome != rule.Drop {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 9, Kind: icmp.TCP}); d.Outcome != rule.Drop {
 		t.Errorf("silent destination: %+v", d)
 	}
 }
@@ -75,11 +75,11 @@ func TestDecideProbeWithoutPath(t *testing.T) {
 	target := addr("10.99.0.1")
 	// No path: the TTL is ignored and only echo requests are answered,
 	// exactly as before paths existed.
-	if d := rs.DecideProbe(target, 1, icmp.Echo); d.Outcome != rule.Reply || d.Delay != 5*time.Millisecond || d.Hop != 0 || d.From != target {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 1, Kind: icmp.Echo}); d.Outcome != rule.Reply || d.Delay != 5*time.Millisecond || d.Hop != 0 || d.From != target {
 		t.Errorf("echo with ttl 1: %+v", d)
 	}
 	for _, kind := range []icmp.Kind{icmp.UDP, icmp.TCP} {
-		if d := rs.DecideProbe(target, 64, kind); d.Outcome != rule.Drop {
+		if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 64, Kind: kind}); d.Outcome != rule.Drop {
 			t.Errorf("%v without a path: %+v", kind, d)
 		}
 	}
@@ -93,23 +93,23 @@ func TestPathCutLosesPacketsBeyondTheHop(t *testing.T) {
 	target := addr("8.8.8.8")
 	rs.SetPath(target, mustPath(t, "10.0.0.1@1ms,cut=100% > 10.0.0.2@2ms"))
 	// The first hop still answers probes that end there...
-	if d := rs.DecideProbe(target, 1, icmp.UDP); d.Outcome != rule.TimeExceeded {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 1, Kind: icmp.UDP}); d.Outcome != rule.TimeExceeded {
 		t.Errorf("ttl 1: %+v", d)
 	}
 	// ...but loses everything going past it: the second hop's probes, and
 	// pings to the destination.
-	if d := rs.DecideProbe(target, 2, icmp.UDP); d.Outcome != rule.Drop || d.Hop != 1 || d.From.String() != "10.0.0.1" {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 2, Kind: icmp.UDP}); d.Outcome != rule.Drop || d.Hop != 1 || d.From.String() != "10.0.0.1" {
 		t.Errorf("ttl 2: %+v", d)
 	}
-	if d := rs.DecideProbe(target, 64, icmp.Echo); d.Outcome != rule.Drop || d.Hop != 1 {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 64, Kind: icmp.Echo}); d.Outcome != rule.Drop || d.Hop != 1 {
 		t.Errorf("ping: %+v", d)
 	}
 	// Loss on a hop is local to it: the probe to the next hop gets through.
 	rs.SetPath(target, mustPath(t, "10.0.0.1@1ms,loss=100% > 10.0.0.2@2ms"))
-	if d := rs.DecideProbe(target, 1, icmp.UDP); d.Outcome != rule.Drop || d.Hop != 1 {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 1, Kind: icmp.UDP}); d.Outcome != rule.Drop || d.Hop != 1 {
 		t.Errorf("lossy hop, ttl 1: %+v", d)
 	}
-	if d := rs.DecideProbe(target, 2, icmp.UDP); d.Outcome != rule.TimeExceeded || d.Hop != 2 {
+	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 2, Kind: icmp.UDP}); d.Outcome != rule.TimeExceeded || d.Hop != 2 {
 		t.Errorf("lossy hop, ttl 2: %+v", d)
 	}
 }
@@ -118,7 +118,7 @@ func TestPathsAreSeededAndReset(t *testing.T) {
 	run := func(rs *RuleSet) string {
 		out := ""
 		for range 30 {
-			if rs.DecideProbe(addr("8.8.8.8"), 1, icmp.UDP).Outcome == rule.Drop {
+			if rs.DecideProbe(icmp.Probe{Dst: addr("8.8.8.8"), TTL: 1, Kind: icmp.UDP}).Outcome == rule.Drop {
 				out += "x"
 			} else {
 				out += "."
