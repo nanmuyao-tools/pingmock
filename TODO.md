@@ -232,7 +232,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 - [x] 边界：空闲 10 分钟的连接被忘掉，之后不再回应，写进 README
 - [x] 验证（开发容器）：单元测试和 lint；root 的 e2e（IPv4 和 IPv6：curl 5 次全是 52 或 56，`close` 之后再写得到 `EPIPE`，不写就关闭的客户端没有留下半关闭的连接，统计和历史）；`exec` 免 root 和 root（域名目标）；兼容性测试中 Go `net.Dial` 和 Python `socket` 先写后读，`close` 读到 EOF、`reset` 读到 `ECONNRESET`。变异：在最后一个 ACK 上就 reset、不检查确认号、新的尝试不覆盖旧连接、动作取自最后一个阶段，单元测试都能发现；不回应客户端的 FIN，e2e 的半关闭检查能发现（起初的检查漏了 CLOSING 状态，没发现，已改为除 TIME-WAIT 外的所有状态）
 - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39416311154) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 after= 的检查都跑了；同一 seed 下 v0.9.0 发布版和新版本的 ping 与 TCP 结果、延迟完全相同；[v0.10.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.10.0)，下载的 arm64 二进制在开发容器里 close、reset、refuse 分别得到 curl 52、56、7
-- [ ] 还没验证：Java、Node.js 客户端
+- 还没验证 Java、Node.js 客户端：移到「最低优先级」（维护者决定，2026-10-20）
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
@@ -277,6 +277,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 - [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI（原属 v0.6）
 - [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装（原属 v0.8）
 - [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈（原属 v0.8）
+- [ ] 用 Java、Node.js 客户端验证 TCP 规则（含 `after=`）：现在验证过的是 curl、bash `/dev/tcp`、Go `net`、Python `socket`
 
 ### 推广帖子，由作者本人发布
 
