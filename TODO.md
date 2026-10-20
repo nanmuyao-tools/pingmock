@@ -196,7 +196,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 |---|---|
 | v0.9.0 TCP 连接（**已发布**，2026-10-20） | `-tcp 地址[:端口]=规则`、配置文件 `tcp:`、`PUT/DELETE /tcp/{目标}`、Go 客户端 `SetTCP`/`DeleteTCP`、历史和统计。延迟、抖动、丢包、`timeout`、`refuse`（回 RST）、`unreachable`、pattern 的 `r`、`ttl`、场景。规则只管连接是否、何时建立；建立之后不发数据（和现在的路径模拟一样） |
 | v0.10.0 连接建立后的行为（**已发布**，2026-10-20） | `after=close\|reset\|hang`，需要解析非 SYN 的报文、回应客户端的 FIN；设计见下 |
-| 下一步：DNS 故障 | 只在 `exec` 下（root 模式先拒绝，和 `-host` 一样）；设计见下 |
+| DNS 故障（**已实现，未发布**） | 只在 `exec` 下（root 模式先拒绝，和 `-host` 一样）；设计见下 |
 | v1.0 之前 | 是否回应连接建立后的数据（用户态协议栈）；兼容性承诺 |
 
 **v0.9.0 的实现**（2026-10-20，[已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.9.0)，CI 在 Ubuntu 24.04 和 26.04 上全部通过，含 Go 和 Python 的 TCP 兼容性检查；从发布页下载的 arm64 二进制在开发容器里验证了接受、拒绝和 ping）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首
@@ -248,7 +248,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 需求：两个小项目（probeboard-api #74、network-doctor #368、#394）在 2026 年 9、10 月自己做了按域名注入错误的办法，反应数 0 到 1，证据弱。
 
 - [x] nscd 修复（见上表）
-- [x] `exec` 的 DNS 服务监听 TCP，TCP 查询也经 TCP 转发；每个查询各自处理，中继给查询加标签，可以同时转发多个；宿主机不回应时也不回应（中继等 5 秒，glibc 的默认超时），不再 2 秒后回 SERVFAIL。单元测试：慢查询不挡 UDP 和同一 TCP 连接上的其他查询、中继乱序返回、TCP 转发 3000 字节的回复；e2e：`RES_OPTIONS=use-vc` 下模拟的域名和转发的域名都能解析。变异：串行处理、串行中继、不监听 TCP 都会失败（不监听 TCP 时 glibc 读 TCP 不设超时会一直等，检查加了 `timeout 10`）
+- [x] `exec` 的 DNS 服务监听 TCP，TCP 查询也经 TCP 转发；每个查询各自处理，中继给查询加标签，可以同时转发多个；宿主机不回应时也不回应（中继等 5 秒，glibc 的默认超时，多个上游平分），不再 2 秒后回 SERVFAIL；上游直接拒绝（没有监听、不可达）时立即回 SERVFAIL，和没有 pingmock 时一样立即失败（advisor 发现的回归：改之前 exec 里一次查询等 20 秒，改之后 32ms，exec 外 0ms）。单元测试：慢查询不挡 UDP 和同一 TCP 连接上的其他查询、中继乱序返回、TCP 转发 3000 字节的回复；e2e：`RES_OPTIONS=use-vc` 下模拟的域名和转发的域名都能解析。变异：串行处理、串行中继、不监听 TCP 都会失败（不监听 TCP 时 glibc 读 TCP 不设超时会一直等，检查加了 `timeout 10`）
 - [x] `-dns` 实现（2026-10-20）。语法维护者 2026-10-20 确认按推荐来：
   - `-dns NAME=RULE`、`dns:`、`PUT/DELETE /dns/{name}`，root 模式拒绝（和 `-host` 一样）
   - 故障先做 `nxdomain`、`servfail`，加上 `timeout`/`loss=`、延迟，pattern 的 `n`、`s`
