@@ -15,7 +15,7 @@ FROM golang:1.27.0-bookworm
 # checks that need root; the rest of the time the container runs as the
 # unprivileged user dev, like pingmock exec's users.
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
-      iproute2 iputils-ping curl ca-certificates traceroute mtr-tiny fping \
+      iproute2 iputils-ping curl ca-certificates traceroute mtr-tiny fping nscd \
       python3 python3-pip python3-venv shellcheck \
       sudo git less procps vim-tiny nano \
     && rm -rf /var/lib/apt/lists/*

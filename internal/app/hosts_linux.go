@@ -15,6 +15,9 @@ const (
 	hostsFile    = "/etc/hosts"
 	resolvFile   = "/etc/resolv.conf"
 	nsswitchFile = "/etc/nsswitch.conf"
+	// nscdSocket is where the C library asks nscd, the name service cache
+	// daemon, before it resolves anything itself.
+	nscdSocket = "/var/run/nscd/socket"
 )
 
 // privateMounts makes the mounts of the new mount namespace private, so
@@ -74,6 +77,21 @@ func mountHosts(hosts []config.Host) error {
 	b.Write(system)
 	if err := mountOver(hostsFile, []byte(b.String())); err != nil {
 		return fmt.Errorf("-host: %w", err)
+	}
+	return nil
+}
+
+// hideNscd keeps the C library from asking nscd. The daemon runs on the
+// host and resolves in the host's network, with the host's files, so
+// through it the command would get the host's answers for the mocked
+// names. With /dev/null over its socket, the C library cannot connect and
+// resolves by itself, from the command's files and DNS server.
+func hideNscd() error {
+	if _, err := os.Stat(nscdSocket); err != nil {
+		return nil // no nscd
+	}
+	if err := syscall.Mount("/dev/null", nscdSocket, "", syscall.MS_BIND, ""); err != nil {
+		return fmt.Errorf("hiding nscd's socket %s: %w", nscdSocket, err)
 	}
 	return nil
 }

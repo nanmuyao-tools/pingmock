@@ -19,8 +19,8 @@ const relayFD = 3
 
 // setupNames gives the command the files that make the names resolve:
 // its own /etc/hosts, a resolv.conf pointing at pingmock's DNS server,
-// and, if needed, an nsswitch.conf that does not bypass it. It runs in
-// the child's mount namespace.
+// and, if needed, an nsswitch.conf that does not bypass it; nscd, which
+// would bypass both, is hidden. It runs in the child's mount namespace.
 func setupNames(hosts []config.Host) error {
 	if err := privateMounts(); err != nil {
 		return err
@@ -32,7 +32,10 @@ func setupNames(hosts []config.Host) error {
 	if err := mountResolvConf(host); err != nil {
 		return err
 	}
-	return mountNsswitch()
+	if err := mountNsswitch(); err != nil {
+		return err
+	}
+	return hideNscd()
 }
 
 // serveDNS starts the command's DNS server: it answers for the mocked

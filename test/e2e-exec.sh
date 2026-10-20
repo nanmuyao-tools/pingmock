@@ -63,6 +63,18 @@ near "-host: ping by name gets the rule's delay" "$(echo "$resolved" | tail -1)"
 same "-host leaves the system's /etc/hosts alone" "$(md5sum /etc/hosts)" "$before"
 same "-host leaves no file behind" "$(ls /tmp/pingmock-hosts-* 2>/dev/null | wc -l)" 0
 
+# nscd, where it runs, resolves on the host for every program using the C
+# library: -host must win over it. Run as root, where nscd can be started.
+if [ "$(id -u)" = 0 ] && command -v nscd >/dev/null; then
+  started=
+  if ! pgrep -x nscd >/dev/null; then mkdir -p /var/run/nscd; nscd; started=1; sleep 0.5; fi
+  [ -S /var/run/nscd/socket ] || fail "nscd did not start"
+  same "-host wins over the host's nscd" "$(run -host nscd-test.example=10.99.0.9 -- getent ahosts nscd-test.example | awk 'NR == 1 {print $1}')" 10.99.0.9
+  [ -n "$started" ] && nscd -K
+else
+  echo "SKIP -host with nscd running (needs root and nscd)"
+fi
+
 # A rule for a name: the command's DNS server resolves it to an address
 # from the top of the subnet, both ways, and other names still resolve
 # through the host's resolver.
