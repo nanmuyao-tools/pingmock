@@ -91,6 +91,9 @@ func (c *Config) SortedDNS(path string) ([]DNSRule, error) {
 // names are compared in: lower case, without a trailing dot.
 func ParseDNSName(name string) (string, error) {
 	name = strings.TrimSpace(name)
+	if n, t, ok := strings.Cut(name, "/"); ok && rule.ValidName(n) == nil && t != "" {
+		return "", fmt.Errorf("%s: a rule for one query type is not supported yet; the rule for %s covers every type", name, n)
+	}
 	if err := rule.ValidName(name); err != nil {
 		return "", err
 	}

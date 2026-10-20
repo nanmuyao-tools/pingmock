@@ -406,3 +406,43 @@ func TestRules(t *testing.T) {
 		t.Errorf("asked %v, want %s", asked, want)
 	}
 }
+
+// A host resolver that refuses outright (nothing listens) gets the query
+// a SERVFAIL at once, as the C library fails at once without pingmock;
+// one that does not answer gets none, so the asking resolver times out.
+func TestForwarderRefusedAndSilent(t *testing.T) {
+	closed, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closedAddr := closed.LocalAddr().String()
+	closed.Close() // nothing listens there now: ICMP port unreachable
+	start := time.Now()
+	resp, err := Forwarder([]string{closedAddr}, 2*time.Second)(query(1, "real.example", typeA), false)
+	if err != nil || parse(t, resp).rcode != rcodeServFail || time.Since(start) > time.Second {
+		t.Errorf("refused: %v after %v", err, time.Since(start))
+	}
+	silent, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silent.Close()
+	start = time.Now()
+	resp, err = Forwarder([]string{silent.LocalAddr().String()}, 200*time.Millisecond)(query(2, "real.example", typeA), false)
+	if err == nil || resp != nil {
+		t.Errorf("silent: got a response % x", resp)
+	}
+	// Two servers share the timeout: a silent first one leaves time for
+	// the second.
+	answering, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer answering.Close()
+	go newServer(nil).Serve(answering)
+	start = time.Now()
+	resp, err = Forwarder([]string{silent.LocalAddr().String(), answering.LocalAddr().String()}, 400*time.Millisecond)(query(3, "api.example.com", typeA), false)
+	if err != nil || parse(t, resp).id != 3 || time.Since(start) > 350*time.Millisecond {
+		t.Errorf("failover: %v after %v", err, time.Since(start))
+	}
+}

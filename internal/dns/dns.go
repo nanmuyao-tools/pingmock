@@ -386,24 +386,37 @@ func Nameservers(path string) []string {
 }
 
 // Forwarder returns a function that sends a query to each server in turn,
-// over UDP or TCP, each given timeout to answer, and returns the first
-// response.
+// over UDP or TCP, and returns the first response. The servers share
+// timeout, so that a dead first server leaves time for the next one
+// before the asking resolver gives up. If none answers and one of them
+// refused the query outright (nothing listening, no route), the response
+// is a SERVFAIL, as the C library itself fails at once then; if they all
+// timed out, there is none, and the asking resolver times out too.
 func Forwarder(servers []string, timeout time.Duration) func([]byte, bool) ([]byte, error) {
+	each := timeout / time.Duration(max(len(servers), 1))
 	return func(q []byte, tcp bool) ([]byte, error) {
 		var last error
+		refused := false
 		for _, s := range servers {
 			ask := ask
 			if tcp {
 				ask = askTCP
 			}
-			resp, err := ask(s, q, timeout)
+			resp, err := ask(s, q, each)
 			if err == nil {
 				return resp, nil
+			}
+			var ne net.Error
+			if !errors.As(err, &ne) || !ne.Timeout() {
+				refused = true
 			}
 			last = err
 		}
 		if last == nil {
 			last = errors.New("no nameserver")
+		}
+		if _, _, _, qend, err := question(q); refused && err == nil {
+			return respond(q, q[12:qend], rcodeServFail, nil), nil
 		}
 		return nil, last
 	}

@@ -321,6 +321,7 @@ func TestLoadDNS(t *testing.T) {
 		"dns:\n  a.example: nxdomain\n  A.example.: servfail\n": "same name",
 		"rules:\n  10.99.0.1: nxdomain\n":                       "DNS rules",
 		"dns:\n  - a.example\n":                                 "dns",
+		"dns:\n  a.example/AAAA: nxdomain\n":                    "not supported yet",
 	} {
 		_, _, err := Load(writeFile(t, "d.yaml", in))
 		if err == nil || !strings.Contains(err.Error(), want) {
