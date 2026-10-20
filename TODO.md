@@ -195,11 +195,11 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 | 版本 | 内容 |
 |---|---|
 | v0.9.0 TCP 连接（**已实现，未发布**） | `-tcp 地址[:端口]=规则`、配置文件 `tcp:`、`PUT/DELETE /tcp/{目标}`、Go 客户端 `SetTCP`/`DeleteTCP`、历史和统计。延迟、抖动、丢包、`timeout`、`refuse`（回 RST）、`unreachable`、pattern 的 `r`、`ttl`、场景。规则只管连接是否、何时建立；建立之后不发数据（和现在的路径模拟一样） |
-| 之后 | 连接建立后的行为：`after=close\|reset`，需要解析非 SYN 的报文、回应客户端的 FIN |
+| v0.10.0 连接建立后的行为（**下一步**） | `after=close\|reset\|hang`，需要解析非 SYN 的报文、回应客户端的 FIN；设计见下 |
 | 再之后 | DNS 故障，只在 `exec` 下（root 模式先拒绝，和 `-host` 一样） |
 | v1.0 之前 | 是否回应连接建立后的数据（用户态协议栈）；兼容性承诺 |
 
-**v0.9.0 的实现**（2026-10-20，已推送到 main）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首。还没做：推送后看 CI，发布
+**v0.9.0 的实现**（2026-10-20，已推送到 main）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首
 
 **实现 v0.9.0 时采用的默认选择**（都是用户会写进配置的语法），维护者 2026-10-20 确认按现在的来：
 
@@ -208,6 +208,28 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 - [x] 重传的 SYN 不算新请求：同一次连接尝试（源地址、源端口、初始序号相同）在 2 分钟内得到同样的回应，否则 `timeout for 2 requests` 会取决于内核的重传时间
 - [x] 多条规则匹配时，先比网段谁更精确，再比有端口的优先于不带端口的
 - [x] TCP 规则的场景单位显示为 `requests`（也接受 `pings`、`connections`）
+
+**`after=` 的设计**（planning agent 第四轮调研和原型实验，报告不在仓库里；维护者 2026-10-20 确认按推荐来）：
+
+依据：Toxiproxy [#238](https://github.com/Shopify/toxiproxy/issues/238) 要的是「connection reset」故障（Java 的 `Connection reset`），后来成了 `reset_peer`；[#195](https://github.com/Shopify/toxiproxy/issues/195) 要连接先正常传一段时间数据再断开，这要等「连接建立后的数据」那一步。这些用户都靠本地监听或改连代理解决，pingmock 的优势和 v0.9.0 一样：写死的地址和真实地址也能用、按端口、seed、历史、免 root。开发容器里用 Python 在 TUN 上做的原型（IPv4 和 IPv6；Python socket、`http.client`、curl、Go `net/http`、bash `/dev/tcp`，各 40 次）：
+
+| 做法 | 结果 |
+|---|---|
+| 收到握手的最后一个 ACK 就发 FIN（close） | 40/40 一致：EOF、`RemoteDisconnected`、curl `(52) Empty reply`、Go `EOF`，先读的客户端也一样 |
+| 收到最后一个 ACK 就发 RST | **不可复现**：和 `connect()` 赛跑，Python 38/40 在 connect 报 `ECONNRESET`，curl 39/40 报连接失败 |
+| 收到客户端第一个数据或 FIN 才发 RST | 先写的客户端 40/40 一致；先读的客户端（SSH、SMTP、MySQL）不发数据，只会超时 |
+| SYN-ACK 延迟 1500ms，SYN 被重传 | 每次连接尝试只动作一次，10/10 |
+| 真实服务器 `close()` 之后再收到数据 | 回 RST，客户端第二次写报 `BrokenPipeError`，3/3 |
+
+- [x] 写法：`after=close|reset|hang`，默认 `hang`（v0.9.0 的行为），JSON 里是 `"after"`；不加新的结果词，pattern 不加字母
+- [x] 时机：`close` 在握手的最后一个 ACK 上发 FIN|ACK；`reset` 在客户端第一个数据或 FIN 上发 RST
+- [x] 动作前的延迟先不做，保留 `after=值:时长` 的写法
+- [x] `hang` 保持 v0.9.0 的行为（什么都不确认）。原型发现它和真实的挂起服务器不同（真实服务器确认数据和 FIN），要改得先在 veth 上和真实服务器对比，并用会缩小的窗口
+- [x] 历史每次动作多一条事件（`closed`、`reset`），统计新增 `closed`、`reset`；`accepted` 照样计数
+- [x] `close` 之后再收到数据回 RST，和真实服务器一样
+- [ ] 实现：`icmp` 解析非 SYN 的 TCP 报文、构造 FIN|ACK；`engine` 在 SYN 时就记下 `after`（中途换阶段不影响），按连接的地址和端口找回尝试，每次尝试最多动作一次；没有 TCP 规则的目标照旧忽略；ping 规则拒绝 `after`，和 `refuse`、`timeout`、`unreachable` 同用也拒绝；不从随机流取数，seed 序列不变
+- [ ] 边界：v0.9.0 的尝试 2 分钟后忘掉，客户端等更久才发数据会得到 `hang`。保留还有动作没做的尝试，或者写进文档
+- [ ] 还没验证：在 pingmock 本体（root 和 `exec`）里跑；Java、Node.js 客户端
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
