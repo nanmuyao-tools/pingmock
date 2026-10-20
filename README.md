@@ -58,7 +58,7 @@ The software under test needs **no changes at all**: whether it runs the `ping` 
 
 ### When to use it, and when to use something else
 
-pingmock tests **programs that decide things from ping**. It does not slow real traffic down, and it does not touch TCP. Each of these tools has its place:
+pingmock tests **programs that decide things from ping or from whether a connection opens**. It does not slow real traffic down, and it does not touch the data of TCP connections. Each of these tools has its place:
 
 | You want to | Use |
 |---|---|
