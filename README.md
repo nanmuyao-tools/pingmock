@@ -353,6 +353,9 @@ The rule is written as for `-rule`, and means:
 | `timeout`, `loss=30%` | No answer: `connect` times out, for every attempt or 30% of them |
 | `unreachable[=net\|admin]` | `connect` fails at once: `EHOSTUNREACH` ("No route to host"), or `ENETUNREACH` ("Network is unreachable") for `net` |
 | `pattern=..r` | Attempts in turn: `.` accepted, `x` no answer, `u` unreachable, `r` refused |
+| `after=close` | The connection is accepted, then closed at once: a read gets end of file, an HTTP client an empty reply (curl: "Empty reply from server") |
+| `after=reset` | The connection is accepted, then reset when the program first sends or closes: `ECONNRESET` ("Connection reset by peer") |
+| `after=hang` | The default: the connection is accepted and held open, nothing is sent |
 | `ttl=` | The TTL of the answers |
 
 Phases count connection attempts: `for 3 requests` (or `connections`). An attempt is counted once, however many times the client's kernel sends its SYN again while waiting, so `timeout for 2 requests` means two attempts whatever the kernel's retry timer. When several rules match, the most specific prefix wins, then a rule for the port over one for every port.
@@ -361,6 +364,8 @@ As with ping rules, a TCP rule for a real address in root mode routes **all** tr
 
 An accepted connection is held open, but nothing is ever sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. pingmock mocks no service. Ports without a TCP rule are not answered, as before.
 
+`after=` says what happens next instead, to test how a program handles a server that drops it: `-tcp '10.99.0.1:5432=after=reset'` makes every query to that database fail with "connection reset by peer", and `-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` gives two empty replies before the server works (accepts, then holds the connection). `after=reset` waits for the program to send: a reset sent as soon as the connection opens would sometimes arrive while `connect` is still returning, and fail it instead. A program that waits for the server to speak first, as SSH, SMTP and MySQL clients do, therefore gets a read timeout under `after=reset`, and end of file under `after=close`. Data the program writes after the close gets a reset, as from a real server that closed its socket; a write after that fails with `EPIPE`. The action is decided when the connection is accepted, so it does not change if a phase ends before the program sends. A connection that stays idle for 10 minutes is forgotten, and gets nothing after that.
+
 In a configuration file (quote a key with brackets) and through the API:
 
 ```yaml
@@ -368,6 +373,7 @@ tcp:
   10.99.0.1:5432: timeout
   10.99.0.3:443: refuse for 3 requests; 20ms
   "[fd99::1]:443": {delay: 200ms, jitter: 20ms}
+  10.99.0.4:8080: {delay: 5ms, after: reset}
 ```
 
 ```bash
@@ -375,7 +381,7 @@ curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
 curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 ```
 
-The Go client has `SetTCP`, `DeleteTCP` and `TCPStats`. `GET /rules` lists the TCP rules under `tcp`, and their statistics under `tcp_stats`, keyed by address and port (`"10.99.0.1:5432"`): requests, accepted, refused, dropped, unreachable. History events of connection attempts carry `"probe": "tcp"` and the `port`, with the result `syn-ack` (accepted), `refused`, `drop` or `unreachable`; a SYN the kernel sent again is recorded with `"repeat": true` and not counted. Randomness comes from the seed, per address and port, separate from the pings to the same address, whose seeded results do not change.
+The Go client has `SetTCP`, `DeleteTCP` and `TCPStats`. `GET /rules` lists the TCP rules under `tcp`, and their statistics under `tcp_stats`, keyed by address and port (`"10.99.0.1:5432"`): requests, accepted, refused, dropped, unreachable, and of the accepted ones, closed and reset. History events of connection attempts carry `"probe": "tcp"` and the `port`, with the result `syn-ack` (accepted), `refused`, `drop` or `unreachable`; a SYN the kernel sent again is recorded with `"repeat": true` and not counted. Closing or resetting an accepted connection adds an event with the result `closed` or `reset`, and the rule and phase that accepted it. Randomness comes from the seed, per address and port, separate from the pings to the same address, whose seeded results do not change.
 
 ## Paths: traceroute and mtr
 
@@ -618,7 +624,7 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 
 ## Limitations
 
-- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered. No data is exchanged on an accepted connection: pingmock mocks no service. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
+- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. No data is exchanged on an accepted connection: pingmock mocks no service. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
 - Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
 - Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr, and only its pings are answered: UDP and TCP probes to it get nothing. With a path, UDP and TCP probes get the answers that mean "reached", but no data is exchanged: pingmock mocks no service.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.

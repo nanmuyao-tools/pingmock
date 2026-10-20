@@ -353,6 +353,9 @@ pingmock exec \
 | `timeout`、`loss=30%` | 不回应：`connect` 超时，每次都超时或者 30% 的连接超时 |
 | `unreachable[=net\|admin]` | `connect` 立即失败：`EHOSTUNREACH`（"No route to host"），`net` 则是 `ENETUNREACH`（"Network is unreachable"） |
 | `pattern=..r` | 按顺序轮流：`.` 接受、`x` 不回应、`u` 不可达、`r` 拒绝 |
+| `after=close` | 接受连接，然后立即关闭：读取得到文件结束（EOF），HTTP 客户端得到空回复（curl："Empty reply from server"） |
+| `after=reset` | 接受连接，等程序第一次发送数据或关闭时重置：`ECONNRESET`（"Connection reset by peer"） |
+| `after=hang` | 默认：接受连接并保持打开，不发送任何数据 |
 | `ttl=` | 回应的 TTL |
 
 场景按连接请求计数：`for 3 requests`（也可以写 `connections`）。一次连接请求只算一次，不管客户端的内核在等待期间重发了几次 SYN，所以 `timeout for 2 requests` 就是两次连接请求，和内核的重传时间无关。多条规则匹配时，先比网段谁更精确，再比有端口的优先于不带端口的。
@@ -361,6 +364,8 @@ pingmock exec \
 
 接受的连接会保持打开，但不会发送任何数据：程序读取时会遇到读取超时，可以和连接超时区分开。pingmock 不模拟任何服务。没有 TCP 规则的端口和以前一样不回应。
 
+用 `after=` 可以改为别的做法，测试程序怎样应对服务器断开它：`-tcp '10.99.0.1:5432=after=reset'` 让发往这个数据库的每次查询都失败于 "connection reset by peer"；`-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` 先给两次空回复，之后服务器恢复（接受连接并保持）。`after=reset` 会等程序发送数据：如果连接一建立就重置，重置有时会在 `connect` 还没返回时到达，让 `connect` 本身失败。因此先等服务器说话的程序（SSH、SMTP、MySQL 客户端）在 `after=reset` 下会遇到读取超时，在 `after=close` 下读到文件结束。关闭之后程序再写入的数据会得到重置，和关闭了 socket 的真实服务器一样；之后再写会以 `EPIPE` 失败。动作在接受连接时就决定了，所以即使程序发送数据之前阶段已经结束，动作也不会变。空闲 10 分钟的连接会被忘掉，之后不再回应。
+
 配置文件（带方括号的键要加引号）和 API 中的写法：
 
 ```yaml
@@ -368,6 +373,7 @@ tcp:
   10.99.0.1:5432: timeout
   10.99.0.3:443: refuse for 3 requests; 20ms
   "[fd99::1]:443": {delay: 200ms, jitter: 20ms}
+  10.99.0.4:8080: {delay: 5ms, after: reset}
 ```
 
 ```bash
@@ -375,7 +381,7 @@ curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
 curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 ```
 
-Go 客户端有 `SetTCP`、`DeleteTCP` 和 `TCPStats`。`GET /rules` 在 `tcp` 中列出 TCP 规则，在 `tcp_stats` 中按地址和端口（`"10.99.0.1:5432"`）给出统计：请求、接受、拒绝、丢弃、不可达。连接请求的历史记录带有 `"probe": "tcp"` 和 `port`，结果是 `syn-ack`（接受）、`refused`、`drop` 或 `unreachable`；内核重发的 SYN 记为 `"repeat": true`，不重复计数。随机性来自种子，按地址和端口各自独立，和发往同一地址的 ping 互不影响，ping 在同一种子下的结果不变。
+Go 客户端有 `SetTCP`、`DeleteTCP` 和 `TCPStats`。`GET /rules` 在 `tcp` 中列出 TCP 规则，在 `tcp_stats` 中按地址和端口（`"10.99.0.1:5432"`）给出统计：请求、接受、拒绝、丢弃、不可达，以及接受的连接中被关闭和被重置的数目。连接请求的历史记录带有 `"probe": "tcp"` 和 `port`，结果是 `syn-ack`（接受）、`refused`、`drop` 或 `unreachable`；内核重发的 SYN 记为 `"repeat": true`，不重复计数。关闭或重置一个已接受的连接时，会多记一条结果为 `closed` 或 `reset` 的事件，带有接受它的规则和阶段。随机性来自种子，按地址和端口各自独立，和发往同一地址的 ping 互不影响，ping 在同一种子下的结果不变。
 
 ## 路径：traceroute 和 mtr
 
@@ -618,7 +624,7 @@ make e2e-docker   # 容器镜像和 Compose 示例
 
 ## 限制
 
-- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应。接受的连接上不交换数据：pingmock 不模拟任何服务。其他 TCP 流量和 UDP 不会得到响应，设置了路径的目标收到的 traceroute、mtr 探测除外。
+- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。接受的连接上不交换数据：pingmock 不模拟任何服务。其他 TCP 流量和 UDP 不会得到响应，设置了路径的目标收到的 traceroute、mtr 探测除外。
 - **绑定网卡**的 ping 不会被模拟：`ping -I eth0 8.8.8.8` 无论路由怎样都会从 `eth0` 发出，因此绕过了 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）则照常被模拟。
 - 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外，而且只回应 ping：发给它的 UDP 和 TCP 探测得不到任何回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，但不会交换任何数据：pingmock 不模拟任何服务。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
