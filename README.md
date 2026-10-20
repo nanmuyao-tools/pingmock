@@ -4,7 +4,7 @@
 
 English | [中文](README.zh-CN.md)
 
-Mock ping (ICMP and ICMPv6 Echo) responses on Linux. Set the **delay, jitter, packet loss and unreachable errors** for each target address precisely, and change them while your tests are running.
+Mock network answers on Linux, starting with ping: ICMP and ICMPv6 Echo, and TCP connections. Set the **delay, jitter, packet loss, unreachable errors and refused connections** for each target address and port precisely, and change them while your tests are running.
 
 ![A program that pings three servers and picks the fastest chooses a different one each time pingmock changes their latency](docs/demo/demo.svg)
 
@@ -15,6 +15,8 @@ The shortest example, with no root needed:
 ```bash
 pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
 ```
+
+Connections work the same way, for programs that connect rather than ping: `pingmock exec -tcp 10.99.0.1:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app` makes the first database never answer and the second accept in 5ms, see [TCP connections](#tcp-connections).
 
 Compared to `tc netem`, rules are set per **target address** rather than per interface, they can be **changed while the program runs** through an HTTP API, and `pingmock exec` needs **no root** and leaves the host network alone.
 
@@ -60,11 +62,11 @@ pingmock tests **programs that decide things from ping**. It does not slow real 
 
 | You want to | Use |
 |---|---|
-| Test a program that pings: server selection, failover, "is the network up", a latency display | **pingmock** |
+| Test a program that pings or connects: server selection, failover, "is the network up", a latency display, connect timeouts and refusals | **pingmock** |
 | Slow down or lose real traffic on an interface, for every protocol: load tests, "how does the app feel on 3G" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html), the kernel's network emulator |
-| Break TCP connections to a service: latency, timeouts, resets, bandwidth, for a database or an API | [Toxiproxy](https://github.com/Shopify/toxiproxy), a TCP proxy with an API and client libraries |
+| Slow down or break the data of TCP connections to one service: latency, bandwidth, resets in the middle of a stream, for a database or an API | [Toxiproxy](https://github.com/Shopify/toxiproxy), a TCP proxy with an API and client libraries |
 
-netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. pingmock takes the test-oriented side of both and applies it to ping: faults are declared **per target address or prefix** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, rules change **while the program runs** through the API, and `pingmock exec` needs **no root** and changes nothing outside the command it runs.
+netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. pingmock is **transparent**: the program keeps pinging and connecting to the addresses and ports it always uses, with no proxy to point it at, and `pingmock exec` needs **no root** and changes nothing outside the command it runs. On top of that it takes the test-oriented side of both: faults are declared **per target address, prefix and port** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, and rules change **while the program runs** through the API.
 
 ### What you can rely on
 
@@ -517,6 +519,8 @@ Each history event looks like this. `result` is `reply`, `drop` or `unreachable`
 | [icmplib](https://github.com/ValentinBELYN/icmplib), Python | raw, and unprivileged ping sockets |
 
 traceroute and mtr show the hops of targets that have a [path](#paths-traceroute-and-mtr), in UDP, ICMP and TCP mode; CI checks all three. Targets without a path look one hop away, and only answer pings.
+
+For [TCP rules](#tcp-connections), the same script connects with the standard libraries of Go (`net.Dial`) and Python (`socket`), and checks that each sees an accepted connection after the delay and then a read timeout, `ECONNREFUSED`, a connect timeout and `EHOSTUNREACH`. curl and bash's `/dev/tcp` are checked in the end-to-end tests.
 
 The easiest way is to run the tests themselves under `pingmock exec`: no root, no setup or teardown code, and every run is isolated. Fix the seed so random loss and jitter are the same on every run.
 

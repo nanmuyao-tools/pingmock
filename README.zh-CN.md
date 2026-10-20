@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文
 
-在 Linux 上模拟 ping（ICMP 和 ICMPv6 Echo）的响应，可以精确设定每个目标地址的**延迟、抖动、丢包率和不可达错误**，并在运行中随时修改。
+在 Linux 上模拟网络的回应，从 ping 起步：ICMP 和 ICMPv6 Echo，以及 TCP 连接。可以精确设定每个目标地址和端口的**延迟、抖动、丢包率、不可达错误和拒绝连接**，并在运行中随时修改。
 
 ![一个 ping 三台服务器并选出最快者的程序，随着 pingmock 改变各台的延迟，每次选出不同的服务器](docs/demo/demo.svg)
 
@@ -15,6 +15,8 @@
 ```bash
 pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
 ```
+
+不 ping 而是建立连接的程序，用法也一样：`pingmock exec -tcp 10.99.0.1:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app` 让第一个数据库从不回应、第二个 5ms 接受连接，见 [TCP 连接](#tcp-连接)。
 
 和 `tc netem` 相比：规则按**目标地址**设置，而不是按网卡；可以通过 HTTP API **在程序运行中修改**；`pingmock exec` **不需要 root**，也不影响宿主机的网络。
 
@@ -60,11 +62,11 @@ pingmock 用来测试**根据 ping 的结果做决定的程序**。它不会把�
 
 | 你想做的事 | 用什么 |
 |---|---|
-| 测试一个会 ping 的程序：选服务器、切换线路、判断网络是否可用、显示延迟 | **pingmock** |
+| 测试一个会 ping 或建立连接的程序：选服务器、切换线路、判断网络是否可用、显示延迟、连接超时和被拒绝 | **pingmock** |
 | 把某块网卡上的真实流量变慢、丢包，对所有协议都生效：压力测试、"在 3G 网络下程序的体验" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html)，内核自带的网络模拟器 |
-| 破坏到某个服务的 TCP 连接：延迟、超时、重置、限速，针对数据库或 API | [Toxiproxy](https://github.com/Shopify/toxiproxy)，带 API 和多语言客户端的 TCP 代理 |
+| 让到某个服务的 TCP 连接上的数据变慢或出错：延迟、限速、传输中途重置，针对数据库或 API | [Toxiproxy](https://github.com/Shopify/toxiproxy)，带 API 和多语言客户端的 TCP 代理 |
 
-netem 作用在网卡和队列上，一条规则往往会波及所有流量（包括你自己的 SSH），而且需要 root。Toxiproxy 夹在应用和某个 TCP 服务之间，应用得改成连代理。pingmock 把这两者面向测试的那一面用到了 ping 上：故障**按目标地址或网段**声明在和测试放在一起的配置文件里，随机丢包和抖动用 seed **可以复现**，规则可以通过 API **在程序运行中修改**，`pingmock exec` **不需要 root**，也不会改动被测命令之外的任何东西。
+netem 作用在网卡和队列上，一条规则往往会波及所有流量（包括你自己的 SSH），而且需要 root。Toxiproxy 夹在应用和某个 TCP 服务之间，应用得改成连代理。pingmock 是**透明**的：程序照常 ping、照常连接它原来的地址和端口，不需要改成连代理；`pingmock exec` **不需要 root**，也不会改动被测命令之外的任何东西。在此之上，它吸收了这两者面向测试的那一面：故障**按目标地址、网段和端口**声明在和测试放在一起的配置文件里，随机丢包和抖动用 seed **可以复现**，规则可以通过 API **在程序运行中修改**。
 
 ### 可以依赖的四点
 
@@ -517,6 +519,8 @@ CI 会在 Ubuntu 24.04 和 26.04 上，用 [`test/e2e-compat.sh`](test/e2e-compa
 | [icmplib](https://github.com/ValentinBELYN/icmplib)（Python） | 原始套接字，以及免 root 的 ping 套接字 |
 
 设置了[路径](#路径traceroute-和-mtr)的目标，traceroute 和 mtr 能看到各跳，UDP、ICMP、TCP 三种模式都可以，CI 都有检查。没有路径的目标看起来就在一跳之外，而且只回应 ping。
+
+对于 [TCP 规则](#tcp-连接)，同一个脚本用 Go（`net.Dial`）和 Python（`socket`）的标准库建立连接，检查它们分别看到：延迟之后连上、随后读取超时，`ECONNREFUSED`，连接超时，`EHOSTUNREACH`。curl 和 bash 的 `/dev/tcp` 在端到端测试里检查。
 
 最简单的方式是让测试本身运行在 `pingmock exec` 下：不需要 root，不需要启动和清理的代码，每次运行都相互隔离。建议固定种子，让随机的丢包和抖动每次都一样。
 
