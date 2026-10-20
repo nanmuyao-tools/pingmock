@@ -255,7 +255,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`，以及供 `pingmock exec` 使用的 [`hosts`](#域名)；在 `pingmock exec` 下，规则的键也可以是域名。
+每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`、[`paths`](#路径traceroute-和-mtr)、[`tcp`](#tcp-连接)，以及供 `pingmock exec` 使用的 [`hosts`](#域名)；在 `pingmock exec` 下，规则的键也可以是域名。
 
 出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。早期版本使用的 JSON 配置文件无需修改即可继续使用，因为 JSON 本身就是合法的 YAML。
 
@@ -276,6 +276,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 | `-history` | `1000` | `GET /history` 保留的最近请求数，`0` 表示关闭 |
 | `-host` | | `域名=地址`，可重复，仅限 `pingmock exec`：命令把域名解析成这个地址，见[域名](#域名) |
 | `-path` | | `目标=路径`，可重复：traceroute 和 mtr 看到的、到目标的路径，见[路径](#路径traceroute-和-mtr) |
+| `-tcp` | | `目标=规则`，可重复：发往目标（`地址[:端口]`、`网段[:端口]`、`[IPv6]:端口`）的 TCP 连接怎样回应，见 [TCP 连接](#tcp-连接) |
 | `-v` | `false` | 打印每个请求的处理日志 |
 | `-version` | | 打印版本号并退出 |
 
@@ -324,6 +325,53 @@ hosts:                            # 只在需要指定地址时写
 ```
 
 域名只用于 `pingmock exec`。用 `sudo pingmock` 为整台机器模拟时，请把域名加到机器的 `/etc/hosts` 里，规则写地址。
+
+## TCP 连接
+
+很多检查网络的软件也会建立连接：连数据库、连 API、检测某个端口。**TCP 规则**决定发往某个地址和端口的连接请求怎样回应，程序不需要任何改动，就会遇到连接很慢、被拒绝，或者一直连不上：
+
+```bash
+pingmock exec \
+  -tcp 10.99.0.1:5432=timeout \
+  -tcp 10.99.0.2:5432=5ms \
+  -tcp '10.99.0.3:443=refuse for 3 requests; 20ms' \
+  -- ./my-app
+```
+
+这里第一个数据库从不回应，`connect` 会超时，程序应该切换到第二个，它 5ms 就接受连接。第三台服务器先拒绝三次连接（立即得到 `ECONNREFUSED`），之后接受。
+
+目标写成 `地址:端口`、`网段:端口`，不写端口就是该地址或网段的所有端口。IPv6 和 URL 里一样加方括号：`[fd99::1]:443`、`[fd99::/64]:443`、`[fd99::1]`。不加括号时 `fd99::1:443` 本身就是一个地址，所以会被拒绝。在 `pingmock exec` 下，目标还可以是[域名](#域名)，比如 `db.example.com:5432`。
+
+规则的写法和 `-rule` 相同，含义如下：
+
+| 设置 | 程序看到的 |
+|---|---|
+| `20ms`、`delay=`、`jitter=` | 延迟之后接受连接：`connect` 用时就是这个延迟 |
+| `refuse` | 立即拒绝连接（有延迟时在延迟之后）：TCP reset，`ECONNREFUSED` |
+| `timeout`、`loss=30%` | 不回应：`connect` 超时，每次都超时或者 30% 的连接超时 |
+| `unreachable[=net\|admin]` | `connect` 立即失败：`EHOSTUNREACH`（"No route to host"），`net` 则是 `ENETUNREACH`（"Network is unreachable"） |
+| `pattern=..r` | 按顺序轮流：`.` 接受、`x` 不回应、`u` 不可达、`r` 拒绝 |
+| `ttl=` | 回应的 TTL |
+
+场景按连接请求计数：`for 3 requests`（也可以写 `connections`）。一次连接请求只算一次，不管客户端的内核在等待期间重发了几次 SYN，所以 `timeout for 2 requests` 就是两次连接请求，和内核的重传时间无关。多条规则匹配时，先比网段谁更精确，再比有端口的优先于不带端口的。
+
+接受的连接会保持打开，但不会发送任何数据：程序读取时会遇到读取超时，可以和连接超时区分开。pingmock 不模拟任何服务。没有 TCP 规则的端口和以前一样不回应。
+
+配置文件（带方括号的键要加引号）和 API 中的写法：
+
+```yaml
+tcp:
+  10.99.0.1:5432: timeout
+  10.99.0.3:443: refuse for 3 requests; 20ms
+  "[fd99::1]:443": {delay: 200ms, jitter: 20ms}
+```
+
+```bash
+curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
+curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
+```
+
+Go 客户端有 `SetTCP`、`DeleteTCP` 和 `TCPStats`。`GET /rules` 在 `tcp` 中列出 TCP 规则，在 `tcp_stats` 中按地址和端口（`"10.99.0.1:5432"`）给出统计：请求、接受、拒绝、丢弃、不可达。连接请求的历史记录带有 `"probe": "tcp"` 和 `port`，结果是 `syn-ack`（接受）、`refused`、`drop` 或 `unreachable`；内核重发的 SYN 记为 `"repeat": true`，不重复计数。随机性来自种子，按地址和端口各自独立，和发往同一地址的 ping 互不影响，ping 在同一种子下的结果不变。
 
 ## 路径：traceroute 和 mtr
 
@@ -418,6 +466,10 @@ curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5m
 
 # 删除规则（回到默认值）
 curl -X DELETE localhost:9100/rules/10.99.0.1
+
+# TCP 规则：拒绝发往某个端口的连接，然后删除这条规则
+curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
+curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 
 # 修改默认规则
 curl -X PUT localhost:9100/default -d timeout
@@ -560,7 +612,7 @@ make e2e-docker   # 容器镜像和 Compose 示例
 
 ## 限制
 
-- 只模拟 ping（ICMP 和 ICMPv6 Echo）。发往模拟地址的 TCP、UDP 流量不会得到响应。
+- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应。接受的连接上不交换数据：pingmock 不模拟任何服务。其他 TCP 流量和 UDP 不会得到响应，设置了路径的目标收到的 traceroute、mtr 探测除外。
 - **绑定网卡**的 ping 不会被模拟：`ping -I eth0 8.8.8.8` 无论路由怎样都会从 `eth0` 发出，因此绕过了 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）则照常被模拟。
 - 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外，而且只回应 ping：发给它的 UDP 和 TCP 探测得不到任何回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，但不会交换任何数据：pingmock 不模拟任何服务。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
