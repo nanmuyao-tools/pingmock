@@ -131,6 +131,8 @@ same "TCP inside exec: after=reset resets it (curl exit 56)" "$(echo "$tcp" | se
 
 # DNS rules inside exec. Python's getaddrinfo tells the errors apart:
 # -2 (EAI_NONAME) for NXDOMAIN, -3 (EAI_AGAIN) for SERVFAIL and timeouts.
+# Names end with a dot, so that the C library does not go on to try the
+# host's search domains, whose answers would decide the result instead.
 lookup='import socket, sys, time
 for name in sys.argv[1:]:
     t = time.monotonic()
@@ -143,8 +145,8 @@ dns=$(run -host fixed.example=10.99.0.5 -rule api.example.com=5ms \
   -dns gone.example=nxdomain -dns broken.example=servfail -dns api.example.com=60ms \
   -dns 'flaky.example=nxdomain for 2 requests; 0ms' -host flaky.example=10.99.0.7 \
   -dns slow.example=timeout -- sh -c "
-  RES_OPTIONS='timeout:1 attempts:1' python3 -c '$lookup' gone.example broken.example api.example.com \
-    flaky.example flaky.example flaky.example slow.example fixed.example
+  RES_OPTIONS='timeout:1 attempts:1' python3 -c '$lookup' gone.example. broken.example. api.example.com. \
+    flaky.example. flaky.example. flaky.example. slow.example. fixed.example.
   grep -c 'api.example.com' /etc/hosts || true
   curl -s localhost:9100/rules | tr -d ' \n' | grep -o '\"flaky.example/A\":{[^}]*}'
   curl -s 'localhost:9100/history?target=gone.example' | tr -d ' \n' | grep -o '\"result\":\"[a-z]*\"' | sort -u")
@@ -164,7 +166,7 @@ same "DNS: the history records the result of each query" "$(echo "$dns" | sed -n
 changed=$(run -dns gone.example=nxdomain -host gone.example=10.99.0.8 -- sh -c "
   curl -s -X PUT localhost:9100/dns/localhost.example -d servfail >/dev/null
   curl -s -X PUT localhost:9100/dns/gone.example -d 0ms >/dev/null
-  RES_OPTIONS='timeout:1 attempts:1' python3 -c '$lookup' localhost.example gone.example
+  RES_OPTIONS='timeout:1 attempts:1' python3 -c '$lookup' localhost.example. gone.example.
   curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:9100/dns/gone.example")
 same "DNS: a rule set through the API takes effect" "$(echo "$changed" | awk 'NR == 1 {print $2}')" error-3
 same "DNS: a rule changed to answer gives the mocked address again" "$(echo "$changed" | awk 'NR == 2 {print $2}')" 10.99.0.8

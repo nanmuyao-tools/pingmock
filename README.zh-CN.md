@@ -354,7 +354,7 @@ pingmock exec \
 
 规则对模拟的域名（用 `-host` 或为域名写的规则）和真实的域名都有效，真实域名的故障直接由 pingmock 回答，不去问宿主机。有规则的域名不写进命令的 `/etc/hosts`，因为程序会先读 hosts 文件、不问 DNS。
 
-场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 只让一次解析失败，因为 C 库默认问两次（`resolv.conf` 里的 `attempts:2`）。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。解析器加上 `resolv.conf` 的 search 域去试的名字（`api.example.com.corp.example`）是别的域名，照常转发。
+场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 只让一次解析失败，因为 C 库默认问两次（`resolv.conf` 里的 `attempts:2`）。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。解析器加上 `resolv.conf` 的 search 域去试的名字（`api.example.com.corp.example`）是别的域名，照常转发。C 库在一个域名失败后会去试这些名字，并报告最后一个回复：宿主机有 `search` 行时，`api.example.com` 的 SERVFAIL 或超时可能最终变成"找不到"，甚至变成 search 域给出的地址。要看到规则本身的故障，请在域名末尾加点（`api.example.com.`），或者在没有 search 域的机器上测试。
 
 延迟接近解析器的超时时，不同解析器的表现不同：C 库在超时后已经重试的情况下仍会接受迟到的回复，Go 的解析器不会。
 
