@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  PINGMOCK_VERSION: v0.9.0
+  PINGMOCK_VERSION: v0.10.0
 
 jobs:
   test:
