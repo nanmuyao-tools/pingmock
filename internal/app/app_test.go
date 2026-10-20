@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -215,3 +216,48 @@ func TestParseSettingsPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSettingsTCP(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "c.yaml")
+	os.WriteFile(cfg, []byte("rules:\n  api.example.com: 30ms\ntcp:\n  10.99.0.1:5432: timeout\n  api.example.com:443: refuse\n"), 0o644)
+	s, _, err := parse(t, "-config", cfg,
+		"-tcp", "10.99.0.1:5432=5ms",
+		"-tcp", "[fd99::1]:443=refuse for 2 requests; 1ms",
+		"-tcp", "10.99.0.0/24=pattern=.r",
+		"-tcp", "db.example.com:5432=loss=50%")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for _, r := range s.tcp {
+		got = append(got, r.name+"@"+r.prefix.String()+":"+itoa(r.port)+"="+r.sc.String())
+	}
+	// The file's rules first, a -tcp for the same target and port
+	// replacing one; names get the address of their ping rule, or one of
+	// their own, as for paths.
+	want := "@10.99.0.1/32:5432=delay=5ms api.example.com@10.99.0.253/32:443=delay=0s,refuse " +
+		"@fd99::1/128:443=delay=0s,refuse for 2 pings; delay=1ms @10.99.0.0/24:0=delay=0s,pattern=.r " +
+		"db.example.com@10.99.0.252/32:5432=delay=0s,loss=50%"
+	if strings.Join(got, " ") != want {
+		t.Errorf("tcp = %v\n  want %s", got, want)
+	}
+	if !s.names() {
+		t.Error("names() = false with TCP rules for names, so root mode would not refuse them")
+	}
+	for _, bad := range []string{"nope", "10.99.0.1:5432", "fd99::1:443=5ms", "10.99.0.1:0=5ms", "10.99.0.1:443=pattern=.q", "10.99.0.1:443="} {
+		if _, _, err := parse(t, "-tcp", bad); err == nil {
+			t.Errorf("-tcp %q: expected error", bad)
+		}
+	}
+	// Ping rules still refuse what only TCP rules have.
+	for _, bad := range []string{"10.99.0.1=refuse", "10.99.0.1=pattern=.r"} {
+		if _, _, err := parse(t, "-rule", bad); err == nil || !strings.Contains(err.Error(), "TCP") {
+			t.Errorf("-rule %q: %v, want an error naming TCP rules", bad, err)
+		}
+	}
+	if _, _, err := parse(t, "-default", "refuse"); err == nil {
+		t.Error("-default refuse accepted")
+	}
+}
+
+func itoa(n uint16) string { return strconv.Itoa(int(n)) }

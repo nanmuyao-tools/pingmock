@@ -127,6 +127,22 @@ type State struct {
 	Rules   []Rule                 `json:"rules"`
 	Paths   []Path                 `json:"paths"`
 	Stats   map[string]TargetStats `json:"stats"`
+	// TCP rules, and the statistics of each address and port that got a
+	// connection attempt, keyed as "10.99.0.1:5432" or "[fd99::1]:443".
+	TCP      []Rule              `json:"tcp"`
+	TCPStats map[string]TCPStats `json:"tcp_stats"`
+}
+
+// TCPStats counts the connection attempts to one address and port. A SYN
+// the client's kernel sends again for the same attempt is not counted.
+type TCPStats struct {
+	Requests    uint64 `json:"requests"`
+	Accepted    uint64 `json:"accepted"`
+	Refused     uint64 `json:"refused"`
+	Dropped     uint64 `json:"dropped"`
+	Unreachable uint64 `json:"unreachable"`
+	Rule        string `json:"rule"`  // e.g. "tcp 10.99.0.1/32:5432"
+	Phase       int    `json:"phase"` // current phase, 1-based
 }
 
 // Rule is an installed rule.
@@ -167,6 +183,39 @@ func (c *Client) DeletePath(ctx context.Context, target string) error {
 	return c.do(ctx, http.MethodDelete, "/paths/"+target, "", nil)
 }
 
+// SetTCP sets how TCP connections to target are answered, replacing any
+// TCP rule for the same target. target is ADDR[:PORT] or PREFIX[:PORT],
+// IPv6 in brackets ("[fd99::1]:443"); without a port the rule covers every
+// port. rule is written as for SetRule, plus "refuse" (answer with a
+// reset) and 'r' in a pattern, such as "timeout",
+// "refuse for 3 requests; 20ms" or "delay=50ms,pattern=..r".
+func (c *Client) SetTCP(ctx context.Context, target, rule string) error {
+	return c.do(ctx, http.MethodPut, "/tcp/"+escapeTarget(target), rule, nil)
+}
+
+// DeleteTCP removes the TCP rule for target, so that connections to it are
+// ignored again. It fails with an error for which IsNotFound is true if
+// there is none.
+func (c *Client) DeleteTCP(ctx context.Context, target string) error {
+	return c.do(ctx, http.MethodDelete, "/tcp/"+escapeTarget(target), "", nil)
+}
+
+// TCPStats returns the statistics of one address and port, written as
+// "10.99.0.1:5432" or "[fd99::1]:443"; all counters are zero if it has
+// had no connection attempt.
+func (c *Client) TCPStats(ctx context.Context, addrPort string) (TCPStats, error) {
+	s, err := c.State(ctx)
+	if err != nil {
+		return TCPStats{}, err
+	}
+	return s.TCPStats[addrPort], nil
+}
+
+// escapeTarget escapes the brackets of an IPv6 target for the URL path.
+func escapeTarget(target string) string {
+	return strings.NewReplacer("[", "%5B", "]", "%5D").Replace(target)
+}
+
 // State returns the current rules and statistics.
 func (c *Client) State(ctx context.Context) (*State, error) {
 	var s State
@@ -198,17 +247,20 @@ type Event struct {
 	Dst    string    `json:"dst"`
 	ID     uint16    `json:"id"`
 	Seq    uint16    `json:"seq"`
-	Result string    `json:"result"` // "reply", "drop", "unreachable"; with a path also "time-exceeded", "port-unreachable", "syn-ack"
+	Result string    `json:"result"` // "reply", "drop", "unreachable"; with a path also "time-exceeded", "port-unreachable", "syn-ack"; for TCP rules "syn-ack", "refused", "drop", "unreachable"
 	Code   string    `json:"code"`   // for "unreachable": "host", "net" or "admin"
 	Reply  bool      `json:"reply"`
 	Delay  string    `json:"delay"` // empty for drops
 	Rule   string    `json:"rule"`
 	Phase  int       `json:"phase"` // 1-based
-	// For targets with a path.
+	// For targets with a path, and TCP probes.
 	Probe string `json:"probe"` // "udp" or "tcp"; empty for echo requests
 	TTL   uint8  `json:"ttl"`   // the probe's TTL
 	Hop   int    `json:"hop"`   // the hop that answered or lost it, from 1; 0 for the destination
 	From  string `json:"from"`  // the address the answer came from
+	// For TCP probes.
+	Port   uint16 `json:"port"`   // the destination port
+	Repeat bool   `json:"repeat"` // a SYN sent again for an attempt already answered, not counted again
 }
 
 // History returns recent requests, oldest first. target, if not empty, is

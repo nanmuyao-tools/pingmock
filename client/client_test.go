@@ -10,6 +10,7 @@ import (
 
 	"github.com/nanmuyao/pingmock/internal/api"
 	"github.com/nanmuyao/pingmock/internal/engine"
+	"github.com/nanmuyao/pingmock/internal/icmp"
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
@@ -199,5 +200,45 @@ func TestPaths(t *testing.T) {
 	}
 	if err := c.DeletePath(ctx, "8.8.8.8"); !IsNotFound(err) {
 		t.Errorf("second delete: %v", err)
+	}
+}
+
+func TestTCPRules(t *testing.T) {
+	c, rs, hist := serve(t)
+	ctx := context.Background()
+	if err := c.SetTCP(ctx, "10.99.0.1:5432", "refuse for 1 requests; 5ms"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetTCP(ctx, "[fd99::1]:443", "timeout"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetTCP(ctx, "fd99::1:443", "timeout"); err == nil {
+		t.Error("IPv6 without brackets accepted")
+	}
+	probe := icmp.Probe{Kind: icmp.TCP, Src: netip.MustParseAddr("10.99.0.254"), Dst: netip.MustParseAddr("10.99.0.1"),
+		TTL: 64, SrcPort: 40000, DstPort: 5432, TCPSeq: 1}
+	d := rs.DecideProbe(probe)
+	hist.Add(engine.Event{Dst: probe.Dst, Result: d.Outcome.String(), Probe: "tcp", Port: 5432, Rule: d.Rule, Phase: d.Phase})
+
+	s, err := c.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.TCP) != 2 || s.TCP[0].Target != "10.99.0.1/32:5432" || s.TCP[0].Rule != "delay=0s,refuse for 1 request; delay=5ms" || s.TCP[1].Target != "[fd99::1/128]:443" {
+		t.Errorf("TCP rules = %+v", s.TCP)
+	}
+	st, err := c.TCPStats(ctx, "10.99.0.1:5432")
+	if err != nil || st.Requests != 1 || st.Refused != 1 || st.Rule != "tcp 10.99.0.1/32:5432" {
+		t.Errorf("TCPStats = %+v, %v", st, err)
+	}
+	events, err := c.History(ctx, "10.99.0.1", 0)
+	if err != nil || len(events) != 1 || events[0].Port != 5432 || events[0].Result != "refused" || events[0].Probe != "tcp" {
+		t.Errorf("history = %+v, %v", events, err)
+	}
+	if err := c.DeleteTCP(ctx, "[fd99::1]:443"); err != nil {
+		t.Errorf("DeleteTCP: %v", err)
+	}
+	if err := c.DeleteTCP(ctx, "[fd99::1]:443"); !IsNotFound(err) {
+		t.Errorf("DeleteTCP again: %v, want not found", err)
 	}
 }

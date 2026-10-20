@@ -14,6 +14,7 @@ import (
 	"github.com/nanmuyao/pingmock/internal/api"
 	"github.com/nanmuyao/pingmock/internal/engine"
 	"github.com/nanmuyao/pingmock/internal/responder"
+	"github.com/nanmuyao/pingmock/internal/rule"
 	"github.com/nanmuyao/pingmock/internal/tun"
 )
 
@@ -69,6 +70,13 @@ func start(s *settings) (*instance, error) {
 			}
 		}
 		rs.SetPath(p.addr, p.path)
+	}
+	for _, r := range s.tcp {
+		if err := router.Ensure(r.prefix); err != nil {
+			dev.Close()
+			return nil, err
+		}
+		rs.SetTCP(r.prefix, r.port, r.sc)
 	}
 	rs.SaveBaseline() // what POST /reset goes back to
 	hist := engine.NewHistory(s.history)
@@ -150,11 +158,19 @@ func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
 			log.Printf("path to %s: %s", p.addr, p.path)
 		}
 	}
+	for _, r := range s.tcp {
+		t := rule.TCPTarget{Prefix: r.prefix, Port: r.port}
+		if r.name != "" {
+			log.Printf("tcp %s (%s): %s", rule.TCPTarget{Name: r.name, Port: r.port}, t, rule.TCPScenario{Scenario: r.sc})
+		} else {
+			log.Printf("tcp %s: %s", t, rule.TCPScenario{Scenario: r.sc})
+		}
+	}
 	for _, h := range s.hosts {
 		log.Printf("name %s resolves to %s (for the command only)", h.Name, h.Addr)
 	}
 	if apiURL != "" {
-		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /default, GET /history, POST /reset)", apiURL)
+		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /tcp/{target}, PUT /default, GET /history, POST /reset)", apiURL)
 	}
 }
 

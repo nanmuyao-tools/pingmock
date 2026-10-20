@@ -42,6 +42,16 @@ type settings struct {
 	rules         []targetRule
 	hosts         []config.Host // names the command resolves; exec only
 	paths         []targetPath
+	tcp           []targetTCP
+}
+
+// targetTCP is a TCP rule to install at startup; a rule given for a name
+// gets the name's address.
+type targetTCP struct {
+	prefix netip.Prefix
+	name   string
+	port   uint16
+	sc     rule.Scenario
 }
 
 // targetPath is a path to install at startup, for one target address; a
@@ -90,6 +100,7 @@ type flagValues struct {
 	rules                                  ruleFlags
 	hosts                                  ruleFlags
 	paths                                  ruleFlags
+	tcp                                    ruleFlags
 
 	given map[string]bool // flags given on the command line
 
@@ -100,6 +111,7 @@ type flagValues struct {
 	cfgRules        []config.Rule
 	cfgHosts        []config.Host
 	cfgPaths        []config.PathRule
+	cfgTCP          []config.TCPRule
 }
 
 func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Writer) (*flagValues, *flag.FlagSet) {
@@ -118,6 +130,7 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, ttl=128, or phases such as \"50ms for 3 pings; timeout\"")
 	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, pingmock exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
 	fs.Var(&f.paths, "path", "TARGET=PATH, repeatable: the route traceroute and mtr see to TARGET, hops separated by \">\", each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for one that never answers, e.g. '8.8.8.8=192.168.1.1@2ms > * > 72.14.0.1@25ms'")
+	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443); no port means every port. RULE is as for -rule, plus refuse (answer with a reset) and r in a pattern, e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
 }
@@ -149,7 +162,10 @@ func (f *flagValues) applyConfig(path string) error {
 	if f.cfgHosts, err = cfg.SortedHosts(path); err != nil {
 		return err
 	}
-	f.cfgPaths, err = cfg.SortedPaths(path)
+	if f.cfgPaths, err = cfg.SortedPaths(path); err != nil {
+		return err
+	}
+	f.cfgTCP, err = cfg.SortedTCP(path)
 	return err
 }
 
@@ -227,6 +243,24 @@ func (f *flagValues) resolve() (*settings, error) {
 		}
 		s.addPath(t, p)
 	}
+	for _, r := range f.cfgTCP {
+		s.addTCP(r.Target, r.Scenario)
+	}
+	for _, text := range f.tcp {
+		target, ruleText, ok := strings.Cut(text, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid -tcp %q: want TARGET=RULE", text)
+		}
+		t, err := rule.ParseTCPTarget(target)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -tcp %q: %w", text, err)
+		}
+		sc, err := rule.ParseTCPScenario(ruleText)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -tcp %q: %w", text, err)
+		}
+		s.addTCP(t, sc.Scenario)
+	}
 	if err := s.allocateNames(); err != nil {
 		return nil, err
 	}
@@ -298,6 +332,12 @@ func (s *settings) allocateNames() error {
 			names = append(names, p.name)
 		}
 	}
+	for _, r := range s.tcp {
+		if r.name != "" && !seen[r.name] {
+			seen[r.name] = true
+			names = append(names, r.name)
+		}
+	}
 	sort.Strings(names)
 	next := s.addr.Masked().Addr() // the subnet's first address; counted from the top below
 	top := lastAddr(s.addr)
@@ -325,6 +365,11 @@ func (s *settings) allocateNames() error {
 				s.paths[i].addr = a
 			}
 		}
+		for i := range s.tcp {
+			if s.tcp[i].name == name {
+				s.tcp[i].prefix = netip.PrefixFrom(a, a.BitLen())
+			}
+		}
 	}
 	return nil
 }
@@ -339,6 +384,18 @@ func (s *settings) addPath(t rule.Target, p rule.Path) {
 		}
 	}
 	s.paths = append(s.paths, targetPath{addr: addr, name: t.Name, path: p})
+}
+
+// addTCP adds a TCP rule, or replaces the one for the same target and port.
+func (s *settings) addTCP(t rule.TCPTarget, sc rule.Scenario) {
+	for i := range s.tcp {
+		r := &s.tcp[i]
+		if r.name == t.Name && r.port == t.Port && (t.Name != "" || r.prefix == t.Prefix) {
+			r.sc = sc
+			return
+		}
+	}
+	s.tcp = append(s.tcp, targetTCP{prefix: t.Prefix, name: t.Name, port: t.Port, sc: sc})
 }
 
 // lastAddr is the last address of p, the broadcast address of an IPv4 subnet.

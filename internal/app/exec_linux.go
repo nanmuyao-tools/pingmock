@@ -48,6 +48,7 @@ Examples:
   pingmock exec -seed 42 -rule 8.8.8.8=120ms -- ./my-app
   pingmock exec -rule api.example.com=80ms -rule db.example.com=timeout -- ./my-app
   pingmock exec -host api.example.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./my-app
+  pingmock exec -tcp db.example.com:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app
   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 
 Flags:
