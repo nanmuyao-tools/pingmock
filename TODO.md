@@ -196,7 +196,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 |---|---|
 | v0.9.0 TCP 连接（**已发布**，2026-10-20） | `-tcp 地址[:端口]=规则`、配置文件 `tcp:`、`PUT/DELETE /tcp/{目标}`、Go 客户端 `SetTCP`/`DeleteTCP`、历史和统计。延迟、抖动、丢包、`timeout`、`refuse`（回 RST）、`unreachable`、pattern 的 `r`、`ttl`、场景。规则只管连接是否、何时建立；建立之后不发数据（和现在的路径模拟一样） |
 | v0.10.0 连接建立后的行为（**已发布**，2026-10-20） | `after=close\|reset\|hang`，需要解析非 SYN 的报文、回应客户端的 FIN；设计见下 |
-| DNS 故障（**已实现，未发布**） | 只在 `exec` 下（root 模式先拒绝，和 `-host` 一样）；设计见下 |
+| v0.11.0 DNS 故障（**已发布**，2026-10-20） | 只在 `exec` 下（root 模式先拒绝，和 `-host` 一样）；设计见下 |
 | v1.0 之前 | 是否回应连接建立后的数据（用户态协议栈）；兼容性承诺 |
 
 **v0.9.0 的实现**（2026-10-20，[已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.9.0)，CI 在 Ubuntu 24.04 和 26.04 上全部通过，含 Go 和 Python 的 TCP 兼容性检查；从发布页下载的 arm64 二进制在开发容器里验证了接受、拒绝和 ping）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首
@@ -259,7 +259,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
   - 有 `-dns` 规则的域名不写进私有 `/etc/hosts`；`-dns` 本身也要打开 `exec` 的域名设置
   - 实现：`rule`（协议种类代替原来的 TCP 开关，`nxdomain`、`servfail`、pattern 的 `n`、`s`，DNS 规则拒绝 `unreachable`、`ttl`，ping 和 TCP 规则拒绝 DNS 设置）、`engine`（按名字的规则表，按（域名, 类型）的状态和随机流，`dns`/`dns_stats`，`/reset`）、`dns`（规则在查表和转发之前决定，故障不转发，延迟在转发之后）、`app`（`-dns`、`dns:`，root 拒绝，有规则的域名从私有 hosts 里拿掉、连系统 hosts 里的同名条目一起）、`api`（`PUT/DELETE /dns/{name}`，命令 hosts 里的域名和没有 DNS 服务的 exec 返回 400 并给出办法；`GET /history?target=域名`）、`client`（`SetDNS`、`DeleteDNS`、`DNSStats`；顺带补上 v0.10.0 漏掉的 `TCPStats.Closed`、`Reset`）
   - 验证（开发容器，root 和免 root）：nxdomain → `EAI_NONAME`、servfail → `EAI_AGAIN`、timeout（`timeout:1 attempts:1`）→ `EAI_AGAIN`、延迟 60ms 实测 62ms、`nxdomain for 2 requests` 让两次解析失败后第三次解析出地址、没有规则的域名照旧、有规则的域名不在 hosts 里、统计按类型计数、历史、API 设置和删除。变异：有规则的域名留在 hosts 里时延迟检查失败
-  - [ ] 推送后看 CI
+  - [x] CI：第一次推送在 Ubuntu 上失败，servfail 得到 EAI_NONAME：runner 的 resolv.conf 有 search 行，glibc 在 SERVFAIL 后去查 `NAME.<search>`，宿主机回 NXDOMAIN 并被报告。检查改为查带结尾点的域名，README 说明 search 域的影响。之后 [CI](https://github.com/nanmuyao/pingmock/actions/runs/39431813519) 全部通过，13 项 DNS 检查在 4 个任务里免 root 和 root 各跑一次；同一 seed 下和 v0.10.0 发布版结果一致；[v0.11.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.11.0)，下载的 arm64 二进制在开发容器里 nxdomain、servfail、-host 分别得到 -2、-3、10.99.0.5
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
