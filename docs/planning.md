@@ -140,6 +140,33 @@ A small sample without numbers.
 | An unprivileged user bind-mounting over `/etc/hosts` in namespaces | Works: every language's resolver reads the new file, and the host is untouched |
 | Two iputils versions receiving an echo reply with a wrong checksum | 20240117 says nothing; from 20240905 it marks `(BAD CHECKSUM!)` (commit bacf1b7) |
 
+## A second round, 20 October 2026
+
+Done by the [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent, as market research only; every row below was then opened and checked by hand. It also checked claims about operations staff that the roadmap had taken from an earlier conversation without sources.
+
+### Claims checked
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| Zabbix users can only test ping alerts by lowering thresholds | **Refuted** | Zabbix has a built-in way to test trigger expressions, and its own ticket [ZBX-19712](https://support.zabbix.com/browse/ZBX-19712) reproduces a host going down with "Simulate "host down" situation (power off host, or add block firewall rule)" |
+| Uptime Kuma had a bug that pinged every second | **Not found** | The only source, [#4837](https://github.com/louislam/uptime-kuma/issues/4837) "Uptime-Kuma causing ping floods", was disputed by a collaborator ("In the timeframe, of 190s, that is reasonable") and closed by the stale bot on 2024-08-26, without a fix |
+| "Seven technical routes" for faking network answers | **No source** | No document counts them. The projects found group into seven or eight routes, one of them **LD_PRELOAD interception** of socket calls, which this document did not list |
+| Pinging with a bound interface matters for operations tools | **Confirmed, with a correction** | Current mwan3, OpenWrt's multi-WAN failover, no longer runs `ping -I`: [mwan3track](https://raw.githubusercontent.com/openwrt/packages/master/net/mwan3/files/usr/sbin/mwan3track) runs `WRAP $PING -n -c $count ...`, where `WRAP` sets `DEVICE=$DEVICE SRCIP=$SRC_IP FWMARK=... LD_PRELOAD=/lib/mwan3/libwrap_mwan3_sockopt.so.1.0`, and [sockopt_wrap.c](https://raw.githubusercontent.com/openwrt/packages/master/net/mwan3/src/sockopt_wrap.c) "intercepts syscalls to various networking functions" to set `SO_BINDTODEVICE` and `SO_MARK`. Probes bound to a real device bypass pingmock's routes, so mwan3 is probably not mockable today (to verify by experiment) |
+
+### The reference projects' issues, again
+
+| Issue | Change | Meaning for pingmock |
+|---|---|---|
+| [Toxiproxy #739](https://github.com/Shopify/toxiproxy/pull/739) | Merged 2026-06-29: "feat: add packet_loss toxic for simulating flaky network conditions" | Toxiproxy now has loss too, for TCP |
+| [Toxiproxy #447](https://github.com/Shopify/toxiproxy/issues/447) | 2026-10-14: a contributor proposes "an optional toxics array to each proxy in the existing config file"; a contributor (not a core maintainer) welcomes it | Faults declared in a configuration file may stop being a difference from Toxiproxy |
+| [Toxiproxy #610](https://github.com/Shopify/toxiproxy/pull/610) | Open since 2024-12-27: "Added support for setting seed for deterministic results." | Same for a seed. The comparison in the README should be checked again when either lands |
+| [pro-bing #195](https://github.com/prometheus-community/pro-bing/pull/195) | "Add ICMP time exceeded support", "useful when you want to catch ICMP time exceeded messages, in order to implement traceroute-like tools"; changes requested by a maintainer on 2026-10-11 | Path simulation can test it without real routers: an opening for user ② |
+| [Trippy #1551](https://github.com/fujiapple852/trippy/pull/1551) | Draft "WIP: Extract simulator to trippy-sim crate", "Closes #1552", last updated 2025-12-07 | #1552 is being worked on in Trippy itself: a future alternative for user ④ |
+| [slirp4netns #361](https://github.com/rootless-containers/slirp4netns/issues/361) | By its author, 2026-04-07: "I'm considering deprecating slirp4netns in favor of it [gvisor-tap-vsock]" | Outbound access for `exec` should look at pasta and gvisor-tap-vsock rather than slirp4netns |
+| Trippy #1552, #1554, pro-bing #70 | No change | |
+
+pingmock itself had no issues or pull requests yet. Discussions were not checked (they need an authenticated API).
+
 ## Next time
 
 1. **Start from users' feedback**: real needs in [Discussions](https://github.com/nanmuyao/pingmock/discussions) and issues come before any research

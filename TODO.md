@@ -65,7 +65,7 @@ pingmock 将来支持的每一个协议都必须同时做到这四点。**新协
 |---|---|
 | ① 应用开发者 | 程序在网络变慢、断开、不可达时的表现。pingmock 的核心 |
 | ② ping 库的开发者 | 超时、不可达、丢包、TTL 等行为（pro-bing 的测试依赖 `www.google.com`） |
-| ③ 运维人员 | 监控告警规则（宕机多久告警、丢几个包算故障）、线路切换脚本。市场调研中发现：Zabbix 用户只能临时改小阈值来测试告警；Uptime Kuma 曾因 bug 每秒都在 ping。他们不写代码，需要 Docker 和命令行就能用 |
+| ③ 运维人员 | 监控告警规则（宕机多久告警、丢几个包算故障）、线路切换脚本。他们测试告警和切换的办法是关机、拔线或加防火墙规则（Zabbix 工单 ZBX-19712）；Zabbix 和 Prometheus 能测规则的逻辑，缺的是端到端的测试。注意：原先写在这里的「Zabbix 用户只能改小阈值」「Uptime Kuma 每秒 ping」经核对不成立或找不到依据，见 [docs/planning 第二轮](docs/planning.zh-CN.md#第二轮2026-年-10-月-20-日)。他们最常用的切换工具 mwan3 把 ping 绑定到网卡，目前大概率无法模拟（见下一步 §2） |
 | ④ 网络诊断工具的开发者 | traceroute / mtr 类工具对路径的处理（Trippy #1552、#1554） |
 
 每一版都能独立发布、独立带来价值。每一版都按这个流程：
@@ -144,11 +144,12 @@ IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 - [x] 在 Ubuntu 24.04 和 26.04 的 CI 上通过，包括本地无法运行的 IPv6 路径检查；用发布页下载的程序验证了 traceroute、mtr、域名和种子序列
 - [x] 发布后更新了示例中的版本号（github-actions、go-demo、pinglib-demo）；用完的草稿 `notes.txt` 由另一个对话删除，并加入了 `.gitignore`（发布说明由标签携带，不放在仓库里）
 
-### 2. v0.6 剩下的一项
+### 2. v0.6 剩下的一项，以及调研带出的一项实验
 
 Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级](#最低优先级)：**所有示例都放到最后做**，技术项优先。
 
-- [ ] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：七条技术路线和代表项目、运维人员这类用户、绑定网卡的限制、WireMock 是更贴切的类比、gVisor 的用户态 TCP 协议栈、Testcontainers 渠道受技术路线限制
+- [x] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：原先的调研材料不在仓库里，由新的 [`pingmock-planning`](.claude/agents/pingmock-planning.md) agent 重新调研，结论逐条打开来源核对后写入「第二轮：2026 年 10 月 20 日」。运维人员的两条依据不成立或找不到；「七条技术路线」没有来源，按项目分组是七到八条，新增 LD_PRELOAD 拦截；绑定网卡的限制成立，而且 mwan3 用 LD_PRELOAD 绑定。WireMock 的类比、gVisor 的依赖代价、Testcontainers 的限制只是部分有依据，还没核对，没有写入，等做技术选型时再查
+- [ ] **新**：实验验证 mwan3 式的探测（`SO_BINDTODEVICE` 绑定真实网卡，加源地址和 `SO_MARK`）能不能被模拟；如果不能，研究可行的办法（比如 `exec` 里没有真实网卡，绑定会失败还是落到 TUN），再决定用户 ③ 的示例怎样做。依据见 docs/planning 第二轮
 
 ### 3. 开发环境：在 Mac 上用 Docker 开发（已完成）
 

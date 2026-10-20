@@ -140,6 +140,33 @@
 | 普通用户在命名空间中覆盖 `/etc/hosts` | 可行，各语言的解析都读到新的内容，宿主机不受影响 |
 | 两个版本的 iputils 收到校验和错误的回显应答 | 20240117 没有提示，20240905 起标出 `(BAD CHECKSUM!)`（提交 bacf1b7） |
 
+## 第二轮：2026 年 10 月 20 日
+
+由 [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent 做市场调研，下面每一行都再由人打开来源核对过。这一轮也核对了路线中关于运维人员、此前来自另一个对话而没有来源的几条说法。
+
+### 核对的说法
+
+| 说法 | 结论 | 依据 |
+|---|---|---|
+| Zabbix 用户只能临时改小阈值来测试 ping 告警 | **不成立** | Zabbix 自带测试触发器表达式的功能；它自己的工单 [ZBX-19712](https://support.zabbix.com/browse/ZBX-19712) 复现主机宕机的做法是 "Simulate "host down" situation (power off host, or add block firewall rule)" |
+| Uptime Kuma 曾因 bug 每秒都在 ping | **找不到依据** | 唯一的来源 [#4837](https://github.com/louislam/uptime-kuma/issues/4837)「Uptime-Kuma causing ping floods」被协作者反驳（"In the timeframe, of 190s, that is reasonable"），2024-08-26 由 stale bot 关闭，没有修复 |
+| 伪造网络回应有「七条技术路线」 | **没有来源** | 没有文档这样统计。按找到的项目分组是七到八条，其中 **LD_PRELOAD 拦截**套接字调用这一条，这份文档以前没有列出 |
+| 绑定网卡的 ping 对运维工具很重要 | **成立，但细节要更正** | 现在的 mwan3（OpenWrt 的多 WAN 切换）已经不用 `ping -I`：[mwan3track](https://raw.githubusercontent.com/openwrt/packages/master/net/mwan3/files/usr/sbin/mwan3track) 运行 `WRAP $PING -n -c $count ...`，`WRAP` 设置 `DEVICE=$DEVICE SRCIP=$SRC_IP FWMARK=... LD_PRELOAD=/lib/mwan3/libwrap_mwan3_sockopt.so.1.0`；[sockopt_wrap.c](https://raw.githubusercontent.com/openwrt/packages/master/net/mwan3/src/sockopt_wrap.c) "intercepts syscalls to various networking functions"，设置 `SO_BINDTODEVICE` 和 `SO_MARK`。绑定到真实网卡的探测绕过 pingmock 的路由，所以 mwan3 现在大概率无法模拟（待实验验证） |
+
+### 参考项目的 issue，再看一遍
+
+| Issue | 变化 | 对 pingmock 的意义 |
+|---|---|---|
+| [Toxiproxy #739](https://github.com/Shopify/toxiproxy/pull/739) | 2026-06-29 合并："feat: add packet_loss toxic for simulating flaky network conditions" | Toxiproxy 也有了丢包，针对 TCP |
+| [Toxiproxy #447](https://github.com/Shopify/toxiproxy/issues/447) | 2026-10-14：有贡献者提出 "an optional toxics array to each proxy in the existing config file"，另一位贡献者（不是核心维护者）表示欢迎 | 「在配置文件中声明故障」可能不再是和 Toxiproxy 的区别 |
+| [Toxiproxy #610](https://github.com/Shopify/toxiproxy/pull/610) | 2024-12-27 起开放："Added support for setting seed for deterministic results." | 随机种子同理。两者任一合并时，要重新检查 README 中的对比 |
+| [pro-bing #195](https://github.com/prometheus-community/pro-bing/pull/195) | 「Add ICMP time exceeded support」，"useful when you want to catch ICMP time exceeded messages, in order to implement traceroute-like tools"；2026-10-11 维护者要求修改 | 路径模拟可以在没有真实路由器的情况下测试它：服务用户 ② 的机会 |
+| [Trippy #1551](https://github.com/fujiapple852/trippy/pull/1551) | 草稿「WIP: Extract simulator to trippy-sim crate」，"Closes #1552"，最后更新 2025-12-07 | Trippy 自己在做 #1552：将来是用户 ④ 的另一个选择 |
+| [slirp4netns #361](https://github.com/rootless-containers/slirp4netns/issues/361) | 作者本人，2026-04-07："I'm considering deprecating slirp4netns in favor of it [gvisor-tap-vsock]" | `exec` 的外网访问应考虑 pasta 和 gvisor-tap-vsock，而不是 slirp4netns |
+| Trippy #1552、#1554，pro-bing #70 | 没有变化 | |
+
+pingmock 自己还没有 issue 或 pull request。Discussions 没有查（需要认证的 API）。
+
 ## 下一次规划时
 
 1. **先看用户的反馈**：[Discussions](https://github.com/nanmuyao/pingmock/discussions) 和 issue 中的真实需求，优先于任何调研
