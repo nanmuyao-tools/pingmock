@@ -146,3 +146,5 @@ A small sample without numbers.
 2. Rerun the compatibility tests with new versions of the tools and libraries, adding new common tools
 3. Check the issues cited this round for progress (Trippy #1552, #1554, pro-bing #70, Toxiproxy #447)
 4. Repeat the seven steps above and add the new evidence to this document
+
+The Claude Code agent [`pingmock-planning`](../.claude/agents/pingmock-planning.md) can take on three kinds of work in this method: market research (steps 2, 3 and 5, the progress of cited issues and users' feedback), technical selection (comparing the options for a question against the four core values, with experiments in the [development container](../.devcontainer/README.md)), and project design (a written proposal for a roadmap item, with the syntax users would write and the open questions). Every claim it makes cites a source, an experiment or a line of code. It writes reports and proposals without changing anything; its findings are checked before they go into this document, and its designs are decided by the maintainer.
