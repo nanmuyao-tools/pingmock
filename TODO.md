@@ -196,7 +196,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 |---|---|
 | v0.9.0 TCP 连接（**已发布**，2026-10-20） | `-tcp 地址[:端口]=规则`、配置文件 `tcp:`、`PUT/DELETE /tcp/{目标}`、Go 客户端 `SetTCP`/`DeleteTCP`、历史和统计。延迟、抖动、丢包、`timeout`、`refuse`（回 RST）、`unreachable`、pattern 的 `r`、`ttl`、场景。规则只管连接是否、何时建立；建立之后不发数据（和现在的路径模拟一样） |
 | v0.10.0 连接建立后的行为（**已发布**，2026-10-20） | `after=close\|reset\|hang`，需要解析非 SYN 的报文、回应客户端的 FIN；设计见下 |
-| 再之后 | DNS 故障，只在 `exec` 下（root 模式先拒绝，和 `-host` 一样） |
+| 下一步：DNS 故障 | 只在 `exec` 下（root 模式先拒绝，和 `-host` 一样）；设计见下 |
 | v1.0 之前 | 是否回应连接建立后的数据（用户态协议栈）；兼容性承诺 |
 
 **v0.9.0 的实现**（2026-10-20，[已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.9.0)，CI 在 Ubuntu 24.04 和 26.04 上全部通过，含 Go 和 Python 的 TCP 兼容性检查；从发布页下载的 arm64 二进制在开发容器里验证了接受、拒绝和 ping）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首
@@ -233,6 +233,23 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 - [x] 验证（开发容器）：单元测试和 lint；root 的 e2e（IPv4 和 IPv6：curl 5 次全是 52 或 56，`close` 之后再写得到 `EPIPE`，不写就关闭的客户端没有留下半关闭的连接，统计和历史）；`exec` 免 root 和 root（域名目标）；兼容性测试中 Go `net.Dial` 和 Python `socket` 先写后读，`close` 读到 EOF、`reset` 读到 `ECONNRESET`。变异：在最后一个 ACK 上就 reset、不检查确认号、新的尝试不覆盖旧连接、动作取自最后一个阶段，单元测试都能发现；不回应客户端的 FIN，e2e 的半关闭检查能发现（起初的检查漏了 CLOSING 状态，没发现，已改为除 TIME-WAIT 外的所有状态）
 - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39416311154) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 after= 的检查都跑了；同一 seed 下 v0.9.0 发布版和新版本的 ping 与 TCP 结果、延迟完全相同；[v0.10.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.10.0)，下载的 arm64 二进制在开发容器里 close、reset、refuse 分别得到 curl 52、56、7
 - 还没验证 Java、Node.js 客户端：移到「最低优先级」（维护者决定，2026-10-20）
+
+**DNS 故障的前提验证**（planning agent 第五轮，开发容器里实验：glibc 2.36、Go 1.27.0 纯 Go 与 cgo 解析器、curl、Python；报告不在仓库里，2026-10-20）：
+
+| 前提 | 结果 |
+|---|---|
+| 各种故障客户端怎样报 | NXDOMAIN 立即「找不到」；SERVFAIL、REFUSED 立即重试后报临时错误；不回应花 `timeout × attempts`（默认 10 秒）；延迟超过超时，glibc 仍接受（重试沿用同一 ID），Go 纯 Go 解析器 10 秒后 `i/o timeout`。`exec` 保留宿主机 resolv.conf 的 `search` 和 `options` |
+| 计数 | A 和 AAAA 总是同时发；每次重试都是新查询；search 域会带出 `NAME.<search>` 的查询。**按（域名, 类型）计数时五种客户端结果一致**，按域名计数取决于哪个查询先到，按「一次解析」在服务端看不到 |
+| `/etc/hosts` 优先 | 私有 hosts 里的域名，glibc 和 Go 都不发 DNS 查询：有 `-dns` 规则的域名要从 hosts 里拿掉 |
+| nscd | **v0.10.0 的 bug**：宿主机运行 nscd 时，`exec` 里 getent、Python、cgo 拿到宿主机的地址，`-host` 不起作用。我复现了（getent 得到 Docker Desktop 的虚构地址，停掉 nscd 后正确）。已修复：在命令的挂载命名空间里用 `/dev/null` 盖住 nscd 的套接字；root 和免 root 都验证过，e2e 检查在去掉修复时失败。CI 和开发容器装上 nscd，检查自己启动它 |
+| DNS over TCP | 所有客户端在收到截断的回复后改用 TCP，`options use-vc` 只用 TCP；`exec` 里 127.0.0.1:53 没有 TCP 监听，宿主机给出截断回复的域名在 `exec` 里解析失败（用模拟上游验证，真实上游没测） |
+| 并发 | 在 `Serve` 里睡眠会挡住其他查询（2 秒的延迟让无关域名晚了约 1.9 秒）；转发也是串行的，宿主机不回应时客户端每次查询 2 秒后得到 SERVFAIL |
+
+需求：两个小项目（probeboard-api #74、network-doctor #368、#394）在 2026 年 9、10 月自己做了按域名注入错误的办法，反应数 0 到 1，证据弱。
+
+- [x] nscd 修复（见上表）
+- [ ] `exec` 的 DNS 服务监听 TCP，转发也支持 TCP；每个查询各自处理，转发可以并行；宿主机不回应时不回 SERVFAIL 而是不回应
+- [ ] `-dns` 的语法，等维护者确认后实现
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
