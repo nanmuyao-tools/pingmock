@@ -197,7 +197,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 | v0.9.0 TCP 连接（**已发布**，2026-10-20） | `-tcp 地址[:端口]=规则`、配置文件 `tcp:`、`PUT/DELETE /tcp/{目标}`、Go 客户端 `SetTCP`/`DeleteTCP`、历史和统计。延迟、抖动、丢包、`timeout`、`refuse`（回 RST）、`unreachable`、pattern 的 `r`、`ttl`、场景。规则只管连接是否、何时建立；建立之后不发数据（和现在的路径模拟一样） |
 | v0.10.0 连接建立后的行为（**已发布**，2026-10-20） | `after=close\|reset\|hang`，需要解析非 SYN 的报文、回应客户端的 FIN；设计见下 |
 | v0.11.0 DNS 故障（**已发布**，2026-10-20） | 只在 `exec` 下（root 模式先拒绝，和 `-host` 一样）；设计见下 |
-| v1.0 之前 | 是否回应连接建立后的数据（用户态协议栈）；兼容性承诺 |
+| v1.0 之前 | 先把常用协议支持完整，兼容性承诺放在最后（维护者决定，2026-10-20）；路线见下「通往 v1.0」 |
 
 **v0.9.0 的实现**（2026-10-20，[已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.9.0)，CI 在 Ubuntu 24.04 和 26.04 上全部通过，含 Go 和 Python 的 TCP 兼容性检查；从发布页下载的 arm64 二进制在开发容器里验证了接受、拒绝和 ping）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首
 
@@ -263,6 +263,43 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
+### 通往 v1.0
+
+**维护者决定（2026-10-20）：先把常用协议支持完整，兼容性承诺最后做。** 依据：planning agent 第六轮调研（技术选型和实验，开发容器里内核 6.12.76；报告不在仓库里），关键结论人工核对过：TLS 握手超时用真实的 pingmock 实测（Python `ssl` 报 "The handshake operation timed out"，curl 退出码 28）；Toxiproxy [#195](https://github.com/Shopify/toxiproxy/issues/195) 2026-10-07 关闭未合并，[#50](https://github.com/Shopify/toxiproxy/issues/50)「Protocol aware toxics」2015 年起开着、9 个 👍；README 的 `GET /version` 示例还写着 v0.6.0。
+
+| 协议或行为 | 结论 |
+|---|---|
+| TLS 握手超时 | **现在就能做**：TCP 规则不写 `after=`（即 `hang`），连接建立后不回 ServerHello。Go 自己的 `TestTransportTLSHandshakeTimeout` 也是手工搭这种情况。只缺 README 的说明 |
+| TCP 握手后的数据 | **手写的子集够用，不需要依赖**。Python 原型在 TUN 上：连接后发欢迎语 10/10、HTTP 503 10/10、TLS 告警 10/10（openssl 报 alert number 40）、发满 1000 字节后客户端再写得到 `ConnectionResetError` 10/10、延迟 1.5 秒回复 3/3、逐字节慢发 1/1。需求证据只有间接的：Toxiproxy 已有 `limit_data`、`slicer`、`reset_peer`，没有找到有人要「不用代理」的数据故障 |
+| gVisor netstack | **不用**：新版要把 `go` 行从 1.22 拉到 1.26.3、依赖图 127 个模块；保持低版本只能用 17 个月前的版本（wireguard-go 的做法，94 个模块）；最小程序约 4.8MB，普通 `net` 程序 1.7MB |
+| 通用 UDP | 不回应现在就是；端口不可达只在设了路径时顺带出现（有路径时连接的 UDP socket 得到 `ConnectionRefusedError`，没有时 `TimeoutError`）。`-udp`（refuse、timeout、unreachable）成本低，需求证据弱 |
+| 带内容的 UDP 回复（NTP、SNMP、QUIC） | 不做：等于模拟服务 |
+| QUIC 失败回退到 TCP | 不做：pingmock 接管整个地址，没法只让 UDP 失败而 TCP 通向真实服务器 |
+| A/AAAA 以外的 DNS 记录 | 等需求：模拟的域名查 MX、SRV、TXT、HTTPS、CNAME 回「没有记录」（验证过），这本身是正确的回答 |
+| ICMP Packet Too Big、root 模式 DNS、多网卡 | 等需求：没有新的证据 |
+
+外部 issue 当天复查：pingmock 仍然没有 issue 和 PR；Toxiproxy #447、#610，pro-bing #70、#195，Trippy #1551、#1552、#1554 都没有变化。
+
+路线（工作量是估计）：
+
+- [ ] **1. 文档**（半天，不打 tag）：README 写 TLS 握手超时的做法、UDP 现在得到什么，「什么时候用别的」里加上 QUIC 回退；「不做」加上带内容的 UDP 回复和 QUIC 回退
+- [ ] **2. v0.13：TCP 握手后的数据**（2～4 天，手写，不加依赖）。实现前提：同一个连接的输出要按顺序写出（否则 v0.10 修过的 FIN/RST 颠倒会回来）；新设置和 `after=` 一样在 SYN 时就定下来
+- [ ] **3. v0.14：`-udp`**（可选，1～2 天）：refuse、timeout、unreachable；有路径时路径只管中间的跳，目的地由 UDP 规则决定
+- [ ] **4. v0.15：冻结前的整理**（1～2 天）：修正下面列出的不一致（旧写法保留为弃用的别名）；用 Go 自带的 fuzz 测各个解析器；在 musl/Alpine 上验证一次 DNS 按（域名, 类型）计数
+- [ ] **5. v1.0：兼容性承诺**（1 天），中英文
+
+**需要维护者决定**（括号里是 agent 的推荐，还没有确认）：
+
+- [ ] pingmock 可以发送数据吗？README 现在写「pingmock 不模拟任何服务」（推荐：可以，只发固定的字节，不匹配客户端发来的内容）
+- [ ] 数据的语法（推荐：`send=` 握手后立即发，`reply=` 收到客户端第一段数据后发，`limit=N` 发满 N 字节后断开，`wait=` 回复前等待；规则文本里字节用 Go 的带引号字符串，因为逗号和分号是分隔符，YAML 和 JSON 里是普通字符串；上限 16 KiB；之后怎样仍由 `after=` 决定；历史新增 `sent` 事件，带 `bytes`；逐字节慢发等需求）
+- [ ] `after=hang` 要不要像真实服务器那样确认数据、窗口逐渐变小？这会改变默认行为，v1.0 之后就是不兼容的改动，要在 v0.13 决定（推荐：保持现在的沉默，除非先和真实的挂起服务器对比过）
+- [ ] 没有用户证据也做 `-udp` 吗？（推荐：做，排在数据之后，成本低，让 UDP 也能区分拒绝和超时）
+- [ ] v1.0 冻结哪些（推荐：参数及默认值、规则文本、YAML 键和 JSON、API 路径、方法和状态码、事件字段和结果用词、`client` 包（只增不改）、seed 序列、退出码、`PINGMOCK_API`、默认地址；不冻结 `-v` 的日志、错误信息、键的顺序、`internal/`；弃用的写法至少保留一个小版本并给出警告，v2 才去掉；配置文件的未知键仍然报错，所以要写明旧版本会拒绝新版本的配置文件）
+
+**冻结前要修正的不一致**（agent 列出，未逐条核对）：DNS 事件的 `src`/`dst` 是 127.0.0.1；结果用词 DNS 是 `answer`、ping 是 `reply`；规则标签、目标和统计键的格式各协议不同；路径事件的 `phase` 是 0；每种协议都接受所有的阶段单位；`GET /rules` 把 `>` 转义；示例还写着 v0.6.0；`pingmock exec` 自己的退出码 1、2 和被测命令的退出码分不开（验证过）。
+
+没有做：GitHub Discussions 没查；需求搜索没有找到切题的 issue，几条搜索摘要（Micrometer #3563、Tor 的工单、QUIC 回退的指南）没有打开；IPv6 的数据、超过一个报文段的回复、Java/Node/Go 客户端对数据原型、gVisor 在 pingmock 里运行都没有测。Java、Node 客户端，Python 客户端包，macOS，示例，仍按原来的优先级。
+
 ### 之后：等需求再决定
 
 | 方向 | 说明 |
@@ -279,6 +316,8 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 |---|---|
 | 通用的流量整形 | 需求最大，但 netem、Toxiproxy 等已经很成熟，做了会偏离定位：pingmock 伪造回应，不改变真实的网络 |
 | 向 Toxiproxy 贡献 ping 支持 | 维护者认为三层代理需要 TUN、等于重写，而且他们看重跨平台（#39） |
+| 带内容的 UDP 回复（NTP、SNMP、QUIC） | 等于模拟服务，偏离定位（第六轮调研） |
+| QUIC 失败回退到 TCP | pingmock 接管整个地址，没法只让 UDP 失败、TCP 通向真实服务器（第六轮调研） |
 
 ### 和外部项目的互动
 
