@@ -199,6 +199,20 @@ func icmpError6(req []byte, from netip.Addr, typ, code, ttl byte) []byte {
 // kernel, which never opened the connection, answers it with a reset,
 // which closes the matter.
 func BuildSynAck(req []byte, ttl uint8) []byte {
+	return buildTCPAnswer(req, ttl, 0x12, 0x70696e67, 65535) // SYN, ACK; our sequence number: "ping"
+}
+
+// BuildRST answers a TCP SYN as a host with the port closed would: a
+// reset acknowledging the SYN (RFC 9293 3.10.7.1), so that the sender's
+// connect fails at once with "connection refused".
+func BuildRST(req []byte, ttl uint8) []byte {
+	return buildTCPAnswer(req, ttl, 0x14, 0, 0) // RST, ACK
+}
+
+// buildTCPAnswer builds a TCP segment without data from the destination
+// of the SYN req back to its sender, with the given flags, sequence
+// number and window, acknowledging the SYN.
+func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16) []byte {
 	var out, seg []byte
 	var src, dst []byte
 	if req[0]>>4 == 6 {
@@ -228,11 +242,11 @@ func BuildSynAck(req []byte, ttl uint8) []byte {
 	syn := req[ihl:]
 	copy(seg[0:2], syn[2:4])                         // from the probed port
 	copy(seg[2:4], syn[0:2])                         // to the sender's port
-	binary.BigEndian.PutUint32(seg[4:8], 0x70696e67) // our sequence number: "ping"
+	binary.BigEndian.PutUint32(seg[4:8], seq)
 	binary.BigEndian.PutUint32(seg[8:12], binary.BigEndian.Uint32(syn[4:8])+1)
 	seg[12] = 5 << 4 // data offset: 20 bytes
-	seg[13] = 0x12   // SYN, ACK
-	binary.BigEndian.PutUint16(seg[14:16], 65535)
+	seg[13] = flags
+	binary.BigEndian.PutUint16(seg[14:16], window)
 	binary.BigEndian.PutUint16(seg[16:18], tcpChecksum(src, dst, seg))
 	return out
 }

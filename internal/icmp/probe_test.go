@@ -189,3 +189,34 @@ func TestBuildSynAck(t *testing.T) {
 		t.Error("the SYN-ACK parsed as a probe")
 	}
 }
+
+func TestBuildRST(t *testing.T) {
+	c4, t4 := netip.MustParseAddr("10.99.0.254"), netip.MustParseAddr("10.99.0.1")
+	req := buildProbe(TCP, c4, t4, 64, 50000, 5432, 0xfffffffe)
+	out := BuildRST(req, 100)
+	if len(out) != 40 || Checksum(out[:20]) != 0 || out[8] != 100 || tcpChecksum(out[12:16], out[16:20], out[20:]) != 0 {
+		t.Fatalf("v4: length %d ttl %d or bad checksum", len(out), out[8])
+	}
+	seg := out[20:]
+	if binary.BigEndian.Uint16(seg[0:]) != 5432 || binary.BigEndian.Uint16(seg[2:]) != 50000 {
+		t.Errorf("v4: ports %d->%d", binary.BigEndian.Uint16(seg[0:]), binary.BigEndian.Uint16(seg[2:]))
+	}
+	// RST and ACK, sequence 0, acknowledging the SYN (wrapping around), no window.
+	if seg[13] != 0x14 || binary.BigEndian.Uint32(seg[4:]) != 0 || binary.BigEndian.Uint32(seg[8:]) != 0xffffffff || binary.BigEndian.Uint16(seg[14:]) != 0 {
+		t.Errorf("v4: flags %#x seq %d ack %#x window %d", seg[13], binary.BigEndian.Uint32(seg[4:]), binary.BigEndian.Uint32(seg[8:]), binary.BigEndian.Uint16(seg[14:]))
+	}
+	if src := netip.AddrFrom4([4]byte(out[12:16])); src != t4 {
+		t.Errorf("v4: from %s, want %s", src, t4)
+	}
+	req = buildProbe(TCP, client6, target6, 64, 50001, 443, 41)
+	out = BuildRST(req, 64)
+	if len(out) != 60 || out[6] != protoTCP || out[7] != 64 || tcpChecksum(out[8:24], out[24:40], out[40:]) != 0 {
+		t.Fatalf("v6: length %d proto %d hop limit %d or bad TCP checksum", len(out), out[6], out[7])
+	}
+	if seg := out[40:]; seg[13] != 0x14 || binary.BigEndian.Uint32(seg[8:]) != 42 {
+		t.Errorf("v6: flags %#x ack %d", seg[13], binary.BigEndian.Uint32(seg[8:]))
+	}
+	if _, ok := ParseProbe(out); ok {
+		t.Error("the reset parsed as a probe")
+	}
+}
