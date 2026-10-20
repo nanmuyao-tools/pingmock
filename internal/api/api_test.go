@@ -256,7 +256,7 @@ func TestAPIPaths(t *testing.T) {
 	if len(snap.Paths) != 2 || snap.Paths[0].Target != "8.8.8.8" || snap.Paths[1].Target != "fd99::9" {
 		t.Errorf("paths in snapshot = %+v", snap.Paths)
 	}
-	if d := f.rs.DecideProbe(netip.MustParseAddr("8.8.8.8"), 1, icmp.UDP); d.Outcome != rule.TimeExceeded || d.From.String() != "192.168.1.1" {
+	if d := f.rs.DecideProbe(icmp.Probe{Dst: netip.MustParseAddr("8.8.8.8"), TTL: 1, Kind: icmp.UDP}); d.Outcome != rule.TimeExceeded || d.From.String() != "192.168.1.1" {
 		t.Errorf("path not installed: %+v", d)
 	}
 	for _, c := range []struct {

@@ -32,7 +32,67 @@ func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip
 	mux.HandleFunc("GET /version", h.getVersion)              // {"version": "v0.6.0"}
 	mux.HandleFunc("PUT /paths/{target...}", h.setPath)       // body: hops such as "10.0.0.1@2ms > * > 10.0.0.3@20ms"
 	mux.HandleFunc("DELETE /paths/{target...}", h.deletePath) // the target has no route again
+	mux.HandleFunc("PUT /tcp/{target...}", h.setTCP)          // target ADDR[:PORT], PREFIX[:PORT], [IPv6]:PORT; body as for rules
+	mux.HandleFunc("DELETE /tcp/{target...}", h.deleteTCP)    // connections to it are ignored again
 	return mux
+}
+
+// tcpTarget parses the target of a TCP rule in the URL. Names are only
+// resolved at startup, so the API takes addresses and prefixes.
+func tcpTarget(r *http.Request) (rule.TCPTarget, error) {
+	t, err := rule.ParseTCPTarget(r.PathValue("target"))
+	if err != nil {
+		return rule.TCPTarget{}, err
+	}
+	if t.Name != "" {
+		return rule.TCPTarget{}, fmt.Errorf("%s: the API takes an address or prefix, such as 10.99.0.1:443", t.Name)
+	}
+	return t, nil
+}
+
+// setTCP installs a TCP rule. Its addresses get a route to the device
+// first, as for ping rules.
+func (h *handler) setTCP(w http.ResponseWriter, r *http.Request) {
+	t, err := tcpTarget(r)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	text := strings.TrimSpace(string(body))
+	var sc rule.TCPScenario
+	if strings.HasPrefix(text, "{") {
+		if err := json.Unmarshal([]byte(text), &sc); err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON rule: %w", err))
+			return
+		}
+	} else if sc, err = rule.ParseTCPScenario(text); err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.ensureRoute(t.Prefix); err != nil {
+		httpError(w, http.StatusInternalServerError, err)
+		return
+	}
+	h.rules.SetTCP(t.Prefix, t.Port, sc.Scenario)
+	writeJSON(w, http.StatusOK, map[string]any{"target": t.String(), "rule": sc})
+}
+
+func (h *handler) deleteTCP(w http.ResponseWriter, r *http.Request) {
+	t, err := tcpTarget(r)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.rules.DeleteTCP(t.Prefix, t.Port) {
+		httpError(w, http.StatusNotFound, fmt.Errorf("no TCP rule for %s", t))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // setPath gives a target a route. The target and its hops get routes to
