@@ -33,10 +33,12 @@ if [ "$lo" -gt 0 ] || [ "$hi" -lt 2147483647 ]; then
   GROUPS_CHANGED=1
 fi
 
-(cd test/compat && go build -o "$WORK/probing" .)
+(cd test/compat && go build -o "$WORK/probing" . && go build -o "$WORK/tcpdial" ./tcpdial)
 
 ./pingmock -addr6= -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=20ms,pattern=.x \
-  -rule 10.99.0.3=unreachable -rule 8.8.8.8=30ms >"$WORK/pingmock.log" 2>&1 &
+  -rule 10.99.0.3=unreachable -rule 8.8.8.8=30ms \
+  -tcp 10.99.0.11:80=200ms -tcp 10.99.0.12:80=refuse -tcp 10.99.0.13:80=timeout -tcp 10.99.0.14:80=unreachable \
+  >"$WORK/pingmock.log" 2>&1 &
 PM=$!
 for _ in $(seq 50); do curl -sf localhost:9100/rules >/dev/null && break; sleep 0.1; done
 curl -sf localhost:9100/rules >/dev/null || { cat "$WORK/pingmock.log"; fail "pingmock did not start"; }
@@ -85,5 +87,38 @@ check_all pro-bing raw dgram
 # shellcheck disable=SC2086
 results=$(python3 test/compat/icmplib_ping.py $HOSTS 2>&1) || fail "icmplib: $results"
 check_all icmplib raw dgram
+
+# TCP rules, seen by the standard libraries of Go and Python: the error each
+# outcome gives, the connect time, and a read that times out on an
+# accepted connection, on which pingmock never sends anything.
+TARGETS="10.99.0.11:80 10.99.0.12:80 10.99.0.13:80 10.99.0.14:80"
+expect_tcp() { # LANG TARGET OUTCOME [MS_LOW MS_HIGH]
+  local line
+  line=$(grep "^$1 $2 " <<<"$results") || fail "$1 $2: no result in: $results"
+  case "$line" in
+  "$1 $2 $3"*) ;;
+  *) fail "$1 $2: got '$line', want $3" ;;
+  esac
+  if [ -n "${4:-}" ]; then
+    local ms
+    ms=$(sed -n 's/.* accepted \([0-9]*\)ms.*/\1/p' <<<"$line")
+    [ "$ms" -ge "$4" ] && [ "$ms" -le "$5" ] || fail "$1 $2: connected in ${ms}ms, want $4-$5ms"
+    grep -q 'read=timeout' <<<"$line" || fail "$1 $2: $line, want the read to time out"
+  fi
+  pass "$line"
+}
+for lang in go python; do
+  if [ "$lang" = go ]; then
+    # shellcheck disable=SC2086 # TARGETS is a list of addresses
+    results=$("$WORK/tcpdial" $TARGETS 2>&1) || fail "tcpdial: $results"
+  else
+    # shellcheck disable=SC2086
+    results=$(python3 test/compat/tcp_connect.py $TARGETS 2>&1) || fail "tcp_connect.py: $results"
+  fi
+  expect_tcp "$lang" 10.99.0.11:80 accepted 195 230
+  expect_tcp "$lang" 10.99.0.12:80 refused
+  expect_tcp "$lang" 10.99.0.13:80 timeout
+  expect_tcp "$lang" 10.99.0.14:80 unreachable
+done
 
 echo "all compatibility checks passed"
