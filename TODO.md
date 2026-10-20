@@ -149,7 +149,16 @@ IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级](#最低优先级)：**所有示例都放到最后做**，技术项优先。
 
 - [x] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：原先的调研材料不在仓库里，由新的 [`pingmock-planning`](.claude/agents/pingmock-planning.md) agent 重新调研，结论逐条打开来源核对后写入「第二轮：2026 年 10 月 20 日」。运维人员的两条依据不成立或找不到；「七条技术路线」没有来源，按项目分组是七到八条，新增 LD_PRELOAD 拦截；绑定网卡的限制成立，而且 mwan3 用 LD_PRELOAD 绑定。WireMock 的类比、gVisor 的依赖代价、Testcontainers 的限制只是部分有依据，还没核对，没有写入，等做技术选型时再查
-- [ ] **新**：实验验证 mwan3 式的探测（`SO_BINDTODEVICE` 绑定真实网卡，加源地址和 `SO_MARK`）能不能被模拟；如果不能，研究可行的办法（比如 `exec` 里没有真实网卡，绑定会失败还是落到 TUN），再决定用户 ③ 的示例怎样做。依据见 docs/planning 第二轮
+- [x] **新**：实验验证 mwan3 式的探测能不能被模拟（2026-10-20，开发容器，规则 `8.8.8.8=30ms`）：
+
+  | 情况 | 结果 |
+  |---|---|
+  | root 模式，`ping -I eth0` 绑定真实网卡 | 绕过 pingmock，真实延迟 57～70ms、ttl=63 |
+  | `exec` 里绑定不存在的网卡 `wan` | 失败：`SO_BINDTODEVICE wan: No such device` |
+  | `exec -dev wan`，pingmock 的网卡起名为 `wan`，再绑定它 | **被模拟**，30.8～32.0ms |
+  | 同上，加 `SO_MARK` 和源地址绑定（mwan3 包装器的做法） | 被模拟，31.5ms |
+
+  结论：在 `exec` 里，只要网卡名字对得上，绑定网卡的探测今天就能模拟。多 WAN 切换还需要**多块网卡、规则按网卡区分**（同一个 8.8.8.8，经 wan 30ms、经 wanb 超时），mwan3 本身依赖 ubus、uci，能否在普通 Linux 上直接测它要另外验证。**多网卡暂缓**（维护者决定，2026-10-20），先看多协议方向
 
 ### 3. 开发环境：在 Mac 上用 Docker 开发（已完成）
 
