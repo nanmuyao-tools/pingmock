@@ -59,6 +59,9 @@ stop
 status=0
 ./pingmock -host test.example=10.99.0.1 >/dev/null 2>&1 || status=$?
 same "-host is refused outside pingmock exec" "$status" 2
+status=0
+./pingmock -tcp db.example.com:5432=refuse >/dev/null 2>&1 || status=$?
+same "a TCP rule for a name is refused outside pingmock exec" "$status" 2
 
 # Destination unreachable: ping must report each code, and fail fast.
 start -rule 10.99.0.8=unreachable -rule 10.99.0.9=unreachable=net \
@@ -154,6 +157,67 @@ ip link del pmhost0
 
 # Paths: traceroute and mtr see the hops, in every probe mode, and reach
 # the target; a hop written * never answers.
+# TCP rules: connection attempts to an address and port are accepted after
+# a delay, refused, left unanswered or answered as unreachable. curl
+# reports how the connect went: exit 7 for refused or unreachable, 28 for
+# a timeout, and the time the connection took.
+# A connection that was never made has a time_connect of 0; the exit status
+# alone cannot tell, since a connection that is made but never answered
+# also ends in a timeout (28).
+connect() { # url, connect timeout: prints "exit time_connect"
+  local out status=0
+  out=$(curl -s -o /dev/null --connect-timeout "$2" -m "$(( $2 + 1 ))" -w '%{time_connect}' "$1" 2>/dev/null) || status=$?
+  echo "$status ${out:-0}"
+}
+ms() { awk -v s="$1" 'BEGIN { printf "%.1f", s * 1000 }'; }
+start -seed 1 -tcp 10.99.0.21:80=200ms -tcp 10.99.0.22:80=refuse -tcp 10.99.0.23:80=timeout \
+  -tcp 10.99.0.24:80=unreachable -tcp '10.99.0.25:80=timeout for 1 requests; 10ms' \
+  -tcp '10.99.0.26:80=refuse for 1 requests; 10ms'
+read -r status took <<<"$(connect http://10.99.0.21/ 2)"
+near "TCP: the connection is accepted after the rule's delay" "$(ms "$took")" 200 10
+read -r _ took <<<"$(connect http://10.99.0.21:81/ 1)"
+same "TCP: a port without a rule is not answered (no connection)" "$(ms "$took")" 0.0
+read -r status _ <<<"$(connect http://10.99.0.22/ 2)"
+same "TCP: refuse refuses the connection (curl exit 7)" "$status" 7
+# bash's /dev/tcp prints the system's error, which tells the two apart.
+tcperr() { timeout 3 bash -c ": <>/dev/tcp/$1/$2" 2>&1 | sed -n 's/.*connect: //p'; }
+same "TCP: refuse gives connection refused" "$(tcperr 10.99.0.22 80)" "Connection refused"
+same "TCP: unreachable gives no route to host" "$(tcperr 10.99.0.24 80)" "No route to host"
+read -r _ took <<<"$(connect http://10.99.0.23/ 1)"
+same "TCP: timeout leaves the connection unanswered (no connection)" "$(ms "$took")" 0.0
+read -r status _ <<<"$(connect http://10.99.0.24/ 2)"
+same "TCP: unreachable fails the connection (curl exit 7)" "$status" 7
+# The first attempt times out although the kernel sends its SYN again after
+# about a second: a retransmitted SYN is the same request. The second
+# attempt is the next phase and connects.
+read -r _ took <<<"$(connect http://10.99.0.25/ 3)"
+same "TCP: a retransmitted SYN is not a new request (the first attempt never connects)" "$(ms "$took")" 0.0
+read -r status took <<<"$(connect http://10.99.0.25/ 2)"
+near "TCP: the second attempt gets the next phase" "$(ms "$took")" 10 5
+read -r status _ <<<"$(connect http://10.99.0.26/ 2)"
+same "TCP: refuse for 1 requests refuses the first attempt" "$status" 7
+read -r _ took <<<"$(connect http://10.99.0.26/ 2)"
+near "TCP: then the next phase accepts" "$(ms "$took")" 10 5
+stats=$(curl -sf localhost:9100/rules | tr -d ' \n' | grep -o '"10.99.0.25:80":{[^}]*}')
+echo "$stats" | grep -q '"requests":2,"accepted":1,"refused":0,"dropped":1' || fail "TCP: stats count attempts, not SYNs: $stats"
+pass "TCP: statistics count attempts, not SYNs"
+events=$(curl -sf "localhost:9100/history?target=10.99.0.25" | tr -d ' \n')
+echo "$events" | grep -q '"repeat":true' && echo "$events" | grep -q '"port":80' || fail "TCP: history lacks port or repeat: $events"
+pass "TCP: the history records the port and the retransmitted SYNs"
+# Rules change while running, through the API.
+curl -sf -X PUT localhost:9100/tcp/10.99.0.21:80 -d refuse >/dev/null
+read -r status _ <<<"$(connect http://10.99.0.21/ 2)"
+same "TCP: a rule set through the API takes effect" "$status" 7
+if [ -e /proc/net/if_inet6 ]; then
+  curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::21%5D:80' -d 30ms >/dev/null
+  read -r status took <<<"$(connect 'http://[fd99::21]/' 2)"
+  near "TCP over IPv6: accepted after the delay" "$(ms "$took")" 30 5
+  curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::22%5D:80' -d refuse >/dev/null
+  read -r status _ <<<"$(connect 'http://[fd99::22]/' 2)"
+  same "TCP over IPv6: refused" "$status" 7
+fi
+stop
+
 if command -v traceroute >/dev/null; then
   start -seed 1 -rule 10.99.0.80=30ms -path '10.99.0.80=192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms'
   hops() { traceroute "$@" -n -q 1 -w 1 -m 8 10.99.0.80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' '; }

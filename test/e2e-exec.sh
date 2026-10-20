@@ -93,6 +93,17 @@ leftover=0
 for f in /tmp/pingmock-*; do [ -e "$f" ] && [ "$f" != /tmp/pingmock-e2e.log ] && leftover=$((leftover + 1)); done
 same "no temporary file is left behind" "$leftover" 0
 
+# TCP rules inside exec: a connection to an address is accepted after the
+# delay, one to a name is refused, and a port without a rule is not
+# answered. curl's time_connect is 0 for a connection never made.
+tcp=$(run -tcp 10.99.0.1:5432=30ms -tcp db.example.com:5432=refuse -- bash -c "
+  curl -s -o /dev/null --connect-timeout 2 -m 3 -w '%{time_connect}\n' http://10.99.0.1:5432/ || true
+  timeout 3 bash -c ': <>/dev/tcp/db.example.com/5432' 2>&1 | sed -n 's/.*connect: //p'
+  curl -s -o /dev/null --connect-timeout 1 -m 2 -w '%{time_connect}\n' http://10.99.0.1:5433/ || true")
+near "TCP inside exec: accepted after the rule's delay" "$(echo "$tcp" | sed -n 1p | awk '{printf "%.1f", $1 * 1000}')" 30 5
+same "TCP inside exec: a rule for a name refuses" "$(echo "$tcp" | sed -n 2p)" "Connection refused"
+same "TCP inside exec: a port without a rule is not answered" "$(echo "$tcp" | sed -n 3p)" "0.000000"
+
 # A path inside exec: traceroute, which opens raw sockets, works there
 # without root, and sees the hops.
 if command -v traceroute >/dev/null; then
