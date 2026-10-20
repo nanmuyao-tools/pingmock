@@ -23,6 +23,9 @@ type Spec struct {
 	// TTL is the IP TTL (IPv6 hop limit) of everything the target sends;
 	// 0 means DefaultTTL.
 	TTL uint8
+	// Refuse answers a TCP connection attempt with a reset, so that the
+	// connection is refused. TCP rules only.
+	Refuse bool
 }
 
 // DefaultTTL is the TTL of answers whose rule does not set one: what Linux
@@ -49,7 +52,14 @@ func (sp Spec) EffectiveTTL() uint8 {
 // list of settings: "delay=120ms,jitter=10ms,loss=5%", "delay=50ms,pattern=..x"
 // or "delay=20ms,unreachable=admin". The keyword "timeout" means no answer at
 // all, and a bare "unreachable" means host unreachable.
-func ParseSpec(s string) (Spec, error) {
+func ParseSpec(s string) (Spec, error) { return parseSpec(s, false) }
+
+// ParseTCPSpec parses a spec of a TCP rule: what ParseSpec accepts, plus
+// "refuse" and the pattern letter 'r'.
+func ParseTCPSpec(s string) (Spec, error) { return parseSpec(s, true) }
+
+// parseSpec parses a spec; tcp allows the settings of TCP rules.
+func parseSpec(s string, tcp bool) (Spec, error) {
 	var sp Spec
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -67,6 +77,9 @@ func ParseSpec(s string) (Spec, error) {
 			if strings.EqualFold(part, "unreachable") {
 				key, val = "unreachable", ""
 			}
+			if strings.EqualFold(part, "refuse") {
+				key = "refuse"
+			}
 		}
 		var err error
 		switch strings.ToLower(strings.TrimSpace(key)) {
@@ -77,11 +90,20 @@ func ParseSpec(s string) (Spec, error) {
 		case "loss":
 			sp.Loss, err = parseLoss(val)
 		case "pattern":
-			sp.Pattern, err = parsePattern(val)
+			sp.Pattern, err = parsePatternFor(val, tcp)
 		case "unreachable":
 			sp.Unreachable, err = parseUnreachCode(val)
 		case "ttl":
 			sp.TTL, err = parseTTL(val)
+		case "refuse":
+			switch {
+			case !tcp:
+				err = fmt.Errorf("refuse is for TCP rules (-tcp)")
+			case found:
+				err = fmt.Errorf("refuse takes no value")
+			default:
+				sp.Refuse = true
+			}
 		default:
 			err = fmt.Errorf("unknown key %q", key)
 		}
@@ -89,13 +111,16 @@ func ParseSpec(s string) (Spec, error) {
 			return Spec{}, fmt.Errorf("invalid spec %q: %w", s, err)
 		}
 	}
-	if err := sp.validate(); err != nil {
+	if err := sp.validateFor(tcp); err != nil {
 		return Spec{}, fmt.Errorf("invalid spec %q: %w", s, err)
 	}
 	return sp, nil
 }
 
-func (sp Spec) validate() error {
+func (sp Spec) validate() error { return sp.validateFor(false) }
+
+// validateFor checks a spec; tcp allows the settings of TCP rules.
+func (sp Spec) validateFor(tcp bool) error {
 	if sp.Delay < 0 || sp.Jitter < 0 {
 		return fmt.Errorf("negative duration")
 	}
@@ -106,8 +131,18 @@ func (sp Spec) validate() error {
 		return fmt.Errorf("loss and pattern cannot be combined")
 	}
 	if sp.Pattern != "" {
-		if _, err := parsePattern(sp.Pattern); err != nil {
+		if _, err := parsePatternFor(sp.Pattern, tcp); err != nil {
 			return err
+		}
+	}
+	if sp.Refuse {
+		switch {
+		case !tcp:
+			return fmt.Errorf("refuse is for TCP rules (-tcp)")
+		case sp.Unreachable != UnreachNone:
+			return fmt.Errorf("refuse and unreachable cannot be combined")
+		case sp.Pattern != "":
+			return fmt.Errorf("refuse and pattern cannot be combined; use r in the pattern")
 		}
 	}
 	return nil
@@ -158,12 +193,24 @@ func parseTTL(s string) (uint8, error) {
 
 // parsePattern validates a pattern made of '.' (reply), 'x' (drop) and
 // 'u' (unreachable).
-func parsePattern(s string) (string, error) {
+func parsePattern(s string) (string, error) { return parsePatternFor(s, false) }
+
+// parsePatternFor validates a pattern; tcp also allows 'r' (refuse).
+func parsePatternFor(s string, tcp bool) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
 		return "", fmt.Errorf("empty pattern")
 	}
+	if tcp {
+		if strings.Trim(s, ".xur") != "" {
+			return "", fmt.Errorf("pattern %q may only contain '.' (accept), 'x' (drop), 'u' (unreachable) and 'r' (refuse)", s)
+		}
+		return s, nil
+	}
 	if strings.Trim(s, ".xu") != "" {
+		if strings.Trim(s, ".xur") == "" {
+			return "", fmt.Errorf("pattern %q: 'r' (refuse) is for TCP rules (-tcp)", s)
+		}
 		return "", fmt.Errorf("pattern %q may only contain '.' (reply), 'x' (drop) and 'u' (unreachable)", s)
 	}
 	return s, nil
@@ -182,6 +229,9 @@ func (sp Spec) String() string {
 		parts = append(parts, "pattern="+sp.Pattern)
 	} else if sp.Loss > 0 {
 		parts = append(parts, "loss="+strconv.FormatFloat(sp.Loss*100, 'g', -1, 64)+"%")
+	}
+	if sp.Refuse {
+		parts = append(parts, "refuse")
 	}
 	switch {
 	case sp.Unreachable == UnreachHost:
@@ -207,11 +257,15 @@ func (sp Spec) Decide(idx int, rng *rand.Rand) (Outcome, UnreachCode, time.Durat
 			return Drop, UnreachNone, 0
 		case 'u':
 			out = Unreachable
+		case 'r':
+			out = Refused
 		}
 	case sp.Loss > 0 && rng.Float64() < sp.Loss:
 		return Drop, UnreachNone, 0
 	case sp.Unreachable != UnreachNone:
 		out = Unreachable
+	case sp.Refuse:
+		out = Refused
 	}
 	var code UnreachCode
 	if out == Unreachable {

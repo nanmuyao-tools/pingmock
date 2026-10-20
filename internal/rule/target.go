@@ -3,6 +3,7 @@ package rule
 import (
 	"fmt"
 	"net/netip"
+	"strconv"
 	"strings"
 )
 
@@ -88,4 +89,94 @@ func ParsePrefix(s string) (netip.Prefix, error) {
 	}
 	a = a.Unmap()
 	return netip.PrefixFrom(a, a.BitLen()), nil
+}
+
+// TCPTarget is what a TCP rule applies to: an address or prefix, or under
+// pingmock exec a name, and a port, or every port.
+type TCPTarget struct {
+	Prefix netip.Prefix // valid unless Name is set
+	Name   string       // canonical: lower case, no trailing dot
+	Port   uint16       // 0 means every port
+}
+
+// ParseTCPTarget accepts ADDR[:PORT], PREFIX[:PORT] or NAME[:PORT]. IPv6
+// addresses and prefixes are written in brackets, with or without a port:
+// [fd99::1]:443, [fd99::/64]:443, [fd99::1]. Without the brackets
+// fd99::1:443 would itself be an address, so IPv6 without them is refused.
+func ParseTCPTarget(s string) (TCPTarget, error) {
+	s = strings.TrimSpace(s)
+	host, portText := s, ""
+	if strings.HasPrefix(s, "[") {
+		end := strings.Index(s, "]")
+		if end < 0 {
+			return TCPTarget{}, fmt.Errorf("%q: missing ]", s)
+		}
+		host, portText = s[1:end], s[end+1:]
+		if portText != "" {
+			if portText[0] != ':' {
+				return TCPTarget{}, fmt.Errorf("%q: want [ADDR] or [ADDR]:PORT", s)
+			}
+			portText = portText[1:]
+			if portText == "" {
+				return TCPTarget{}, fmt.Errorf("%q: missing port after :", s)
+			}
+		}
+		p, err := ParsePrefix(host)
+		if err != nil {
+			return TCPTarget{}, err
+		}
+		port, err := parsePort(portText)
+		if err != nil {
+			return TCPTarget{}, fmt.Errorf("%q: %w", s, err)
+		}
+		return TCPTarget{Prefix: p, Port: port}, nil
+	}
+	switch strings.Count(s, ":") {
+	case 0:
+	case 1:
+		var ok bool
+		host, portText, ok = strings.Cut(s, ":")
+		if !ok || portText == "" {
+			return TCPTarget{}, fmt.Errorf("%q: missing port after :", s)
+		}
+	default:
+		return TCPTarget{}, fmt.Errorf("%q: write an IPv6 target in brackets, such as [fd99::1]:443, or [fd99::1] for every port", s)
+	}
+	port, err := parsePort(portText)
+	if err != nil {
+		return TCPTarget{}, fmt.Errorf("%q: %w", s, err)
+	}
+	t, err := ParseTarget(host)
+	if err != nil {
+		return TCPTarget{}, err
+	}
+	return TCPTarget{Prefix: t.Prefix, Name: t.Name, Port: port}, nil
+}
+
+// parsePort accepts a port from 1 to 65535, or "" for every port.
+func parsePort(s string) (uint16, error) {
+	if s == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseUint(s, 10, 16)
+	if err != nil || n == 0 {
+		return 0, fmt.Errorf("invalid port %q: want a number from 1 to 65535", s)
+	}
+	return uint16(n), nil
+}
+
+// String writes the target in the form ParseTCPTarget accepts, with the
+// prefix length, as ping rules are shown: 10.99.0.1/32:443, [fd99::/64]:443.
+func (t TCPTarget) String() string {
+	host := t.Name
+	if host == "" {
+		host = t.Prefix.String()
+		if t.Prefix.Addr().Is6() {
+			host = "[" + host + "]"
+		}
+	}
+	if t.Port == 0 {
+		return host
+	}
+	return host + ":" + strconv.Itoa(int(t.Port))
 }

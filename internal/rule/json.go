@@ -21,6 +21,7 @@ type specJSON struct {
 	Pattern     string      `json:"pattern,omitempty"`
 	Unreachable *string     `json:"unreachable,omitempty"` // "host", "net", "admin" or "" for host
 	TTL         numOrString `json:"ttl,omitempty"`         // 1 to 255; unset means rule.DefaultTTL
+	Refuse      bool        `json:"refuse,omitempty"`      // TCP rules only
 }
 
 // numOrString holds a JSON string or number as text. Configuration files,
@@ -63,18 +64,22 @@ func (sp Spec) MarshalJSON() ([]byte, error) {
 	if sp.TTL != 0 {
 		j.TTL = numOrString(strconv.Itoa(int(sp.TTL)))
 	}
+	j.Refuse = sp.Refuse
 	return json.Marshal(j)
 }
 
 // UnmarshalJSON accepts the object form, a string in the text form, or a
 // number, which is a delay in milliseconds as on the command line.
-func (sp *Spec) UnmarshalJSON(b []byte) error {
+func (sp *Spec) UnmarshalJSON(b []byte) error { return sp.unmarshal(b, false) }
+
+// unmarshal decodes a spec; tcp allows the settings of TCP rules.
+func (sp *Spec) unmarshal(b []byte, tcp bool) error {
 	var text string
 	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
 		if err != nil {
 			text = string(b)
 		}
-		out, err := ParseSpec(text)
+		out, err := parseSpec(text, tcp)
 		if err != nil {
 			return err
 		}
@@ -105,7 +110,7 @@ func (sp *Spec) UnmarshalJSON(b []byte) error {
 		}
 	}
 	if j.Pattern != "" {
-		if out.Pattern, err = parsePattern(j.Pattern); err != nil {
+		if out.Pattern, err = parsePatternFor(j.Pattern, tcp); err != nil {
 			return err
 		}
 	}
@@ -119,7 +124,8 @@ func (sp *Spec) UnmarshalJSON(b []byte) error {
 			return err
 		}
 	}
-	if err := out.validate(); err != nil {
+	out.Refuse = j.Refuse
+	if err := out.validateFor(tcp); err != nil {
 		return err
 	}
 	*sp = out
@@ -129,9 +135,9 @@ func (sp *Spec) UnmarshalJSON(b []byte) error {
 func (sc Scenario) MarshalJSON() ([]byte, error) { return json.Marshal(sc.String()) }
 
 type phaseJSON struct {
-	Spec  Spec   `json:"spec"`
-	For   string `json:"for,omitempty"`
-	Count int    `json:"count,omitempty"`
+	Spec  json.RawMessage `json:"spec"` // decoded as a Spec, for ping or TCP
+	For   string          `json:"for,omitempty"`
+	Count int             `json:"count,omitempty"`
 }
 
 type scenarioJSON struct {
@@ -143,14 +149,24 @@ type scenarioJSON struct {
 // milliseconds, a single spec object ({"delay":"50ms"}) or a phases object:
 //
 //	{"phases":[{"spec":"50ms","count":3},{"spec":{"delay":"500ms"},"for":"10s"}],"repeat":true}
-func (sc *Scenario) UnmarshalJSON(b []byte) error {
+func (sc *Scenario) UnmarshalJSON(b []byte) error { return sc.unmarshal(b, false) }
+
+// UnmarshalJSON accepts the forms a Scenario accepts, with the settings of
+// TCP rules.
+func (sc *TCPScenario) UnmarshalJSON(b []byte) error { return sc.Scenario.unmarshal(b, true) }
+
+// MarshalJSON writes the text form, with phases counting requests.
+func (sc TCPScenario) MarshalJSON() ([]byte, error) { return json.Marshal(sc.String()) }
+
+// unmarshal decodes a scenario; tcp allows the settings of TCP rules.
+func (sc *Scenario) unmarshal(b []byte, tcp bool) error {
 	b = bytes.TrimSpace(b)
 	var text string
 	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
 		if err != nil {
 			text = string(b) // a bare number: milliseconds, as on the command line
 		}
-		out, err := ParseScenario(text)
+		out, err := parseScenario(text, tcp)
 		if err != nil {
 			return err
 		}
@@ -163,7 +179,7 @@ func (sc *Scenario) UnmarshalJSON(b []byte) error {
 	}
 	if _, ok := probe["phases"]; !ok {
 		var sp Spec
-		if err := json.Unmarshal(b, &sp); err != nil {
+		if err := sp.unmarshal(b, tcp); err != nil {
 			return err
 		}
 		*sc = Single(sp)
@@ -177,7 +193,12 @@ func (sc *Scenario) UnmarshalJSON(b []byte) error {
 	}
 	out := Scenario{Repeat: j.Repeat}
 	for _, pj := range j.Phases {
-		p := Phase{Spec: pj.Spec, Count: pj.Count}
+		p := Phase{Count: pj.Count}
+		if len(pj.Spec) > 0 { // without one, the zero spec, as before
+			if err := p.Spec.unmarshal(pj.Spec, tcp); err != nil {
+				return err
+			}
+		}
 		if pj.For != "" {
 			d, err := time.ParseDuration(pj.For)
 			if err != nil || d <= 0 {
@@ -187,7 +208,7 @@ func (sc *Scenario) UnmarshalJSON(b []byte) error {
 		}
 		out.Phases = append(out.Phases, p)
 	}
-	if err := out.validate(); err != nil {
+	if err := out.validateFor(tcp); err != nil {
 		return err
 	}
 	*sc = out

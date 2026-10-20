@@ -16,6 +16,8 @@ const (
 	TimeExceeded    // ICMP time exceeded from the hop where the TTL ran out
 	PortUnreachable // ICMP port unreachable from the destination, to a UDP probe
 	SynAck          // TCP SYN-ACK from the destination, to a TCP probe
+	// For TCP rules:
+	Refused // TCP RST: the connection is refused
 )
 
 func (o Outcome) String() string {
@@ -30,6 +32,8 @@ func (o Outcome) String() string {
 		return "port-unreachable"
 	case SynAck:
 		return "syn-ack"
+	case Refused:
+		return "refused"
 	}
 	return "reply"
 }
