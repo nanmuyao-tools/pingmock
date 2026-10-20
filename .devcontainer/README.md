@@ -24,6 +24,7 @@ Or with Docker alone, which is how CI uses it:
 ```bash
 docker build -t pingmock-dev -f .devcontainer/Dockerfile .
 docker run --rm -it --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tun \
+  --security-opt apparmor=unconfined \
   -v "$PWD:/workspace" -v pingmock-gomod:/go/pkg/mod -v pingmock-cache:/home/dev/.cache \
   -w /workspace pingmock-dev
 ```
@@ -58,6 +59,8 @@ CI builds this container and runs the first four inside it on every push, so tha
 ## The privileges, and why
 
 [`devcontainer.json`](devcontainer.json) gives the container `NET_ADMIN` and `/dev/net/tun`, which pingmock needs, and `SYS_ADMIN`, which `pingmock exec` needs in a container: Docker's default seccomp profile lets a container create namespaces only when it has that capability, and `exec` run as root creates a network namespace, which takes the capability itself. Nothing else is needed, neither `--privileged` nor turning seccomp off (verified with Docker Desktop 4.68 on a Mac).
+
+On a Linux host with AppArmor, such as Ubuntu, Docker also applies its default AppArmor profile, which forbids `mount`; `pingmock exec` mounts the command's own `/etc/hosts` and fails with `making mounts private: permission denied`. `--security-opt apparmor=unconfined` lifts that profile for this container only. A Mac has no AppArmor, and the option changes nothing there.
 
 ## Differences from a Linux machine
 

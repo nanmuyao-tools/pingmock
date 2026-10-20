@@ -24,6 +24,7 @@ CLI 要用新版：0.89.0 没问题，0.80.0 在 Docker Desktop 4.68 上启动�
 ```bash
 docker build -t pingmock-dev -f .devcontainer/Dockerfile .
 docker run --rm -it --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tun \
+  --security-opt apparmor=unconfined \
   -v "$PWD:/workspace" -v pingmock-gomod:/go/pkg/mod -v pingmock-cache:/home/dev/.cache \
   -w /workspace pingmock-dev
 ```
@@ -58,6 +59,8 @@ CI 每次推送都会构建这个容器，并在里面运行前四项，保证�
 ## 需要哪些权限，为什么
 
 [`devcontainer.json`](devcontainer.json) 给了容器 `NET_ADMIN` 和 `/dev/net/tun`，这是 pingmock 本身需要的；还有 `SYS_ADMIN`，这是 `pingmock exec` 在容器里需要的：Docker 默认的 seccomp 策略只允许有这个能力的容器创建命名空间，而以 root 运行的 `exec` 要创建网络命名空间，本来就需要这个能力。别的都不需要：不用 `--privileged`，也不用关掉 seccomp（在 Mac 上用 Docker Desktop 4.68 验证过）。
+
+在有 AppArmor 的 Linux 主机上（比如 Ubuntu），Docker 还会套上它默认的 AppArmor 配置，其中禁止 `mount`；`pingmock exec` 要给命令挂载私有的 `/etc/hosts`，于是报错 `making mounts private: permission denied`。`--security-opt apparmor=unconfined` 只对这个容器去掉这份配置。Mac 上没有 AppArmor，加不加都一样。
 
 ## 和 Linux 机器的差别
 

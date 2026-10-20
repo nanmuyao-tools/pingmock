@@ -12,10 +12,14 @@
   // create namespaces only when it has that capability, and the root
   // path of exec needs the capability itself. Neither --privileged nor
   // turning seccomp off is needed (verified with Docker Desktop 4.68).
+  // On Linux hosts with AppArmor, such as Ubuntu, Docker's default profile
+  // forbids mount, which pingmock exec uses for the command's /etc/hosts;
+  // where there is no AppArmor, as on a Mac, the option changes nothing.
   "runArgs": [
     "--cap-add=NET_ADMIN",
     "--cap-add=SYS_ADMIN",
-    "--device=/dev/net/tun"
+    "--device=/dev/net/tun",
+    "--security-opt=apparmor=unconfined"
   ],
   "remoteUser": "dev",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",

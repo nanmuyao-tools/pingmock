@@ -162,6 +162,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
   | 只给 `NET_ADMIN` 和 `/dev/net/tun` | root 模式能跑；`pingmock exec` 免 root 和 root 都失败：Docker 默认的 seccomp 策略不允许创建命名空间（`clone` 带命名空间标志要容器有 `CAP_SYS_ADMIN`），连 root 也不行 |
   | 再关掉 seccomp | 免 root 的 `exec` 能跑；root 的 `exec` 仍失败，容器里的 root 没有 `CAP_SYS_ADMIN`，创建网络命名空间本身需要它 |
   | 改为再加 `SYS_ADMIN`，seccomp 保持默认 | 全部能跑。**这就是最小权限**，不需要 `--privileged`，也不用关 seccomp |
+  | Linux 主机上的 AppArmor（CI 发现） | Mac 上测不到：Ubuntu 上 Docker 默认的 AppArmor 配置 `docker-default` 禁止 `mount`，免 root 的 `exec` 设置私有 `/etc/hosts` 时报 `making mounts private: permission denied`。再加 `--security-opt apparmor=unconfined`；Mac 上没有 AppArmor，加了没影响 |
   | IPv6 | Docker Desktop 的容器里是开着的，e2e 的 IPv6 检查也跑了（46 项全过）；Linux 上的 Docker 默认关闭，相关检查会跳过 |
   | 和 Linux 的差别 | Docker Desktop 的解析器对任何域名都回一个虚构地址（`fdfe:dcba:9876::/48`），「未知域名解析不到」的检查改为在宿主机也能解析该域名时跳过；`/proc/sys` 只读，兼容性检查改为只在需要时写 `ping_group_range`（容器本来就允许所有组）；虚拟机里的时间抖动让容差 ±3ms、±5ms 的检查各失败过一次，都发生在我同时构建镜像的时候，单独跑全过 |
   | 各项用时 | `make test` 约 15 秒，e2e 25 秒，e2e-exec 23 秒（两种模式），e2e-compat 第一次 51 秒、有缓存后 31 秒。时间都花在等超时和等 mtr 上 |
