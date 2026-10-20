@@ -227,9 +227,11 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 - [x] `hang` 保持 v0.9.0 的行为（什么都不确认）。原型发现它和真实的挂起服务器不同（真实服务器确认数据和 FIN），要改得先在 veth 上和真实服务器对比，并用会缩小的窗口
 - [x] 历史每次动作多一条事件（`closed`、`reset`），统计新增 `closed`、`reset`；`accepted` 照样计数
 - [x] `close` 之后再收到数据回 RST，和真实服务器一样
-- [ ] 实现：`icmp` 解析非 SYN 的 TCP 报文、构造 FIN|ACK；`engine` 在 SYN 时就记下 `after`（中途换阶段不影响），按连接的地址和端口找回尝试，每次尝试最多动作一次；没有 TCP 规则的目标照旧忽略；ping 规则拒绝 `after`，和 `refuse`、`timeout`、`unreachable` 同用也拒绝；不从随机流取数，seed 序列不变
-- [ ] 边界：v0.9.0 的尝试 2 分钟后忘掉，客户端等更久才发数据会得到 `hang`。保留还有动作没做的尝试，或者写进文档
-- [ ] 还没验证：在 pingmock 本体（root 和 `exec`）里跑；Java、Node.js 客户端
+- [x] 实现（2026-10-20）：`icmp` 解析 SYN 以外的 TCP 报文（RST 除外）、`BuildSegment`；`engine` 在 SYN 时就记下 `after`（中途换阶段不影响），按连接的地址和端口找回，检查对方确认的是我们的 SYN-ACK 或 FIN，每个连接只动作一次；`close` 之后客户端的 FIN 回 ACK、数据回 RST；没有 `after=` 的连接照旧什么都不回；ping 规则拒绝 `after`，和 `refuse`、`timeout`（`loss=100%`）、`unreachable`、没有 `.` 的 pattern 同用也拒绝；不从随机流取数（单元测试比较了有无 `after=close` 时 20 次的延迟和丢包，一致）。统计新增 `closed`、`reset`，历史每次动作一条事件
+- [x] 实现时发现并修正：零延迟的回应原先各用一个定时器写出，FIN 和紧随其后的 RST 可能颠倒，root 模式下 curl 5 次里有 2 次得到 reset 而不是空回复。改为零延迟的回应在读循环里按顺序写出；单元测试在旧写法下 20 次全部失败
+- [x] 边界：空闲 10 分钟的连接被忘掉，之后不再回应，写进 README
+- [x] 验证（开发容器）：单元测试和 lint；root 的 e2e（IPv4 和 IPv6：curl 5 次全是 52 或 56，`close` 之后再写得到 `EPIPE`，不写就关闭的客户端没有留下半关闭的连接，统计和历史）；`exec` 免 root 和 root（域名目标）；兼容性测试中 Go `net.Dial` 和 Python `socket` 先写后读，`close` 读到 EOF、`reset` 读到 `ECONNRESET`。变异：在最后一个 ACK 上就 reset、不检查确认号、新的尝试不覆盖旧连接、动作取自最后一个阶段，单元测试都能发现；不回应客户端的 FIN，e2e 的半关闭检查能发现（起初的检查漏了 CLOSING 状态，没发现，已改为除 TIME-WAIT 外的所有状态）
+- [ ] 还没验证：Java、Node.js 客户端；推送后看 CI
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
