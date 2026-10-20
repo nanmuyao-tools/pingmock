@@ -167,6 +167,19 @@
 
 pingmock 自己还没有 issue 或 pull request。Discussions 没有查（需要认证的 API）。
 
+## 第三轮：多协议，2026 年 10 月 20 日
+
+由 [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent 为下一个协议做了市场调研、技术选型和设计方案。它建议先做 TCP 连接行为、再做 DNS 故障，已被采纳。下面几行由人核对过；报告的其余部分是 agent 的结论，没有核对。
+
+| 证据 | 来源 | 意义 |
+|---|---|---|
+| CPython 专门维护一台主机来测连接超时 | [`Lib/test/test_timeout.py`](https://raw.githubusercontent.com/python/cpython/main/Lib/test/test_timeout.py)：`blackhole = resolve_address('pythontest.net', 56666)`，"Blackhole has been configured to silently drop any incoming packets." | 项目自己搭建、维护 TCP 黑洞 |
+| LiteLLM 把超时测试指向不可路由的地址 | [PR #39266](https://github.com/BerriAI/litellm/pull/39266)，2026-09-02 起开放："test(local_testing): point the sub-ms timeout tests at an unroutable api_base" | 这种办法取决于测试所在的网络 |
+| asyncpg 多主机切换与超时 | [#1155](https://github.com/MagicStack/asyncpg/issues/1155)，2024-05-18 起开放："Timeout configuration for multi-host config" | 主机之间切换，需要一台超时、一台正常应答 |
+| pingmock 现在对 TCP 的回应 | 在开发容器里人工重跑的实验：有路径、规则 `200ms` 时，Python 的 `connect` 200.7ms 成功，随后读取超时；`timeout` 让连接超时；`unreachable` 立即失败，`No route to host` | 同一个机制，加上拒绝和按端口的规则，就能在两种模式下覆盖连接行为 |
+
+反面的证据：这些项目都用不可路由的地址或 iptables 规则低成本地解决了问题；Kubernetes 的探针不在 `pingmock exec` 里运行。DNS 故障方面，agent 没有找到有开发者需要它，混沌工具也已经提供。
+
 ## 下一次规划时
 
 1. **先看用户的反馈**：[Discussions](https://github.com/nanmuyao/pingmock/discussions) 和 issue 中的真实需求，优先于任何调研

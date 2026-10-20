@@ -167,6 +167,19 @@ Done by the [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent,
 
 pingmock itself had no issues or pull requests yet. Discussions were not checked (they need an authenticated API).
 
+## A third round: multi-protocol, 20 October 2026
+
+The [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent did market research, technical selection and a design proposal for the next protocol. Its recommendation, TCP connection behavior before DNS faults, was adopted. The rows below were checked by hand; the rest of its report is agent-reported and was not checked.
+
+| Evidence | Source | Meaning |
+|---|---|---|
+| CPython keeps a host to test connect timeouts | [`Lib/test/test_timeout.py`](https://raw.githubusercontent.com/python/cpython/main/Lib/test/test_timeout.py): `blackhole = resolve_address('pythontest.net', 56666)`, "Blackhole has been configured to silently drop any incoming packets." | Projects build and maintain their own TCP black holes |
+| LiteLLM points its timeout tests at an unroutable address | [PR #39266](https://github.com/BerriAI/litellm/pull/39266), open since 2026-09-02: "test(local_testing): point the sub-ms timeout tests at an unroutable api_base" | The workaround depends on the network the tests run on |
+| asyncpg's multi-host failover and timeouts | [#1155](https://github.com/MagicStack/asyncpg/issues/1155), open since 2024-05-18: "Timeout configuration for multi-host config" | Failover between hosts needs one host that times out and one that answers |
+| What pingmock already answers to TCP | Experiment, rerun by hand in the development container: with a path and a rule of `200ms`, a Python `connect` succeeds in 200.7ms and a read then times out; `timeout` makes the connect time out; `unreachable` fails at once with `No route to host` | The same mechanism, extended with refusals and per-port rules, covers connect behavior in both modes |
+
+Against: those projects fixed their problems cheaply, with unroutable addresses or iptables rules, and Kubernetes probes run outside `pingmock exec`. For DNS faults the agent found no developer asking for them, and chaos tools already offer them.
+
 ## Next time
 
 1. **Start from users' feedback**: real needs in [Discussions](https://github.com/nanmuyao/pingmock/discussions) and issues come before any research
