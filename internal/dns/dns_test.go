@@ -3,6 +3,7 @@ package dns
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -58,7 +59,7 @@ func parse(t *testing.T, resp []byte) parsed {
 	return p
 }
 
-func newServer(forward func([]byte) ([]byte, error)) *Server {
+func newServer(forward func([]byte, bool) ([]byte, error)) *Server {
 	tb := NewTable()
 	tb.Add("API.example.com.", netip.MustParseAddr("10.99.0.1"))
 	tb.Add("api.example.com", netip.MustParseAddr("fd99::1"))
@@ -101,7 +102,7 @@ func TestAnswersReverse(t *testing.T) {
 
 func TestUnknownNamesAreForwarded(t *testing.T) {
 	var forwarded []byte
-	s := newServer(func(q []byte) ([]byte, error) {
+	s := newServer(func(q []byte, _ bool) ([]byte, error) {
 		forwarded = q
 		return respond(q, q[12:], rcodeOK, [][]byte{record(typeA, []byte{93, 184, 216, 34})}), nil
 	})
@@ -116,11 +117,12 @@ func TestUnknownNamesAreForwarded(t *testing.T) {
 	if forwarded != nil {
 		t.Error("a mocked name was forwarded")
 	}
-	// A forwarder that fails means SERVFAIL, so the resolver can try again
-	// or give up, rather than NXDOMAIN, which it would believe.
-	s.Forward = func([]byte) ([]byte, error) { return nil, errors.New("down") }
-	if p := parse(t, s.Answer(query(7, "real.example", typeA))); p.rcode != rcodeServFail {
-		t.Errorf("forwarder down: %+v", p)
+	// A forwarder that fails means no answer, as when the host's resolver
+	// does not answer: the resolver asking times out as it would without
+	// pingmock, rather than getting a SERVFAIL it would not have got.
+	s.Forward = func([]byte, bool) ([]byte, error) { return nil, errors.New("down") }
+	if resp := s.Answer(query(7, "real.example", typeA)); resp != nil {
+		t.Errorf("forwarder down: answered %+v", parse(t, resp))
 	}
 	// Without a forwarder, unknown names do not exist.
 	s.Forward = nil
@@ -172,22 +174,126 @@ func TestServeOverUDP(t *testing.T) {
 func TestRelayAndStreamForwarder(t *testing.T) {
 	a, b := net.Pipe()
 	defer a.Close()
-	defer b.Close()
-	go ServeRelay(a, func(q []byte) ([]byte, error) {
-		if string(q) == "fail" {
+	release := make(chan struct{})
+	go ServeRelay(a, func(q []byte, tcp bool) ([]byte, error) {
+		switch string(q) {
+		case "fail":
 			return nil, errors.New("down")
+		case "slow":
+			<-release
 		}
-		return append([]byte("ok:"), q...), nil
+		return append([]byte(fmt.Sprintf("ok tcp=%v:", tcp)), q...), nil
 	})
 	fwd := StreamForwarder(b)
-	if resp, err := fwd([]byte("hello")); err != nil || string(resp) != "ok:hello" {
+	if resp, err := fwd([]byte("hello"), false); err != nil || string(resp) != "ok tcp=false:hello" {
 		t.Errorf("forwarded = %q, %v", resp, err)
 	}
-	if _, err := fwd([]byte("fail")); err == nil {
+	if resp, err := fwd([]byte("big"), true); err != nil || string(resp) != "ok tcp=true:big" {
+		t.Errorf("forwarded over TCP = %q, %v", resp, err)
+	}
+	if _, err := fwd([]byte("fail"), false); err == nil {
 		t.Error("a failed forward was not reported")
 	}
-	if resp, err := fwd([]byte("again")); err != nil || string(resp) != "ok:again" {
-		t.Errorf("after a failure = %q, %v", resp, err)
+	// A slow query holds up no other: the next one is answered first.
+	slow := make(chan string)
+	go func() {
+		resp, _ := fwd([]byte("slow"), false)
+		slow <- string(resp)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	if resp, err := fwd([]byte("again"), false); err != nil || string(resp) != "ok tcp=false:again" {
+		t.Errorf("while a slow query waits = %q, %v", resp, err)
+	}
+	close(release)
+	if resp := <-slow; resp != "ok tcp=false:slow" {
+		t.Errorf("slow query = %q", resp)
+	}
+	// Once the relay is gone, queries fail at once rather than wait.
+	b.Close()
+	time.Sleep(20 * time.Millisecond)
+	if _, err := fwd([]byte("late"), false); err == nil {
+		t.Error("a query after the relay closed succeeded")
+	}
+}
+
+// A slow query, over UDP or TCP, holds up no other query.
+func TestServeAnswersConcurrently(t *testing.T) {
+	release := make(chan struct{})
+	s := newServer(func(q []byte, _ bool) ([]byte, error) {
+		<-release
+		return respond(q, q[12:], rcodeOK, nil), nil
+	})
+	defer close(release)
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	go s.Serve(pc)
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go s.ServeTCP(l)
+
+	udp := pc.LocalAddr().String()
+	go ask(udp, query(1, "slow.example", typeA), 2*time.Second) // forwarded, held
+	time.Sleep(20 * time.Millisecond)
+	start := time.Now()
+	resp, err := ask(udp, query(2, "api.example.com", typeA), time.Second)
+	if err != nil || parse(t, resp).id != 2 || time.Since(start) > 500*time.Millisecond {
+		t.Errorf("UDP: mocked name behind a slow one: %v after %v", err, time.Since(start))
+	}
+	// Over TCP, on one connection: the second query is answered while the
+	// first waits.
+	conn, err := net.Dial("tcp", l.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(time.Second))
+	WriteFrame(conn, query(3, "slow.example", typeA))
+	WriteFrame(conn, query(4, "api.example.com", typeAAAA))
+	resp, err = ReadFrame(conn)
+	if err != nil {
+		t.Fatalf("TCP: %v", err)
+	}
+	if p := parse(t, resp); p.id != 4 || len(p.answers) != 1 || net.IP(p.answers[0]).String() != "fd99::1" {
+		t.Errorf("TCP: %+v", p)
+	}
+}
+
+// Queries over TCP are forwarded over TCP, so that an answer too large for
+// UDP, which resolvers ask again for over TCP, can come back.
+func TestTCPQueriesAreForwardedOverTCP(t *testing.T) {
+	var gotTCP bool
+	s := newServer(func(q []byte, tcp bool) ([]byte, error) {
+		gotTCP = tcp
+		return respond(q, q[12:], rcodeOK, nil), nil
+	})
+	if resp := s.answer(query(1, "real.example", typeA), true); resp == nil || !gotTCP {
+		t.Errorf("TCP query forwarded with tcp=%v", gotTCP)
+	}
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		q, _ := ReadFrame(conn)
+		big := respond(q, q[12:], rcodeOK, nil)
+		big = append(big, make([]byte, 3000)...) // larger than UDP would carry
+		WriteFrame(conn, big)
+	}()
+	resp, err := Forwarder([]string{l.Addr().String()}, time.Second)(query(5, "big.example", 16), true)
+	if err != nil || len(resp) < 3000 || binary.BigEndian.Uint16(resp) != 5 {
+		t.Errorf("forwarded over TCP: %d bytes, %v", len(resp), err)
 	}
 }
 

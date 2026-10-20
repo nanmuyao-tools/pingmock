@@ -99,7 +99,9 @@ func runExec(args []string) int {
 		parentEnd := os.NewFile(uintptr(fds[0]), "dns-relay")
 		childEnd = os.NewFile(uintptr(fds[1]), "dns-relay")
 		child.ExtraFiles = []*os.File{childEnd} // relayFD in the child
-		forward := dns.Forwarder(dns.Nameservers(resolvFile), 2*time.Second)
+		// The C library's default timeout: a slower host resolver times
+		// out here as it would for the command without pingmock.
+		forward := dns.Forwarder(dns.Nameservers(resolvFile), 5*time.Second)
 		go func() {
 			defer parentEnd.Close()
 			dns.ServeRelay(parentEnd, forward)

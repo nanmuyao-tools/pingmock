@@ -3,8 +3,9 @@
 // every other query to the host's resolver through the parent process,
 // which still has the host's network.
 //
-// It handles the one shape of query stub resolvers send, a single question
-// over UDP, and nothing more. Answers carry A, AAAA and PTR records only.
+// It handles the one shape of query stub resolvers send, a single question,
+// over UDP and over TCP, which resolvers use for answers too large for
+// UDP. Its own answers carry A, AAAA and PTR records only.
 package dns
 
 import (
@@ -80,14 +81,17 @@ func Canonical(name string) string {
 // Server answers queries from its table and forwards the rest.
 type Server struct {
 	Table *Table
-	// Forward returns the response to a query the table cannot answer. If
-	// nil, or if it fails, the name does not exist.
-	Forward func(query []byte) ([]byte, error)
+	// Forward returns the response to a query the table cannot answer,
+	// asking over TCP if tcp is set. If nil, the name does not exist; if
+	// it fails, the query gets no answer, as when the host's resolver
+	// does not answer, and the resolver asking times out.
+	Forward func(query []byte, tcp bool) ([]byte, error)
 	// Log, if set, is told about every query.
 	Log func(format string, args ...any)
 }
 
-// Serve answers queries on pc until it is closed.
+// Serve answers queries on pc until it is closed. Each query is answered
+// on its own, so that a slow one holds up no other.
 func (s *Server) Serve(pc net.PacketConn) {
 	buf := make([]byte, 4096)
 	for {
@@ -95,11 +99,46 @@ func (s *Server) Serve(pc net.PacketConn) {
 		if err != nil {
 			return
 		}
-		if resp := s.Answer(append([]byte(nil), buf[:n]...)); resp != nil {
-			pc.WriteTo(resp, from)
-		}
+		go func(q []byte) {
+			if resp := s.answer(q, false); resp != nil {
+				pc.WriteTo(resp, from)
+			}
+		}(append([]byte(nil), buf[:n]...))
 	}
 }
+
+// ServeTCP answers queries on the connections l accepts until it is
+// closed: each query and response with a two-byte length (RFC 1035
+// 4.2.2), several queries on a connection answered as they come.
+func (s *Server) ServeTCP(l net.Listener) {
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer conn.Close()
+			var wmu sync.Mutex
+			for {
+				conn.SetReadDeadline(time.Now().Add(tcpIdle))
+				q, err := ReadFrame(conn)
+				if err != nil {
+					return
+				}
+				go func() {
+					if resp := s.answer(q, true); resp != nil {
+						wmu.Lock()
+						WriteFrame(conn, resp)
+						wmu.Unlock()
+					}
+				}()
+			}
+		}()
+	}
+}
+
+// tcpIdle is how long a TCP connection may wait for its next query.
+const tcpIdle = 30 * time.Second
 
 // DNS record types and response codes used here (RFC 1035, RFC 3596).
 const (
@@ -115,9 +154,13 @@ const (
 	rcodeNotImpl  = 4
 )
 
-// Answer returns the response to one query, or nil if it is not a query
-// worth answering.
-func (s *Server) Answer(q []byte) []byte {
+// Answer returns the response to one query received over UDP, or nil if
+// there is none to send.
+func (s *Server) Answer(q []byte) []byte { return s.answer(q, false) }
+
+// answer returns the response to one query, received over TCP if tcp is
+// set, or nil if there is none to send.
+func (s *Server) answer(q []byte, tcp bool) []byte {
 	if len(q) < 12 || q[2]&0x80 != 0 { // too short, or a response
 		return nil
 	}
@@ -163,12 +206,14 @@ func (s *Server) Answer(q []byte) []byte {
 		return respond(q, q[12:qend], rcodeOK, records)
 	}
 	if s.Forward != nil {
-		if resp, err := s.Forward(q); err == nil && len(resp) >= 12 {
+		resp, err := s.Forward(q, tcp)
+		if err == nil && len(resp) >= 12 {
 			return resp
-		} else if s.Log != nil {
+		}
+		if s.Log != nil {
 			s.Log("dns: forwarding %s: %v", name, err)
 		}
-		return respond(q, q[12:qend], rcodeServFail, nil)
+		return nil
 	}
 	return respond(q, q[12:qend], rcodeNXDomain, nil)
 }
@@ -311,12 +356,17 @@ func Nameservers(path string) []string {
 	return out
 }
 
-// Forwarder returns a function that sends a query to each server in turn
-// over UDP, each given timeout to answer, and returns the first response.
-func Forwarder(servers []string, timeout time.Duration) func([]byte) ([]byte, error) {
-	return func(q []byte) ([]byte, error) {
+// Forwarder returns a function that sends a query to each server in turn,
+// over UDP or TCP, each given timeout to answer, and returns the first
+// response.
+func Forwarder(servers []string, timeout time.Duration) func([]byte, bool) ([]byte, error) {
+	return func(q []byte, tcp bool) ([]byte, error) {
 		var last error
 		for _, s := range servers {
+			ask := ask
+			if tcp {
+				ask = askTCP
+			}
 			resp, err := ask(s, q, timeout)
 			if err == nil {
 				return resp, nil
@@ -356,39 +406,119 @@ func ask(server string, q []byte, timeout time.Duration) ([]byte, error) {
 	}
 }
 
+// askTCP sends q to server over TCP, port 53 unless another is given.
+func askTCP(server string, q []byte, timeout time.Duration) ([]byte, error) {
+	if _, _, err := net.SplitHostPort(server); err != nil {
+		server = net.JoinHostPort(server, "53")
+	}
+	conn, err := net.DialTimeout("tcp", server, timeout)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(timeout))
+	if err := WriteFrame(conn, q); err != nil {
+		return nil, err
+	}
+	resp, err := ReadFrame(conn)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", server, err)
+	}
+	return resp, nil
+}
+
 // --- the stream between the command's network and the host's ----------
 
-// ServeRelay answers queries that arrive on conn as frames, with forward,
-// until conn is closed. The parent of pingmock exec runs it.
-func ServeRelay(conn io.ReadWriter, forward func([]byte) ([]byte, error)) {
+// On the stream, each query is a frame holding a 4-byte tag, a byte that
+// is 1 to ask over TCP, and the query; each response, a frame holding
+// the tag of its query and the response, empty if there is none. Queries
+// are answered as they complete, in any order.
+
+// ServeRelay answers queries that arrive on conn, with forward, until
+// conn is closed. The parent of pingmock exec runs it.
+func ServeRelay(conn io.ReadWriter, forward func([]byte, bool) ([]byte, error)) {
+	var wmu sync.Mutex
 	for {
-		q, err := ReadFrame(conn)
+		f, err := ReadFrame(conn)
 		if err != nil {
 			return
 		}
-		resp, err := forward(q)
-		if err != nil {
-			resp = nil
+		if len(f) < 5 {
+			continue
 		}
-		if WriteFrame(conn, resp) != nil {
-			return
-		}
+		go func() {
+			resp, err := forward(f[5:], f[4] == 1)
+			if err != nil {
+				resp = nil
+			}
+			wmu.Lock()
+			defer wmu.Unlock()
+			WriteFrame(conn, append(append([]byte(nil), f[:4]...), resp...))
+		}()
 	}
 }
 
 // StreamForwarder returns a Forward function that sends each query over
-// conn as a frame and waits for the framed response, one query at a time.
-func StreamForwarder(conn io.ReadWriter) func([]byte) ([]byte, error) {
-	var mu sync.Mutex
-	return func(q []byte) ([]byte, error) {
+// conn and waits for its response. Queries may be outstanding together.
+func StreamForwarder(conn io.ReadWriter) func([]byte, bool) ([]byte, error) {
+	var (
+		mu      sync.Mutex // pending, next and broken
+		wmu     sync.Mutex // writes to conn
+		next    uint32
+		pending = map[uint32]chan []byte{}
+		broken  error
+	)
+	go func() {
+		for {
+			f, err := ReadFrame(conn)
+			mu.Lock()
+			if err != nil {
+				broken = err
+				for _, ch := range pending {
+					close(ch)
+				}
+				pending = nil
+				mu.Unlock()
+				return
+			}
+			if len(f) >= 4 {
+				if ch, ok := pending[binary.BigEndian.Uint32(f)]; ok {
+					ch <- f[4:]
+					delete(pending, binary.BigEndian.Uint32(f))
+				}
+			}
+			mu.Unlock()
+		}
+	}()
+	return func(q []byte, tcp bool) ([]byte, error) {
+		ch := make(chan []byte, 1)
 		mu.Lock()
-		defer mu.Unlock()
-		if err := WriteFrame(conn, q); err != nil {
+		if broken != nil {
+			mu.Unlock()
+			return nil, broken
+		}
+		next++
+		tag := next
+		pending[tag] = ch
+		mu.Unlock()
+		f := binary.BigEndian.AppendUint32(nil, tag)
+		if tcp {
+			f = append(f, 1)
+		} else {
+			f = append(f, 0)
+		}
+		wmu.Lock()
+		err := WriteFrame(conn, append(f, q...))
+		wmu.Unlock()
+		if err != nil {
+			mu.Lock()
+			delete(pending, tag)
+			mu.Unlock()
 			return nil, err
 		}
-		resp, err := ReadFrame(conn)
-		if err != nil {
-			return nil, err
+		resp, ok := <-ch
+		if !ok {
+			return nil, errors.New("the relay to the host's resolver closed")
 		}
 		if len(resp) == 0 {
 			return nil, errors.New("the host's resolver did not answer")

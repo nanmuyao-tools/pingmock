@@ -59,8 +59,13 @@ func serveDNS(hosts []config.Host) error {
 	if err != nil {
 		return fmt.Errorf("DNS: listening on %s: %w", dnsAddr, err)
 	}
+	l, err := net.Listen("tcp", dnsAddr)
+	if err != nil {
+		return fmt.Errorf("DNS: listening on %s over TCP: %w", dnsAddr, err)
+	}
 	srv := &dns.Server{Table: table, Forward: dns.StreamForwarder(conn)}
 	go srv.Serve(pc)
+	go srv.ServeTCP(l)
 	log.Printf("DNS on %s for the command: %d mocked names, other names go to the host's resolver", dnsAddr, len(table.Names()))
 	return nil
 }

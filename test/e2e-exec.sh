@@ -86,6 +86,7 @@ named=$(run -rule by-name.example=45ms -- sh -c "
   getent hosts does-not-exist.invalid >/dev/null; echo \$?")
 same "a rule for a name resolves to the top of the subnet" "$(echo "$named" | sed -n 1p)" "10.99.0.253"
 same "the address resolves back to the name" "$(echo "$named" | sed -n 2p)" "by-name.example"
+same "a mocked name resolves over TCP" "$(run -rule by-name.example=1ms -- sh -c "RES_OPTIONS=use-vc timeout 10 getent hosts by-name.example" | awk '{print $1}')" "10.99.0.253"
 near "ping by name gets the name's rule" "$(echo "$named" | sed -n 3p)" 45 5
 # Docker Desktop's resolver answers every name with a made-up address, so
 # this check only means something where the host does not resolve the name.
@@ -98,6 +99,10 @@ same "the system's resolv.conf is left alone" "$(md5sum /etc/resolv.conf 2>/dev/
 if getent hosts github.com >/dev/null 2>&1; then
   forwarded=$(run -rule by-name.example=1ms -- sh -c "getent hosts github.com | awk '{print \$1}' | head -1")
   [ -n "$forwarded" ] && pass "a real name is forwarded to the host's resolver: $forwarded" || fail "github.com did not resolve inside exec"
+  # Over TCP too, which resolvers use for answers too large for UDP:
+  # RES_OPTIONS=use-vc makes the C library ask over TCP only.
+  forwarded=$(run -rule by-name.example=1ms -- sh -c "RES_OPTIONS=use-vc timeout 10 getent hosts github.com | awk '{print \$1}' | head -1")
+  [ -n "$forwarded" ] && pass "a real name is forwarded over TCP: $forwarded" || fail "github.com did not resolve over TCP inside exec"
 else
   echo "SKIP forwarding to the host's resolver (this host cannot resolve github.com)"
 fi
