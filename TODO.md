@@ -150,7 +150,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 
 - [ ] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：七条技术路线和代表项目、运维人员这类用户、绑定网卡的限制、WireMock 是更贴切的类比、gVisor 的用户态 TCP 协议栈、Testcontainers 渠道受技术路线限制
 
-### 3. 开发环境：在 Mac 上用 Docker 开发（已完成，CI 任务待推送验证）
+### 3. 开发环境：在 Mac 上用 Docker 开发（已完成）
 
 维护者用 Mac，pingmock 只能在 Linux 上运行。Mac 上的 Docker Desktop 在 Linux 虚拟机中运行容器，所以可以在容器里开发。Claude Code 官方文档中有开发容器的说明（命令在容器里执行，文件修改实时出现在本地仓库），参考配置以非 root 用户运行，并加了 `NET_ADMIN` 权限，这也正是 pingmock 需要的。
 
@@ -168,7 +168,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
   | 各项用时 | `make test` 约 15 秒，e2e 25 秒，e2e-exec 23 秒（两种模式），e2e-compat 第一次 51 秒、有缓存后 31 秒。时间都花在等超时和等 mtr 上 |
 
   顺带发现：容器里的 root 没有 `CAP_SYS_ADMIN` 时，`pingmock exec` 走 root 路径直接失败。可以改成没有这个能力时就像普通用户一样走用户命名空间；暂不做，等有人遇到
-- [x] CI 增加 `devcontainer` 任务（Ubuntu 24.04 和 26.04）：构建开发容器，在里面以 `dev` 用户运行 `make lint`、`make test`、`make e2e`、`make e2e-exec`、`make e2e-compat`。容器用户取 runner 的 uid，才能写挂载进来的仓库；先在 runner 上关掉 Ubuntu 对非特权用户命名空间的 AppArmor 限制，因为容器里用不上宿主机的 profile，Mac 上也没有这个限制（`test` 任务继续覆盖 profile）。**还没在 CI 上跑过**，推送后看结果
+- [x] CI 增加 `devcontainer` 任务（Ubuntu 24.04 和 26.04）：构建开发容器，在里面以 `dev` 用户运行 `make lint`、`make test`、`make e2e`、`make e2e-exec`、`make e2e-compat`。容器用户取 runner 的 uid，才能写挂载进来的仓库；先在 runner 上关掉 Ubuntu 对非特权用户命名空间的 AppArmor 限制，因为容器里用不上宿主机的 profile，Mac 上也没有这个限制（`test` 任务继续覆盖 profile）。第一次在 CI 上运行时两个系统都失败在免 root 的 `exec`（Ubuntu 上 Docker 默认的 AppArmor 配置禁止 mount，见上表），加上 `--security-opt apparmor=unconfined` 后 [CI 全部通过](https://github.com/nanmuyao/pingmock/actions/runs/39371647091)：devcontainer 任务在 24.04 和 26.04 上都跑完了五项检查
 - [x] 中英文使用说明：[`.devcontainer/README.md`](.devcontainer/README.md)（[中文](.devcontainer/README.zh-CN.md)）：怎样打开（VS Code、devcontainer CLI、纯 Docker）、哪些检查在容器里跑、哪些交给 CI、需要哪些权限、和 Linux 的差别、各项用时。在这台 Mac 上验证了纯 Docker 和 devcontainer CLI 0.89.0 两种方式；CLI 0.80.0 在 Docker Desktop 4.68 上启动容器后一直卡在等 `docker events`，文档里写明要用新版。VS Code 没有装，「Reopen in Container」没有试
 - [x] 增加 [`CLAUDE.md`](CLAUDE.md)：四个核心价值、测试应用而不是协议、证据优先、验证后再下结论、依赖要发布超过两周、中英文文档同步、seed 序列是行为的一部分、不提交来源不明的文件、TODO 保持最新、提交信息的格式，以及在哪里跑哪些测试
 
