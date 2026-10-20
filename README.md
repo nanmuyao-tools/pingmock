@@ -4,7 +4,7 @@
 
 English | [中文](README.zh-CN.md)
 
-Mock network answers on Linux, starting with ping: ICMP and ICMPv6 Echo, and TCP connections. Set the **delay, jitter, packet loss, unreachable errors and refused connections** for each target address and port precisely, and change them while your tests are running.
+Mock network answers on Linux, starting with ping: ICMP and ICMPv6 Echo, TCP connections, and DNS under `pingmock exec`. Set the **delay, jitter, packet loss, unreachable errors, refused connections and DNS failures** for each target address, port and name precisely, and change them while your tests are running.
 
 ![A program that pings three servers and picks the fastest chooses a different one each time pingmock changes their latency](docs/demo/demo.svg)
 
@@ -279,6 +279,7 @@ Flags given on the command line override the file, so one file can serve many te
 | `-host` | | `NAME=ADDR`, repeatable, `pingmock exec` only: the command resolves `NAME` to `ADDR`, see [Names](#names) |
 | `-path` | | `TARGET=PATH`, repeatable: the route traceroute and mtr see to `TARGET`, see [Paths](#paths-traceroute-and-mtr) |
 | `-tcp` | | `TARGET=RULE`, repeatable: how TCP connections to `TARGET` (`ADDR[:PORT]`, `PREFIX[:PORT]`, `[IPv6]:PORT`) are answered, see [TCP connections](#tcp-connections) |
+| `-dns` | | `NAME=RULE`, repeatable, `pingmock exec` only: how the command's DNS queries for `NAME` are answered, see [DNS faults](#dns-faults) |
 | `-v` | `false` | Log every request |
 | `-version` | | Print the version and exit |
 
@@ -327,6 +328,53 @@ hosts:                            # only to choose the addresses
 ```
 
 Names are for `pingmock exec` only. When pingmock runs for the whole machine with `sudo pingmock`, add the names to the machine's `/etc/hosts` and write the rules for the addresses.
+
+### DNS faults
+
+Software also breaks when names stop resolving: a DNS server that fails, a name that disappears, a lookup that hangs. Under `pingmock exec`, a **DNS rule** decides how the command's queries for a name are answered:
+
+```bash
+pingmock exec \
+  -dns api.example.com=nxdomain \
+  -dns 'backup.example.com=servfail for 2 requests; 10ms' \
+  -dns github.com=delay=2s \
+  -dns slow.example=timeout \
+  -- ./my-app
+```
+
+The rule is written as for `-rule`, and means:
+
+| Setting | The program sees |
+|---|---|
+| `20ms`, `delay=`, `jitter=` | The usual answer after the delay: the mocked address for a mocked name, the host resolver's answer for any other |
+| `nxdomain` | The name does not exist: `getaddrinfo` fails at once with `EAI_NONAME` ("Name or service not known"), Go with `no such host` |
+| `servfail` | The server failed: the resolver tries again, then fails with `EAI_AGAIN` ("Temporary failure in name resolution") |
+| `timeout`, `loss=30%` | No answer: the resolver waits its timeout, by default 5 seconds, tries again, then fails with `EAI_AGAIN` |
+| `pattern=.ns` | Queries in turn: `.` answered, `x` no answer, `n` NXDOMAIN, `s` SERVFAIL |
+
+A rule works for mocked names (with `-host` or a rule for the name) and for real ones, which are then failed without asking the host. Its name is left out of the command's `/etc/hosts`, which programs read before asking DNS.
+
+Phases count **queries**, for each name and query type apart. A lookup usually asks for A and AAAA at once, and a resolver asks again after a SERVFAIL or a timeout, so how many lookups a phase covers depends on what they get: `nxdomain for 2 requests` fails two lookups, since NXDOMAIN is believed at once; `servfail for 2 requests` fails one, since the C library asks twice by default (`attempts:2` in `resolv.conf`). The statistics, keyed as `api.example.com/A` and `api.example.com/AAAA`, show what happened. Names a resolver tries with the search domains of `resolv.conf` (`api.example.com.corp.example`) are other names, forwarded as usual.
+
+Delays close to the resolver's timeout behave differently by resolver: the C library still takes an answer that comes after its timeout, if it has asked again in the meantime, and Go's resolver does not.
+
+In a configuration file and through the API:
+
+```yaml
+dns:
+  api.example.com: nxdomain
+  backup.example.com: servfail for 2 requests; 10ms
+  github.com: {delay: 2s}
+```
+
+```bash
+curl -X PUT localhost:9100/dns/api.example.com -d servfail
+curl -X DELETE localhost:9100/dns/api.example.com
+```
+
+The Go client has `SetDNS`, `DeleteDNS` and `DNSStats`. Through the API, a rule can be set for any name not in the command's `/etc/hosts`; to change the answers for a mocked name later, give it a DNS rule from the start (`-dns api.example.com=0ms`). `GET /rules` lists the DNS rules under `dns`, and their statistics under `dns_stats`: requests, answered, nxdomain, servfail, dropped. Each query for a name with a rule is recorded in the history with `"probe": "dns"`, the `name`, the `qtype` and the result `answer`, `nxdomain`, `servfail` or `drop`; `GET /history?target=api.example.com` returns them. PTR queries are not affected. Randomness comes from the seed, per name and query type.
+
+DNS rules are for `pingmock exec` only: for the whole machine, pingmock cannot get between programs and the machine's resolver, so `sudo pingmock -dns` is refused.
 
 ## TCP connections
 
@@ -624,7 +672,7 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 
 ## Limitations
 
-- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. No data is exchanged on an accepted connection: pingmock mocks no service. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
+- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. No data is exchanged on an accepted connection: pingmock mocks no service. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
 - Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
 - Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr, and only its pings are answered: UDP and TCP probes to it get nothing. With a path, UDP and TCP probes get the answers that mean "reached", but no data is exchanged: pingmock mocks no service.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.

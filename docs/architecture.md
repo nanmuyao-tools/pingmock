@@ -23,6 +23,7 @@ internal/
   rule/                   rules: what a rule is and how it is written    ┘
   api/                    the HTTP API that changes rules while running
   config/                 the YAML configuration file
+  dns/                    the DNS server pingmock exec runs for its command, with DNS rules
 client/                   Go client for the API, for tests (the only public package)
 test/                     end-to-end checks
 ```
@@ -67,7 +68,7 @@ These types are the key to the code. They live in `rule` and `engine`:
 | **Spec** | [`rule.Spec`](../internal/rule/spec.go) | How to answer **one** request: delay, jitter, loss or a loss pattern, unreachable or not. `delay=50ms,loss=5%` is a Spec |
 | **Phase** | [`rule.Phase`](../internal/rule/scenario.go) | A Spec with a length: a duration (`for 10s`) or a number of requests (`for 5 pings`) |
 | **Scenario** | [`rule.Scenario`](../internal/rule/scenario.go) | A sequence of phases, such as `30ms for 10 pings; timeout`. A plain rule is a scenario with one endless phase |
-| **Outcome** | [`rule.Outcome`](../internal/rule/outcome.go) | What happens to a request: `Reply`, `Drop` or `Unreachable`; for paths also `TimeExceeded`, `PortUnreachable` and `SynAck`, and for TCP rules `Refused`, and `Closed` and `Reset` for connections they accepted with `after=` |
+| **Outcome** | [`rule.Outcome`](../internal/rule/outcome.go) | What happens to a request: `Reply`, `Drop` or `Unreachable`; for paths also `TimeExceeded`, `PortUnreachable` and `SynAck`, and for TCP rules `Refused`, and `Closed` and `Reset` for connections they accepted with `after=`; for DNS rules `NXDomain` and `ServFail` |
 | **RuleSet** | [`engine.RuleSet`](../internal/engine/ruleset.go) | The installed rules, and **the state of each target address**: its phase, how many requests it got in that phase, and its own random source |
 | **Decision** | [`engine.Decision`](../internal/engine/ruleset.go) | What `RuleSet.Decide` returns: the outcome, the delay, and the rule and phase that applied |
 | **History** | [`engine.History`](../internal/engine/history.go) | Recent requests, in a fixed-size ring buffer |

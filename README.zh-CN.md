@@ -4,7 +4,7 @@
 
 [English](README.md) | 中文
 
-在 Linux 上模拟网络的回应，从 ping 起步：ICMP 和 ICMPv6 Echo，以及 TCP 连接。可以精确设定每个目标地址和端口的**延迟、抖动、丢包率、不可达错误和拒绝连接**，并在运行中随时修改。
+在 Linux 上模拟网络的回应，从 ping 起步：ICMP 和 ICMPv6 Echo、TCP 连接，以及 `pingmock exec` 下的 DNS。可以精确设定每个目标地址、端口和域名的**延迟、抖动、丢包率、不可达错误、拒绝连接和 DNS 故障**，并在运行中随时修改。
 
 ![一个 ping 三台服务器并选出最快者的程序，随着 pingmock 改变各台的延迟，每次选出不同的服务器](docs/demo/demo.svg)
 
@@ -279,6 +279,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 | `-host` | | `域名=地址`，可重复，仅限 `pingmock exec`：命令把域名解析成这个地址，见[域名](#域名) |
 | `-path` | | `目标=路径`，可重复：traceroute 和 mtr 看到的、到目标的路径，见[路径](#路径traceroute-和-mtr) |
 | `-tcp` | | `目标=规则`，可重复：发往目标（`地址[:端口]`、`网段[:端口]`、`[IPv6]:端口`）的 TCP 连接怎样回应，见 [TCP 连接](#tcp-连接) |
+| `-dns` | | `域名=规则`，可重复，只用于 `pingmock exec`：命令对该域名的 DNS 查询怎样回应，见 [DNS 故障](#dns-故障) |
 | `-v` | `false` | 打印每个请求的处理日志 |
 | `-version` | | 打印版本号并退出 |
 
@@ -327,6 +328,53 @@ hosts:                            # 只在需要指定地址时写
 ```
 
 域名只用于 `pingmock exec`。用 `sudo pingmock` 为整台机器模拟时，请把域名加到机器的 `/etc/hosts` 里，规则写地址。
+
+### DNS 故障
+
+域名解析不了的时候，软件也会出问题：DNS 服务器出错、域名消失、解析一直没有回应。在 `pingmock exec` 下，**DNS 规则**决定命令对某个域名的查询怎样回应：
+
+```bash
+pingmock exec \
+  -dns api.example.com=nxdomain \
+  -dns 'backup.example.com=servfail for 2 requests; 10ms' \
+  -dns github.com=delay=2s \
+  -dns slow.example=timeout \
+  -- ./my-app
+```
+
+规则的写法和 `-rule` 相同，含义如下：
+
+| 设置 | 程序看到的 |
+|---|---|
+| `20ms`、`delay=`、`jitter=` | 延迟之后得到通常的回复：模拟的域名是模拟的地址，其他域名是宿主机解析器的回复 |
+| `nxdomain` | 域名不存在：`getaddrinfo` 立即以 `EAI_NONAME`（"Name or service not known"）失败，Go 报 `no such host` |
+| `servfail` | 服务器出错：解析器重试，然后以 `EAI_AGAIN`（"Temporary failure in name resolution"）失败 |
+| `timeout`、`loss=30%` | 不回应：解析器等到超时（默认 5 秒）后重试，然后以 `EAI_AGAIN` 失败 |
+| `pattern=.ns` | 按顺序轮流：`.` 回复、`x` 不回应、`n` NXDOMAIN、`s` SERVFAIL |
+
+规则对模拟的域名（用 `-host` 或为域名写的规则）和真实的域名都有效，真实域名的故障直接由 pingmock 回答，不去问宿主机。有规则的域名不写进命令的 `/etc/hosts`，因为程序会先读 hosts 文件、不问 DNS。
+
+场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 只让一次解析失败，因为 C 库默认问两次（`resolv.conf` 里的 `attempts:2`）。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。解析器加上 `resolv.conf` 的 search 域去试的名字（`api.example.com.corp.example`）是别的域名，照常转发。
+
+延迟接近解析器的超时时，不同解析器的表现不同：C 库在超时后已经重试的情况下仍会接受迟到的回复，Go 的解析器不会。
+
+配置文件和 API 中的写法：
+
+```yaml
+dns:
+  api.example.com: nxdomain
+  backup.example.com: servfail for 2 requests; 10ms
+  github.com: {delay: 2s}
+```
+
+```bash
+curl -X PUT localhost:9100/dns/api.example.com -d servfail
+curl -X DELETE localhost:9100/dns/api.example.com
+```
+
+Go 客户端有 `SetDNS`、`DeleteDNS` 和 `DNSStats`。通过 API 可以为任何不在命令 `/etc/hosts` 里的域名设置规则；要在运行中改变模拟域名的回复，启动时就给它一条 DNS 规则（`-dns api.example.com=0ms`）。`GET /rules` 在 `dns` 中列出 DNS 规则，在 `dns_stats` 中给出统计：请求、回复、nxdomain、servfail、丢弃。对有规则的域名的每次查询都会记入历史，带有 `"probe": "dns"`、`name`、`qtype`，结果是 `answer`、`nxdomain`、`servfail` 或 `drop`；`GET /history?target=api.example.com` 返回这些记录。PTR 查询不受影响。随机性来自种子，按域名和查询类型各自独立。
+
+DNS 规则只用于 `pingmock exec`：为整台机器模拟时，pingmock 无法插到程序和机器的解析器之间，所以 `sudo pingmock -dns` 会被拒绝。
 
 ## TCP 连接
 
@@ -624,7 +672,7 @@ make e2e-docker   # 容器镜像和 Compose 示例
 
 ## 限制
 
-- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。接受的连接上不交换数据：pingmock 不模拟任何服务。其他 TCP 流量和 UDP 不会得到响应，设置了路径的目标收到的 traceroute、mtr 探测除外。
+- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。在 `pingmock exec` 下，对有 [DNS 规则](#dns-故障)的域名的 DNS 查询按规则回应。接受的连接上不交换数据：pingmock 不模拟任何服务。其他 TCP 流量和 UDP 不会得到响应，设置了路径的目标收到的 traceroute、mtr 探测除外。
 - **绑定网卡**的 ping 不会被模拟：`ping -I eth0 8.8.8.8` 无论路由怎样都会从 `eth0` 发出，因此绕过了 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）则照常被模拟。
 - 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外，而且只回应 ping：发给它的 UDP 和 TCP 探测得不到任何回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，但不会交换任何数据：pingmock 不模拟任何服务。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。

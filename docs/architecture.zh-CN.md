@@ -23,6 +23,7 @@ internal/
   rule/                   规则：一条规则是什么，怎么书写          ┘
   api/                    HTTP 控制接口：运行中修改规则
   config/                 YAML 配置文件
+  dns/                    pingmock exec 为命令运行的 DNS 服务，执行 DNS 规则
 client/                   给 Go 测试用的 API 客户端（唯一公开的包）
 test/                     端到端测试脚本
 ```
@@ -67,7 +68,7 @@ ping 程序收到回复时计算往返时间，得到的就是设定的 50ms。
 | **规则** | [`rule.Spec`](../internal/rule/spec.go) | 怎样回应**一个**请求：延迟、抖动、丢包率或丢包模式、是否返回不可达。`delay=50ms,loss=5%` 就是一个 Spec |
 | **阶段** | [`rule.Phase`](../internal/rule/scenario.go) | 一个 Spec 加上持续多久（`for 10s`）或持续几个请求（`for 5 pings`） |
 | **场景** | [`rule.Scenario`](../internal/rule/scenario.go) | 若干阶段组成的序列，比如 `30ms for 10 pings; timeout`。普通规则就是只有一个阶段、永不结束的场景 |
-| **结果** | [`rule.Outcome`](../internal/rule/outcome.go) | 一个请求的结局：`Reply`（回复）、`Drop`（丢弃）、`Unreachable`（不可达）；路径还有 `TimeExceeded`、`PortUnreachable`、`SynAck`，TCP 规则还有 `Refused`（拒绝），以及用 `after=` 关闭或重置已接受连接时的 `Closed`、`Reset` |
+| **结果** | [`rule.Outcome`](../internal/rule/outcome.go) | 一个请求的结局：`Reply`（回复）、`Drop`（丢弃）、`Unreachable`（不可达）；路径还有 `TimeExceeded`、`PortUnreachable`、`SynAck`，TCP 规则还有 `Refused`（拒绝），以及用 `after=` 关闭或重置已接受连接时的 `Closed`、`Reset`；DNS 规则还有 `NXDomain`、`ServFail` |
 | **规则集** | [`engine.RuleSet`](../internal/engine/ruleset.go) | 所有已安装的规则，以及**每个目标地址各自的状态**：处在哪个阶段、阶段里已经收到几个请求、自己的随机数生成器 |
 | **决策** | [`engine.Decision`](../internal/engine/ruleset.go) | `RuleSet.Decide` 的返回值：结果、延迟、匹配的规则和阶段 |
 | **历史** | [`engine.History`](../internal/engine/history.go) | 最近请求的记录，固定大小的环形缓冲区 |
