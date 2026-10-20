@@ -26,6 +26,9 @@ type instance struct {
 	srv    *http.Server
 	apiURL string // empty when the API is disabled
 	served chan error
+
+	rules   *engine.RuleSet
+	history *engine.History
 }
 
 // start sets up the device, installs the rules and starts answering. When it
@@ -78,11 +81,16 @@ func start(s *settings) (*instance, error) {
 		}
 		rs.SetTCP(r.prefix, r.port, r.sc)
 	}
+	for _, r := range s.dns {
+		rs.SetDNS(r.Name, r.Scenario)
+	}
 	rs.SaveBaseline() // what POST /reset goes back to
 	hist := engine.NewHistory(s.history)
+	in.rules, in.history = rs, hist
 
 	if s.api != "" {
-		if err := in.startAPI(s.api, api.NewHandler(rs, hist, router.Ensure, buildVersion())); err != nil {
+		h := api.NewHandler(rs, hist, router.Ensure, buildVersion(), s.dnsTarget)
+		if err := in.startAPI(s.api, h); err != nil {
 			dev.Close()
 			return nil, err
 		}
@@ -169,8 +177,15 @@ func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
 	for _, h := range s.hosts {
 		log.Printf("name %s resolves to %s (for the command only)", h.Name, h.Addr)
 	}
+	for _, r := range s.dns {
+		log.Printf("dns %s: %s", r.Name, rule.DNSScenario{Scenario: r.Scenario})
+	}
 	if apiURL != "" {
-		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /tcp/{target}, PUT /default, GET /history, POST /reset)", apiURL)
+		dnsAPI := ""
+		if s.exec && s.names() {
+			dnsAPI = ", PUT /dns/{name}"
+		}
+		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /tcp/{target}%s, PUT /default, GET /history, POST /reset)", apiURL, dnsAPI)
 	}
 }
 

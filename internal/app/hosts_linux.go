@@ -63,7 +63,7 @@ func mountOver(path string, content []byte) error {
 
 // mountHosts gives the command its own /etc/hosts: the system's, with the
 // given names on top so that they win over any existing entry.
-func mountHosts(hosts []config.Host) error {
+func mountHosts(hosts []config.Host, dnsNames []string) error {
 	system, err := os.ReadFile(hostsFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("-host: %w", err)
@@ -74,7 +74,7 @@ func mountHosts(hosts []config.Host) error {
 		fmt.Fprintf(&b, "%s\t%s\n", h.Addr, h.Name)
 	}
 	b.WriteString("\n")
-	b.Write(system)
+	b.WriteString(withoutNames(string(system), dnsNames))
 	if err := mountOver(hostsFile, []byte(b.String())); err != nil {
 		return fmt.Errorf("-host: %w", err)
 	}
@@ -94,6 +94,46 @@ func hideNscd() error {
 		return fmt.Errorf("hiding nscd's socket %s: %w", nscdSocket, err)
 	}
 	return nil
+}
+
+// withoutNames removes names from the lines of a hosts file, and lines
+// left without a name, so that the names, which have DNS rules, are asked
+// of the DNS server.
+func withoutNames(hosts string, names []string) string {
+	if len(names) == 0 {
+		return hosts
+	}
+	drop := map[string]bool{}
+	for _, n := range names {
+		drop[n] = true
+	}
+	lines := strings.SplitAfter(hosts, "\n")
+	for i, line := range lines {
+		text, comment, _ := strings.Cut(strings.TrimRight(line, "\n"), "#")
+		f := strings.Fields(text)
+		if len(f) < 2 {
+			continue
+		}
+		kept := f[:1]
+		for _, n := range f[1:] {
+			if !drop[strings.ToLower(strings.TrimSuffix(n, "."))] {
+				kept = append(kept, n)
+			}
+		}
+		switch {
+		case len(kept) == len(f):
+			continue
+		case len(kept) == 1:
+			lines[i] = "# pingmock exec: has a DNS rule: " + line
+		default:
+			lines[i] = strings.Join(kept, "\t")
+			if comment != "" {
+				lines[i] += " #" + comment
+			}
+			lines[i] += "\n"
+		}
+	}
+	return strings.Join(lines, "")
 }
 
 // mountResolvConf points the command's resolver at pingmock's DNS server:

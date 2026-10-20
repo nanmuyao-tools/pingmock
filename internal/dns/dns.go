@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 // Table maps names to addresses, and addresses back to names.
@@ -86,6 +88,11 @@ type Server struct {
 	// it fails, the query gets no answer, as when the host's resolver
 	// does not answer, and the resolver asking times out.
 	Forward func(query []byte, tcp bool) ([]byte, error)
+	// Rule, if set, decides how to answer a query for a name with a DNS
+	// rule: answer as without the rule (rule.Reply), rule.NXDomain,
+	// rule.ServFail or no answer (rule.Drop), after the delay. ok is false
+	// for names without a rule. PTR queries are not asked about.
+	Rule func(name string, qtype uint16) (out rule.Outcome, delay time.Duration, ok bool)
 	// Log, if set, is told about every query.
 	Log func(format string, args ...any)
 }
@@ -174,6 +181,28 @@ func (s *Server) answer(q []byte, tcp bool) []byte {
 	if qclass != classIN {
 		return respond(q, q[12:qend], rcodeOK, nil)
 	}
+	if s.Rule != nil && qtype != typePTR {
+		if out, delay, ok := s.Rule(name, qtype); ok {
+			var resp []byte
+			switch out {
+			case rule.Drop:
+				return nil
+			case rule.NXDomain:
+				resp = respond(q, q[12:qend], rcodeNXDomain, nil)
+			case rule.ServFail:
+				resp = respond(q, q[12:qend], rcodeServFail, nil)
+			default:
+				resp = s.resolve(q, name, qtype, qend, tcp)
+			}
+			time.Sleep(delay) // after forwarding: the delay is pingmock's own
+			return resp
+		}
+	}
+	return s.resolve(q, name, qtype, qend, tcp)
+}
+
+// resolve answers a query for name from the table, or forwards it.
+func (s *Server) resolve(q []byte, name string, qtype uint16, qend int, tcp bool) []byte {
 	var records [][]byte
 	known := false
 	switch qtype {

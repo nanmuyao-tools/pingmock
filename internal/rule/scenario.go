@@ -34,10 +34,10 @@ func Single(sp Spec) Scenario { return Scenario{Phases: []Phase{{Spec: sp}}} }
 //
 //	50ms for 3 pings; delay=500ms,jitter=50ms for 10s; timeout
 //	20ms for 5s; timeout for 2s; repeat
-func ParseScenario(s string) (Scenario, error) { return parseScenario(s, false) }
+func ParseScenario(s string) (Scenario, error) { return parseScenario(s, protoPing) }
 
 // parseScenario parses a scenario; tcp allows the settings of TCP rules.
-func parseScenario(s string, tcp bool) (Scenario, error) {
+func parseScenario(s string, kind proto) (Scenario, error) {
 	var sc Scenario
 	if strings.TrimSpace(s) == "" {
 		return Scenario{}, fmt.Errorf("empty rule")
@@ -60,14 +60,14 @@ func parseScenario(s string, tcp bool) (Scenario, error) {
 				return Scenario{}, fmt.Errorf("invalid rule %q: %w", s, err)
 			}
 		}
-		sp, err := parseSpec(specText, tcp)
+		sp, err := parseSpec(specText, kind)
 		if err != nil {
 			return Scenario{}, err
 		}
 		p.Spec = sp
 		sc.Phases = append(sc.Phases, p)
 	}
-	if err := sc.validateFor(tcp); err != nil {
+	if err := sc.validateFor(kind); err != nil {
 		return Scenario{}, fmt.Errorf("invalid rule %q: %w", s, err)
 	}
 	return sc, nil
@@ -77,7 +77,7 @@ func (p *Phase) parseBound(s string) error {
 	s = strings.TrimSpace(s)
 	if num, unit, ok := strings.Cut(s, " "); ok {
 		switch strings.TrimSpace(unit) {
-		case "ping", "pings", "request", "requests", "connection", "connections":
+		case "ping", "pings", "request", "requests", "connection", "connections", "query", "queries":
 			n, err := strconv.Atoi(num)
 			if err != nil || n <= 0 {
 				return fmt.Errorf("invalid request count %q", num)
@@ -95,9 +95,9 @@ func (p *Phase) parseBound(s string) error {
 	return nil
 }
 
-func (sc Scenario) validate() error { return sc.validateFor(false) }
+func (sc Scenario) validate() error { return sc.validateFor(protoPing) }
 
-func (sc Scenario) validateFor(tcp bool) error {
+func (sc Scenario) validateFor(kind proto) error {
 	if len(sc.Phases) == 0 {
 		return fmt.Errorf("no phases")
 	}
@@ -108,7 +108,7 @@ func (sc Scenario) validateFor(tcp bool) error {
 		if p.For < 0 || p.Count < 0 {
 			return fmt.Errorf("phase %d has a negative length", i+1)
 		}
-		if err := p.Spec.validateFor(tcp); err != nil {
+		if err := p.Spec.validateFor(kind); err != nil {
 			return fmt.Errorf("phase %d: %w", i+1, err)
 		}
 		last := i == len(sc.Phases)-1
@@ -164,8 +164,23 @@ type TCPScenario struct{ Scenario }
 // ParseTCPScenario parses the scenario of a TCP rule, such as
 // "refuse for 3 requests; 20ms".
 func ParseTCPScenario(s string) (TCPScenario, error) {
-	sc, err := parseScenario(s, true)
+	sc, err := parseScenario(s, protoTCP)
 	return TCPScenario{sc}, err
 }
 
 func (sc TCPScenario) String() string { return sc.format("request") }
+
+// DNSScenario is the scenario of a DNS rule. It accepts delays, loss and
+// patterns as a Scenario does, plus the settings only DNS rules have
+// ("nxdomain", "servfail", and 'n' and 's' in a pattern), and its phases
+// count queries, printed as requests.
+type DNSScenario struct{ Scenario }
+
+// ParseDNSScenario parses the scenario of a DNS rule, such as
+// "servfail for 2 requests; 10ms".
+func ParseDNSScenario(s string) (DNSScenario, error) {
+	sc, err := parseScenario(s, protoDNS)
+	return DNSScenario{sc}, err
+}
+
+func (sc DNSScenario) String() string { return sc.format("request") }

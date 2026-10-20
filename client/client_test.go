@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,8 @@ func serve(t *testing.T) (*Client, *engine.RuleSet, *engine.History) {
 	def, _ := rule.ParseScenario("0ms")
 	rs := engine.NewRuleSet(def, 42)
 	hist := engine.NewHistory(100)
-	srv := httptest.NewServer(api.NewHandler(rs, hist, func(netip.Prefix) error { return nil }, "v0.0.0-test"))
+	dnsTarget := func(name string) (string, error) { return strings.ToLower(name), rule.ValidName(name) }
+	srv := httptest.NewServer(api.NewHandler(rs, hist, func(netip.Prefix) error { return nil }, "v0.0.0-test", dnsTarget))
 	t.Cleanup(srv.Close)
 	return New(srv.URL), rs, hist
 }
@@ -240,5 +242,51 @@ func TestTCPRules(t *testing.T) {
 	}
 	if err := c.DeleteTCP(ctx, "[fd99::1]:443"); !IsNotFound(err) {
 		t.Errorf("DeleteTCP again: %v, want not found", err)
+	}
+	// after=close: the connection is closed on the handshake's final ACK,
+	// and TCPStats says so.
+	if err := c.SetTCP(ctx, "10.99.0.2:80", "after=close"); err != nil {
+		t.Fatal(err)
+	}
+	probe.Dst, probe.DstPort = netip.MustParseAddr("10.99.0.2"), 80
+	rs.DecideProbe(probe)
+	probe.Kind, probe.TCPFlags, probe.TCPSeq, probe.TCPAck = icmp.Segment, icmp.FlagACK, 2, icmp.SynAckSeq+1
+	rs.DecideSegment(probe)
+	if st, err := c.TCPStats(ctx, "10.99.0.2:80"); err != nil || st.Accepted != 1 || st.Closed != 1 || st.Reset != 0 {
+		t.Errorf("TCPStats after=close = %+v, %v", st, err)
+	}
+}
+
+func TestDNSRules(t *testing.T) {
+	c, rs, hist := serve(t)
+	ctx := context.Background()
+	if err := c.SetDNS(ctx, "API.example.com", "servfail for 1 request; 5ms"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetDNS(ctx, "gone.example", "refuse"); err == nil {
+		t.Error("a TCP setting accepted in a DNS rule")
+	}
+	d, _ := rs.DecideDNS("api.example.com", 28)
+	hist.Add(engine.Event{Probe: "dns", Name: "api.example.com", QType: "AAAA", Result: d.Outcome.String(), Rule: d.Rule, Phase: d.Phase})
+	s, err := c.State(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.DNS) != 1 || s.DNS[0].Target != "api.example.com" || s.DNS[0].Rule != "delay=0s,servfail for 1 request; delay=5ms" {
+		t.Errorf("DNS rules: %+v", s.DNS)
+	}
+	st, err := c.DNSStats(ctx, "api.example.com.", "AAAA")
+	if err != nil || st.Requests != 1 || st.ServFail != 1 || st.Rule != "dns api.example.com" {
+		t.Errorf("DNSStats: %+v, %v", st, err)
+	}
+	events, err := c.History(ctx, "api.example.com", 0)
+	if err != nil || len(events) != 1 || events[0].Name != "api.example.com" || events[0].QType != "AAAA" || events[0].Result != "servfail" {
+		t.Errorf("History: %+v, %v", events, err)
+	}
+	if err := c.DeleteDNS(ctx, "api.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteDNS(ctx, "api.example.com"); !IsNotFound(err) {
+		t.Errorf("deleting again: %v", err)
 	}
 }

@@ -261,3 +261,103 @@ func TestParseSettingsTCP(t *testing.T) {
 }
 
 func itoa(n uint16) string { return strconv.Itoa(int(n)) }
+
+func TestParseSettingsDNS(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "c.yaml")
+	os.WriteFile(cfg, []byte("rules:\n  api.example.com: 30ms\ndns:\n  API.example.com.: nxdomain\n  db.example.com: {servfail: true}\n"), 0o644)
+	s, _, err := parse(t, "-config", cfg, "-host", "kept.example=10.99.0.5",
+		"-dns", "db.example.com=delay=2s",
+		"-dns", "github.com=servfail for 2 requests; 10ms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range s.dns {
+		got = append(got, r.Name+"="+r.Scenario.String())
+	}
+	// The file's rules first, names in canonical form, a -dns for the same
+	// name replacing one.
+	want := "api.example.com=delay=0s,nxdomain db.example.com=delay=2s github.com=delay=0s,servfail for 2 pings; delay=10ms"
+	if strings.Join(got, " ") != want {
+		t.Errorf("dns = %v\n  want %s", got, want)
+	}
+	// A name with a DNS rule stays out of /etc/hosts, though it still has
+	// its mocked address for the DNS server.
+	var inFile []string
+	for _, h := range s.hostsFile() {
+		inFile = append(inFile, h.Name)
+	}
+	if strings.Join(inFile, " ") != "kept.example" || len(s.hosts) != 2 {
+		t.Errorf("hosts file %v, hosts %v", inFile, s.hosts)
+	}
+	// DNS rules alone switch name resolution on.
+	s, _, _ = parse(t, "-dns", "github.com=nxdomain")
+	if !s.names() {
+		t.Error("names() = false with only DNS rules")
+	}
+	for _, bad := range []string{"nope", "github.com", "bad..name=nxdomain", "github.com=refuse", "github.com=unreachable", "10.99.0.1=nxdomain", "api.example.com/AAAA=nxdomain"} {
+		if _, _, err := parse(t, "-dns", bad); err == nil {
+			t.Errorf("-dns %q: expected error", bad)
+		}
+	}
+	for _, bad := range []string{"10.99.0.1=nxdomain", "10.99.0.1:80=servfail"} {
+		flag := "-rule"
+		if strings.Contains(bad, ":") {
+			flag = "-tcp"
+		}
+		if _, _, err := parse(t, flag, bad); err == nil || !strings.Contains(err.Error(), "DNS") {
+			t.Errorf("%s %q: %v, want an error naming DNS rules", flag, bad, err)
+		}
+	}
+}
+
+// What the API may set: names under exec with a DNS server, not names
+// the command finds in its /etc/hosts.
+func TestDNSTarget(t *testing.T) {
+	s, _, _ := parse(t, "-host", "fixed.example=10.99.0.5", "-dns", "ruled.example=0ms", "-rule", "ruled.example=5ms")
+	if _, err := s.dnsTarget("github.com"); err == nil || !strings.Contains(err.Error(), "exec only") {
+		t.Errorf("root mode: %v", err)
+	}
+	s.exec = true
+	for name, want := range map[string]string{"GitHub.com.": "", "ruled.example": "", "fixed.example": "/etc/hosts", "bad..name": "invalid"} {
+		n, err := s.dnsTarget(name)
+		switch {
+		case want == "" && (err != nil || n != dnsCanon(name)):
+			t.Errorf("%s: %q, %v", name, n, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: %v, want an error containing %q", name, err, want)
+		}
+	}
+	plain, _, _ := parse(t)
+	plain.exec = true
+	if _, err := plain.dnsTarget("github.com"); err == nil || !strings.Contains(err.Error(), "-dns github.com=0ms") {
+		t.Errorf("exec without a DNS server: %v", err)
+	}
+}
+
+func dnsCanon(n string) string { return strings.ToLower(strings.TrimSuffix(n, ".")) }
+
+func TestWithoutNames(t *testing.T) {
+	in := "127.0.0.1\tlocalhost\n# a comment\n10.0.0.1 api.example.com\n10.0.0.2 db.example.com DB.example.com. other # note\n"
+	want := "127.0.0.1\tlocalhost\n# a comment\n# pingmock exec: has a DNS rule: 10.0.0.1 api.example.com\n10.0.0.2\tother # note\n"
+	if got := withoutNames(in, []string{"api.example.com", "db.example.com"}); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	if got := withoutNames(in, nil); got != in {
+		t.Errorf("without names: %q", got)
+	}
+}
+
+// A DNS rule is refused as root, with a hint, as names are.
+func TestServerRefusesDNS(t *testing.T) {
+	if os.Getenv("PINGMOCK_TEST_MAIN") == "1" {
+		os.Exit(Main([]string{"-api", "", "-dns", "github.com=nxdomain"}))
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestServerRefusesDNS")
+	cmd.Env = append(os.Environ(), "PINGMOCK_TEST_MAIN=1")
+	out, err := cmd.CombinedOutput()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "only work with pingmock exec") {
+		t.Errorf("exit %v, output %s", err, out)
+	}
+}

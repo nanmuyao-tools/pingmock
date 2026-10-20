@@ -23,6 +23,8 @@ type specJSON struct {
 	TTL         numOrString `json:"ttl,omitempty"`         // 1 to 255; unset means rule.DefaultTTL
 	Refuse      bool        `json:"refuse,omitempty"`      // TCP rules only
 	After       string      `json:"after,omitempty"`       // "close", "reset" or "hang"; TCP rules only
+	NXDomain    bool        `json:"nxdomain,omitempty"`    // DNS rules only
+	ServFail    bool        `json:"servfail,omitempty"`    // DNS rules only
 }
 
 // numOrString holds a JSON string or number as text. Configuration files,
@@ -69,21 +71,22 @@ func (sp Spec) MarshalJSON() ([]byte, error) {
 	if sp.After != AfterHang {
 		j.After = sp.After.String()
 	}
+	j.NXDomain, j.ServFail = sp.DNSFail == DNSNXDomain, sp.DNSFail == DNSServFail
 	return json.Marshal(j)
 }
 
 // UnmarshalJSON accepts the object form, a string in the text form, or a
 // number, which is a delay in milliseconds as on the command line.
-func (sp *Spec) UnmarshalJSON(b []byte) error { return sp.unmarshal(b, false) }
+func (sp *Spec) UnmarshalJSON(b []byte) error { return sp.unmarshal(b, protoPing) }
 
 // unmarshal decodes a spec; tcp allows the settings of TCP rules.
-func (sp *Spec) unmarshal(b []byte, tcp bool) error {
+func (sp *Spec) unmarshal(b []byte, kind proto) error {
 	var text string
 	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
 		if err != nil {
 			text = string(b)
 		}
-		out, err := parseSpec(text, tcp)
+		out, err := parseSpec(text, kind)
 		if err != nil {
 			return err
 		}
@@ -114,7 +117,7 @@ func (sp *Spec) unmarshal(b []byte, tcp bool) error {
 		}
 	}
 	if j.Pattern != "" {
-		if out.Pattern, err = parsePatternFor(j.Pattern, tcp); err != nil {
+		if out.Pattern, err = parsePatternFor(j.Pattern, kind); err != nil {
 			return err
 		}
 	}
@@ -130,14 +133,22 @@ func (sp *Spec) unmarshal(b []byte, tcp bool) error {
 	}
 	out.Refuse = j.Refuse
 	if j.After != "" {
-		if !tcp {
+		if kind != protoTCP {
 			return fmt.Errorf("after is for TCP rules (-tcp)")
 		}
 		if out.After, err = parseAfter(j.After); err != nil {
 			return err
 		}
 	}
-	if err := out.validateFor(tcp); err != nil {
+	switch {
+	case j.NXDomain && j.ServFail:
+		return fmt.Errorf("nxdomain and servfail cannot be combined")
+	case j.NXDomain:
+		out.DNSFail = DNSNXDomain
+	case j.ServFail:
+		out.DNSFail = DNSServFail
+	}
+	if err := out.validateFor(kind); err != nil {
 		return err
 	}
 	*sp = out
@@ -161,24 +172,31 @@ type scenarioJSON struct {
 // milliseconds, a single spec object ({"delay":"50ms"}) or a phases object:
 //
 //	{"phases":[{"spec":"50ms","count":3},{"spec":{"delay":"500ms"},"for":"10s"}],"repeat":true}
-func (sc *Scenario) UnmarshalJSON(b []byte) error { return sc.unmarshal(b, false) }
+func (sc *Scenario) UnmarshalJSON(b []byte) error { return sc.unmarshal(b, protoPing) }
 
 // UnmarshalJSON accepts the forms a Scenario accepts, with the settings of
 // TCP rules.
-func (sc *TCPScenario) UnmarshalJSON(b []byte) error { return sc.Scenario.unmarshal(b, true) }
+func (sc *TCPScenario) UnmarshalJSON(b []byte) error { return sc.Scenario.unmarshal(b, protoTCP) }
 
 // MarshalJSON writes the text form, with phases counting requests.
 func (sc TCPScenario) MarshalJSON() ([]byte, error) { return json.Marshal(sc.String()) }
 
+// UnmarshalJSON accepts what Scenario's does, with the settings of DNS
+// rules.
+func (sc *DNSScenario) UnmarshalJSON(b []byte) error { return sc.Scenario.unmarshal(b, protoDNS) }
+
+// MarshalJSON writes the text form, with phases counting requests.
+func (sc DNSScenario) MarshalJSON() ([]byte, error) { return json.Marshal(sc.String()) }
+
 // unmarshal decodes a scenario; tcp allows the settings of TCP rules.
-func (sc *Scenario) unmarshal(b []byte, tcp bool) error {
+func (sc *Scenario) unmarshal(b []byte, kind proto) error {
 	b = bytes.TrimSpace(b)
 	var text string
 	if err := json.Unmarshal(b, &text); err == nil || isJSONNumber(b) {
 		if err != nil {
 			text = string(b) // a bare number: milliseconds, as on the command line
 		}
-		out, err := parseScenario(text, tcp)
+		out, err := parseScenario(text, kind)
 		if err != nil {
 			return err
 		}
@@ -191,7 +209,7 @@ func (sc *Scenario) unmarshal(b []byte, tcp bool) error {
 	}
 	if _, ok := probe["phases"]; !ok {
 		var sp Spec
-		if err := sp.unmarshal(b, tcp); err != nil {
+		if err := sp.unmarshal(b, kind); err != nil {
 			return err
 		}
 		*sc = Single(sp)
@@ -207,7 +225,7 @@ func (sc *Scenario) unmarshal(b []byte, tcp bool) error {
 	for _, pj := range j.Phases {
 		p := Phase{Count: pj.Count}
 		if len(pj.Spec) > 0 { // without one, the zero spec, as before
-			if err := p.Spec.unmarshal(pj.Spec, tcp); err != nil {
+			if err := p.Spec.unmarshal(pj.Spec, kind); err != nil {
 				return err
 			}
 		}
@@ -220,7 +238,7 @@ func (sc *Scenario) unmarshal(b []byte, tcp bool) error {
 		}
 		out.Phases = append(out.Phases, p)
 	}
-	if err := out.validateFor(tcp); err != nil {
+	if err := out.validateFor(kind); err != nil {
 		return err
 	}
 	*sc = out

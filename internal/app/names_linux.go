@@ -4,11 +4,49 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"os"
+	"time"
 
 	"github.com/nanmuyao/pingmock/internal/config"
 	"github.com/nanmuyao/pingmock/internal/dns"
+	"github.com/nanmuyao/pingmock/internal/engine"
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
+
+// dnsServerAddr is the address of the command's DNS server, as recorded
+// in the history.
+var dnsServerAddr = netip.MustParseAddr("127.0.0.1")
+
+// dnsRule returns the DNS server's Rule: the decision of rs, recorded in
+// hist and, if verbose, in the log.
+func dnsRule(rs *engine.RuleSet, hist *engine.History, verbose bool) func(string, uint16) (rule.Outcome, time.Duration, bool) {
+	return func(name string, qtype uint16) (rule.Outcome, time.Duration, bool) {
+		d, ok := rs.DecideDNS(name, qtype)
+		if !ok {
+			return 0, 0, false
+		}
+		ev := engine.Event{
+			Time: time.Now(), Src: dnsServerAddr, Dst: dnsServerAddr, Result: d.Outcome.String(),
+			Rule: d.Rule, Phase: d.Phase, Probe: "dns", Name: dns.Canonical(name), QType: engine.QType(qtype),
+		}
+		if d.Outcome == rule.Reply {
+			ev.Result = "answer"
+		}
+		if d.Outcome != rule.Drop {
+			ev.Delay = d.Delay.String()
+		}
+		hist.Add(ev)
+		if verbose {
+			what := ev.Result
+			if ev.Delay != "" {
+				what += " in " + ev.Delay
+			}
+			log.Printf("dns %s %s: %s [rule %s, phase %d]", ev.Name, ev.QType, what, d.Rule, d.Phase)
+		}
+		return d.Outcome, d.Delay, true
+	}
+}
 
 // dnsAddr is where the command's DNS server listens, inside its network.
 const dnsAddr = "127.0.0.1:53"
@@ -21,11 +59,11 @@ const relayFD = 3
 // its own /etc/hosts, a resolv.conf pointing at pingmock's DNS server,
 // and, if needed, an nsswitch.conf that does not bypass it; nscd, which
 // would bypass both, is hidden. It runs in the child's mount namespace.
-func setupNames(hosts []config.Host) error {
+func setupNames(hosts []config.Host, dnsNames []string) error {
 	if err := privateMounts(); err != nil {
 		return err
 	}
-	if err := mountHosts(hosts); err != nil {
+	if err := mountHosts(hosts, dnsNames); err != nil {
 		return err
 	}
 	host, _, _ := net.SplitHostPort(dnsAddr)
@@ -40,8 +78,10 @@ func setupNames(hosts []config.Host) error {
 
 // serveDNS starts the command's DNS server: it answers for the mocked
 // names and addresses and forwards everything else to the parent, which
-// asks the host's resolver. It returns once the server listens.
-func serveDNS(hosts []config.Host) error {
+// asks the host's resolver, as the DNS rules in rs say; queries for names
+// with a DNS rule are recorded in hist. It returns once the server
+// listens.
+func serveDNS(hosts []config.Host, rs *engine.RuleSet, hist *engine.History, verbose bool) error {
 	table := dns.NewTable()
 	for _, h := range hosts {
 		table.Add(h.Name, h.Addr)
@@ -63,7 +103,7 @@ func serveDNS(hosts []config.Host) error {
 	if err != nil {
 		return fmt.Errorf("DNS: listening on %s over TCP: %w", dnsAddr, err)
 	}
-	srv := &dns.Server{Table: table, Forward: dns.StreamForwarder(conn)}
+	srv := &dns.Server{Table: table, Forward: dns.StreamForwarder(conn), Rule: dnsRule(rs, hist, verbose)}
 	go srv.Serve(pc)
 	go srv.ServeTCP(l)
 	log.Printf("DNS on %s for the command: %d mocked names, other names go to the host's resolver", dnsAddr, len(table.Names()))

@@ -146,8 +146,9 @@ func runExecChild(args []string) int {
 		log.Print(err)
 		return 2
 	}
+	s.exec = true
 	if s.names() {
-		if err := setupNames(s.hosts); err != nil {
+		if err := setupNames(s.hostsFile(), s.dnsNames()); err != nil {
 			log.Print(explain(err, rootless))
 			return 1
 		}
@@ -158,18 +159,18 @@ func runExecChild(args []string) int {
 		log.Print(explain(err, rootless))
 		return 1
 	}
-	if s.names() {
-		if err := serveDNS(s.hosts); err != nil {
-			log.Print(explain(err, rootless))
-			return 1
-		}
-	}
 	in, err := start(s)
 	if err != nil {
 		log.Print(explain(err, rootless))
 		return 1
 	}
 	defer in.Close()
+	if s.names() {
+		if err := serveDNS(s.hosts, in.rules, in.history, s.verbose); err != nil {
+			log.Print(explain(err, rootless))
+			return 1
+		}
+	}
 
 	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

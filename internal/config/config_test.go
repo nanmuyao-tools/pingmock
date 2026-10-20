@@ -286,3 +286,45 @@ func TestLoadTCP(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadDNS(t *testing.T) {
+	cfg, _, err := Load(writeFile(t, "d.yaml", `dns:
+  API.example.com.: nxdomain
+  backup.example.com: servfail for 2 requests; 10ms
+  github.com:
+    delay: 2s
+  slow.example: {phases: [{spec: timeout, count: 1}, {spec: 5ms}]}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := cfg.SortedDNS("d.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range rules {
+		got = append(got, r.Name+"="+(rule.DNSScenario{Scenario: r.Scenario}).String())
+	}
+	want := []string{
+		"api.example.com=delay=0s,nxdomain",
+		"backup.example.com=delay=0s,servfail for 2 requests; delay=10ms",
+		"github.com=delay=2s",
+		"slow.example=timeout for 1 request; delay=5ms",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("dns =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	for in, want := range map[string]string{
+		"dns:\n  bad..name: nxdomain\n":                         "dns \"bad..name\"",
+		"dns:\n  a.example: refuse\n":                           "TCP rules",
+		"dns:\n  a.example: nxdomain\n  A.example.: servfail\n": "same name",
+		"rules:\n  10.99.0.1: nxdomain\n":                       "DNS rules",
+		"dns:\n  - a.example\n":                                 "dns",
+	} {
+		_, _, err := Load(writeFile(t, "d.yaml", in))
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: error %v, want it to contain %q", in, err, want)
+		}
+	}
+}

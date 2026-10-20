@@ -29,7 +29,20 @@ type Spec struct {
 	// After is what happens to a connection once it is accepted: it
 	// stays open (the default), is closed or is reset. TCP rules only.
 	After After
+	// DNSFail answers a DNS query with an error instead of the answer:
+	// the name does not exist, or the server failed. DNS rules only.
+	DNSFail DNSFail
 }
+
+// proto is the protocol a rule is for, which decides the settings it may
+// have.
+type proto uint8
+
+const (
+	protoPing proto = iota
+	protoTCP
+	protoDNS
+)
 
 // DefaultTTL is the TTL of answers whose rule does not set one: what Linux
 // hosts send, so ping shows ttl=64 as it would for a nearby machine.
@@ -55,14 +68,19 @@ func (sp Spec) EffectiveTTL() uint8 {
 // list of settings: "delay=120ms,jitter=10ms,loss=5%", "delay=50ms,pattern=..x"
 // or "delay=20ms,unreachable=admin". The keyword "timeout" means no answer at
 // all, and a bare "unreachable" means host unreachable.
-func ParseSpec(s string) (Spec, error) { return parseSpec(s, false) }
+func ParseSpec(s string) (Spec, error) { return parseSpec(s, protoPing) }
 
 // ParseTCPSpec parses a spec of a TCP rule: what ParseSpec accepts, plus
 // "refuse", "after=close|reset|hang" and the pattern letter 'r'.
-func ParseTCPSpec(s string) (Spec, error) { return parseSpec(s, true) }
+func ParseTCPSpec(s string) (Spec, error) { return parseSpec(s, protoTCP) }
 
-// parseSpec parses a spec; tcp allows the settings of TCP rules.
-func parseSpec(s string, tcp bool) (Spec, error) {
+// ParseDNSSpec parses a spec of a DNS rule: delays, loss and patterns as
+// in ParseSpec, plus "nxdomain", "servfail" and the pattern letters 'n'
+// and 's'.
+func ParseDNSSpec(s string) (Spec, error) { return parseSpec(s, protoDNS) }
+
+// parseSpec parses a spec; kind decides which settings it may have.
+func parseSpec(s string, kind proto) (Spec, error) {
 	var sp Spec
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -80,8 +98,10 @@ func parseSpec(s string, tcp bool) (Spec, error) {
 			if strings.EqualFold(part, "unreachable") {
 				key, val = "unreachable", ""
 			}
-			if strings.EqualFold(part, "refuse") {
-				key = "refuse"
+			for _, k := range []string{"refuse", "nxdomain", "servfail"} {
+				if strings.EqualFold(part, k) {
+					key = k
+				}
 			}
 		}
 		var err error
@@ -93,25 +113,39 @@ func parseSpec(s string, tcp bool) (Spec, error) {
 		case "loss":
 			sp.Loss, err = parseLoss(val)
 		case "pattern":
-			sp.Pattern, err = parsePatternFor(val, tcp)
+			sp.Pattern, err = parsePatternFor(val, kind)
 		case "unreachable":
 			sp.Unreachable, err = parseUnreachCode(val)
 		case "ttl":
 			sp.TTL, err = parseTTL(val)
 		case "after":
-			if !tcp {
+			if kind != protoTCP {
 				err = fmt.Errorf("after is for TCP rules (-tcp)")
 			} else {
 				sp.After, err = parseAfter(val)
 			}
 		case "refuse":
 			switch {
-			case !tcp:
+			case kind != protoTCP:
 				err = fmt.Errorf("refuse is for TCP rules (-tcp)")
 			case found:
 				err = fmt.Errorf("refuse takes no value")
 			default:
 				sp.Refuse = true
+			}
+		case "nxdomain", "servfail":
+			k := strings.ToLower(strings.TrimSpace(key))
+			switch {
+			case kind != protoDNS:
+				err = fmt.Errorf("%s is for DNS rules (-dns)", k)
+			case found:
+				err = fmt.Errorf("%s takes no value", k)
+			case sp.DNSFail != DNSFailNone:
+				err = fmt.Errorf("nxdomain and servfail cannot be combined")
+			case k == "nxdomain":
+				sp.DNSFail = DNSNXDomain
+			default:
+				sp.DNSFail = DNSServFail
 			}
 		default:
 			err = fmt.Errorf("unknown key %q", key)
@@ -120,16 +154,16 @@ func parseSpec(s string, tcp bool) (Spec, error) {
 			return Spec{}, fmt.Errorf("invalid spec %q: %w", s, err)
 		}
 	}
-	if err := sp.validateFor(tcp); err != nil {
+	if err := sp.validateFor(kind); err != nil {
 		return Spec{}, fmt.Errorf("invalid spec %q: %w", s, err)
 	}
 	return sp, nil
 }
 
-func (sp Spec) validate() error { return sp.validateFor(false) }
+func (sp Spec) validate() error { return sp.validateFor(protoPing) }
 
-// validateFor checks a spec; tcp allows the settings of TCP rules.
-func (sp Spec) validateFor(tcp bool) error {
+// validateFor checks a spec; kind decides which settings it may have.
+func (sp Spec) validateFor(kind proto) error {
 	if sp.Delay < 0 || sp.Jitter < 0 {
 		return fmt.Errorf("negative duration")
 	}
@@ -140,13 +174,13 @@ func (sp Spec) validateFor(tcp bool) error {
 		return fmt.Errorf("loss and pattern cannot be combined")
 	}
 	if sp.Pattern != "" {
-		if _, err := parsePatternFor(sp.Pattern, tcp); err != nil {
+		if _, err := parsePatternFor(sp.Pattern, kind); err != nil {
 			return err
 		}
 	}
 	if sp.Refuse {
 		switch {
-		case !tcp:
+		case kind != protoTCP:
 			return fmt.Errorf("refuse is for TCP rules (-tcp)")
 		case sp.Unreachable != UnreachNone:
 			return fmt.Errorf("refuse and unreachable cannot be combined")
@@ -156,11 +190,27 @@ func (sp Spec) validateFor(tcp bool) error {
 	}
 	if sp.After != AfterHang {
 		switch {
-		case !tcp:
+		case kind != protoTCP:
 			return fmt.Errorf("after is for TCP rules (-tcp)")
 		case sp.Refuse || sp.Unreachable != UnreachNone || (sp.Loss == 1 && sp.Pattern == "") ||
 			(sp.Pattern != "" && !strings.Contains(sp.Pattern, ".")):
 			return fmt.Errorf("after=%s applies to accepted connections, and this rule accepts none", sp.After)
+		}
+	}
+	if sp.DNSFail != DNSFailNone {
+		switch {
+		case kind != protoDNS:
+			return fmt.Errorf("%s is for DNS rules (-dns)", sp.DNSFail)
+		case sp.Pattern != "":
+			return fmt.Errorf("%s and pattern cannot be combined; use n or s in the pattern", sp.DNSFail)
+		}
+	}
+	if kind == protoDNS {
+		switch {
+		case sp.Unreachable != UnreachNone:
+			return fmt.Errorf("unreachable is not for DNS rules: use servfail, nxdomain or timeout")
+		case sp.TTL != 0:
+			return fmt.Errorf("ttl is not for DNS rules: their answers always have TTL 0, so that nothing caches them")
 		}
 	}
 	return nil
@@ -211,15 +261,26 @@ func parseTTL(s string) (uint8, error) {
 
 // parsePattern validates a pattern made of '.' (reply), 'x' (drop) and
 // 'u' (unreachable).
-func parsePattern(s string) (string, error) { return parsePatternFor(s, false) }
+func parsePattern(s string) (string, error) { return parsePatternFor(s, protoPing) }
 
-// parsePatternFor validates a pattern; tcp also allows 'r' (refuse).
-func parsePatternFor(s string, tcp bool) (string, error) {
+// parsePatternFor validates a pattern; TCP rules also allow 'r'
+// (refuse), and DNS rules have 'n' (NXDOMAIN) and 's' (SERVFAIL) instead
+// of 'u'.
+func parsePatternFor(s string, kind proto) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if s == "" {
 		return "", fmt.Errorf("empty pattern")
 	}
-	if tcp {
+	if kind == protoDNS {
+		if strings.Trim(s, ".xns") != "" {
+			return "", fmt.Errorf("pattern %q may only contain '.' (answer), 'x' (no answer), 'n' (NXDOMAIN) and 's' (SERVFAIL)", s)
+		}
+		return s, nil
+	}
+	if strings.Trim(s, ".xu") != "" && strings.Trim(s, ".xuns") == "" && strings.ContainsAny(s, "ns") {
+		return "", fmt.Errorf("pattern %q: 'n' (NXDOMAIN) and 's' (SERVFAIL) are for DNS rules (-dns)", s)
+	}
+	if kind == protoTCP {
 		if strings.Trim(s, ".xur") != "" {
 			return "", fmt.Errorf("pattern %q may only contain '.' (accept), 'x' (drop), 'u' (unreachable) and 'r' (refuse)", s)
 		}
@@ -254,6 +315,9 @@ func (sp Spec) String() string {
 	if sp.After != AfterHang {
 		parts = append(parts, "after="+sp.After.String())
 	}
+	if sp.DNSFail != DNSFailNone {
+		parts = append(parts, sp.DNSFail.String())
+	}
 	switch {
 	case sp.Unreachable == UnreachHost:
 		parts = append(parts, "unreachable")
@@ -280,6 +344,10 @@ func (sp Spec) Decide(idx int, rng *rand.Rand) (Outcome, UnreachCode, time.Durat
 			out = Unreachable
 		case 'r':
 			out = Refused
+		case 'n':
+			out = NXDomain
+		case 's':
+			out = ServFail
 		}
 	case sp.Loss > 0 && rng.Float64() < sp.Loss:
 		return Drop, UnreachNone, 0
@@ -287,6 +355,10 @@ func (sp Spec) Decide(idx int, rng *rand.Rand) (Outcome, UnreachCode, time.Durat
 		out = Unreachable
 	case sp.Refuse:
 		out = Refused
+	case sp.DNSFail == DNSNXDomain:
+		out = NXDomain
+	case sp.DNSFail == DNSServFail:
+		out = ServFail
 	}
 	var code UnreachCode
 	if out == Unreachable {

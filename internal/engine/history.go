@@ -13,7 +13,7 @@ type Event struct {
 	Dst    netip.Addr `json:"dst"`
 	ID     uint16     `json:"id"`
 	Seq    uint16     `json:"seq"`
-	Result string     `json:"result"`          // "reply", "drop", "unreachable", for paths "time-exceeded", "port-unreachable", "syn-ack", for TCP rules also "refused", "closed" and "reset"
+	Result string     `json:"result"`          // "reply", "drop", "unreachable", for paths "time-exceeded", "port-unreachable", "syn-ack", for TCP rules also "refused", "closed" and "reset", for DNS rules "answer", "nxdomain" and "servfail"
 	Code   string     `json:"code,omitempty"`  // unreachable code: "host", "net" or "admin"
 	Reply  bool       `json:"reply"`           // true for echo replies; kept for compatibility
 	Delay  string     `json:"delay,omitempty"` // for replies and unreachable messages
@@ -27,6 +27,9 @@ type Event struct {
 	// For TCP probes.
 	Port   uint16 `json:"port,omitempty"`   // the destination port
 	Repeat bool   `json:"repeat,omitempty"` // a SYN sent again for an attempt already answered; not counted again
+	// For DNS queries, under pingmock exec.
+	Name  string `json:"name,omitempty"`  // the name asked for
+	QType string `json:"qtype,omitempty"` // "A", "AAAA", ...
 }
 
 // History keeps the most recent events in a fixed-size ring buffer.
@@ -59,6 +62,16 @@ func (h *History) Add(e Event) {
 // those whose destination is within filter, keeping the last limit
 // (limit <= 0 means all). It also reports how many events were ever added.
 func (h *History) Events(filter *netip.Prefix, limit int) ([]Event, uint64) {
+	return h.events(func(e Event) bool { return filter == nil || filter.Contains(e.Dst) }, limit)
+}
+
+// EventsNamed is like Events, for the DNS queries for one name.
+func (h *History) EventsNamed(name string, limit int) ([]Event, uint64) {
+	name = dnsName(name)
+	return h.events(func(e Event) bool { return e.Name == name }, limit)
+}
+
+func (h *History) events(match func(Event) bool, limit int) ([]Event, uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var ordered []Event
@@ -68,10 +81,9 @@ func (h *History) Events(filter *netip.Prefix, limit int) ([]Event, uint64) {
 	ordered = append(ordered, h.buf[:h.next]...)
 	out := ordered[:0:0]
 	for _, e := range ordered {
-		if filter != nil && !filter.Contains(e.Dst) {
-			continue
+		if match(e) {
+			out = append(out, e)
 		}
-		out = append(out, e)
 	}
 	if limit > 0 && len(out) > limit {
 		out = out[len(out)-limit:]

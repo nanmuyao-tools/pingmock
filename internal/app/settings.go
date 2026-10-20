@@ -43,6 +43,8 @@ type settings struct {
 	hosts         []config.Host // names the command resolves; exec only
 	paths         []targetPath
 	tcp           []targetTCP
+	dns           []config.DNSRule // exec only
+	exec          bool             // running under pingmock exec
 }
 
 // targetTCP is a TCP rule to install at startup; a rule given for a name
@@ -101,6 +103,7 @@ type flagValues struct {
 	hosts                                  ruleFlags
 	paths                                  ruleFlags
 	tcp                                    ruleFlags
+	dns                                    ruleFlags
 
 	given map[string]bool // flags given on the command line
 
@@ -112,6 +115,7 @@ type flagValues struct {
 	cfgHosts        []config.Host
 	cfgPaths        []config.PathRule
 	cfgTCP          []config.TCPRule
+	cfgDNS          []config.DNSRule
 }
 
 func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Writer) (*flagValues, *flag.FlagSet) {
@@ -131,6 +135,7 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, pingmock exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
 	fs.Var(&f.paths, "path", "TARGET=PATH, repeatable: the route traceroute and mtr see to TARGET, hops separated by \">\", each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for one that never answers, e.g. '8.8.8.8=192.168.1.1@2ms > * > 72.14.0.1@25ms'")
 	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443); no port means every port. RULE is as for -rule, plus refuse (answer with a reset), r in a pattern and after=close|reset|hang (what happens once a connection is accepted), e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
+	fs.Var(&f.dns, "dns", "NAME=RULE, repeatable, pingmock exec only: how CMD's DNS queries for NAME are answered. RULE is as for -rule, without unreachable and ttl, plus nxdomain (the name does not exist), servfail (the server failed) and n and s in a pattern; other settings apply to the usual answer, e.g. api.example.com=nxdomain or 'db.example.com=servfail for 2 requests; 10ms'")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
 }
@@ -165,7 +170,10 @@ func (f *flagValues) applyConfig(path string) error {
 	if f.cfgPaths, err = cfg.SortedPaths(path); err != nil {
 		return err
 	}
-	f.cfgTCP, err = cfg.SortedTCP(path)
+	if f.cfgTCP, err = cfg.SortedTCP(path); err != nil {
+		return err
+	}
+	f.cfgDNS, err = cfg.SortedDNS(path)
 	return err
 }
 
@@ -260,6 +268,24 @@ func (f *flagValues) resolve() (*settings, error) {
 			return nil, fmt.Errorf("invalid -tcp %q: %w", text, err)
 		}
 		s.addTCP(t, sc.Scenario)
+	}
+	for _, r := range f.cfgDNS {
+		s.addDNS(r)
+	}
+	for _, text := range f.dns {
+		name, ruleText, ok := strings.Cut(text, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid -dns %q: want NAME=RULE", text)
+		}
+		n, err := config.ParseDNSName(name)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -dns %q: %w", text, err)
+		}
+		sc, err := rule.ParseDNSScenario(ruleText)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -dns %q: %w", text, err)
+		}
+		s.addDNS(config.DNSRule{Name: n, Scenario: sc.Scenario})
 	}
 	if err := s.allocateNames(); err != nil {
 		return nil, err
@@ -398,6 +424,68 @@ func (s *settings) addTCP(t rule.TCPTarget, sc rule.Scenario) {
 	s.tcp = append(s.tcp, targetTCP{prefix: t.Prefix, name: t.Name, port: t.Port, sc: sc})
 }
 
+// addDNS adds a DNS rule, or replaces the one for the same name.
+func (s *settings) addDNS(r config.DNSRule) {
+	for i := range s.dns {
+		if s.dns[i].Name == r.Name {
+			s.dns[i].Scenario = r.Scenario
+			return
+		}
+	}
+	s.dns = append(s.dns, r)
+}
+
+// hostsFile returns the names that go in the command's /etc/hosts: every
+// mocked name, except those with a DNS rule, which the C library and Go
+// would otherwise find there without asking DNS.
+func (s *settings) hostsFile() []config.Host {
+	var out []config.Host
+	for _, h := range s.hosts {
+		if !s.hasDNS(h.Name) {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// dnsTarget checks that a DNS rule for name, set through the API, can take
+// effect, and returns the name as rules are keyed.
+func (s *settings) dnsTarget(name string) (string, error) {
+	n, err := config.ParseDNSName(name)
+	switch {
+	case err != nil:
+		return "", err
+	case !s.exec:
+		return "", fmt.Errorf("DNS rules are for pingmock exec only: for the whole machine, pingmock cannot get between programs and the machine's resolver")
+	case !s.names():
+		return "", fmt.Errorf("this pingmock exec runs no DNS server for its command: start it with a -dns rule, a -host or a rule for a name (a rule that changes nothing will do: -dns %s=0ms)", n)
+	}
+	for _, h := range s.hostsFile() {
+		if h.Name == n {
+			return "", fmt.Errorf("%s is in the command's /etc/hosts, where programs find it without asking DNS: give it a DNS rule at startup (-dns %s=0ms) to change its answers later", n, n)
+		}
+	}
+	return n, nil
+}
+
+// dnsNames returns the names with a DNS rule.
+func (s *settings) dnsNames() []string {
+	out := make([]string, len(s.dns))
+	for i, r := range s.dns {
+		out[i] = r.Name
+	}
+	return out
+}
+
+func (s *settings) hasDNS(name string) bool {
+	for _, r := range s.dns {
+		if r.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 // lastAddr is the last address of p, the broadcast address of an IPv4 subnet.
 func lastAddr(p netip.Prefix) netip.Addr {
 	b := p.Masked().Addr().As4()
@@ -427,7 +515,7 @@ func parseRuleFlag(s string) (rule.Target, rule.Scenario, error) {
 }
 
 // names reports whether the command needs name resolution: hosts given,
-// or rules written for names.
-func (s *settings) names() bool { return len(s.hosts) > 0 }
+// rules written for names, or DNS rules.
+func (s *settings) names() bool { return len(s.hosts) > 0 || len(s.dns) > 0 }
 
 func isHelp(err error) bool { return errors.Is(err, errHelp) }

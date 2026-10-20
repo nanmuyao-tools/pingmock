@@ -131,6 +131,22 @@ type State struct {
 	// connection attempt, keyed as "10.99.0.1:5432" or "[fd99::1]:443".
 	TCP      []Rule              `json:"tcp"`
 	TCPStats map[string]TCPStats `json:"tcp_stats"`
+	// DNS rules, under pingmock exec, and the statistics of each name and
+	// query type that got a query, keyed as "api.example.com/AAAA".
+	DNS      []Rule              `json:"dns"`
+	DNSStats map[string]DNSStats `json:"dns_stats"`
+}
+
+// DNSStats counts the queries for one name and type. Every query counts,
+// including those a resolver sends again after SERVFAIL or a timeout.
+type DNSStats struct {
+	Requests uint64 `json:"requests"`
+	Answered uint64 `json:"answered"`
+	NXDomain uint64 `json:"nxdomain"`
+	ServFail uint64 `json:"servfail"`
+	Dropped  uint64 `json:"dropped"`
+	Rule     string `json:"rule"`  // e.g. "dns api.example.com"
+	Phase    int    `json:"phase"` // current phase, 1-based
 }
 
 // TCPStats counts the connection attempts to one address and port. A SYN
@@ -141,8 +157,11 @@ type TCPStats struct {
 	Refused     uint64 `json:"refused"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
-	Rule        string `json:"rule"`  // e.g. "tcp 10.99.0.1/32:5432"
-	Phase       int    `json:"phase"` // current phase, 1-based
+	// Accepted connections that pingmock then closed or reset (after=).
+	Closed uint64 `json:"closed"`
+	Reset  uint64 `json:"reset"`
+	Rule   string `json:"rule"`  // e.g. "tcp 10.99.0.1/32:5432"
+	Phase  int    `json:"phase"` // current phase, 1-based
 }
 
 // Rule is an installed rule.
@@ -211,6 +230,34 @@ func (c *Client) TCPStats(ctx context.Context, addrPort string) (TCPStats, error
 	return s.TCPStats[addrPort], nil
 }
 
+// SetDNS sets how the command's DNS queries for name are answered, under
+// pingmock exec, replacing any DNS rule for the name. rule is written as
+// for SetRule, without unreachable and ttl, plus "nxdomain", "servfail"
+// and 'n' and 's' in a pattern, such as "nxdomain",
+// "servfail for 2 requests; 10ms" or "delay=2s". A name pingmock exec
+// put in the command's /etc/hosts needs a DNS rule from the start
+// (-dns NAME=0ms) for this to take effect, and the request fails if not.
+func (c *Client) SetDNS(ctx context.Context, name, rule string) error {
+	return c.do(ctx, http.MethodPut, "/dns/"+url.PathEscape(name), rule, nil)
+}
+
+// DeleteDNS removes the DNS rule for name, so that its queries are
+// answered as without one. It fails with an error for which IsNotFound is
+// true if there is none.
+func (c *Client) DeleteDNS(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/dns/"+url.PathEscape(name), "", nil)
+}
+
+// DNSStats returns the statistics of the queries for name of type qtype
+// ("A" or "AAAA"); all counters are zero if there has been none.
+func (c *Client) DNSStats(ctx context.Context, name, qtype string) (DNSStats, error) {
+	s, err := c.State(ctx)
+	if err != nil {
+		return DNSStats{}, err
+	}
+	return s.DNSStats[strings.ToLower(strings.TrimSuffix(name, "."))+"/"+qtype], nil
+}
+
 // escapeTarget escapes the brackets of an IPv6 target for the URL path.
 func escapeTarget(target string) string {
 	return strings.NewReplacer("[", "%5B", "]", "%5D").Replace(target)
@@ -247,7 +294,7 @@ type Event struct {
 	Dst    string    `json:"dst"`
 	ID     uint16    `json:"id"`
 	Seq    uint16    `json:"seq"`
-	Result string    `json:"result"` // "reply", "drop", "unreachable"; with a path also "time-exceeded", "port-unreachable", "syn-ack"; for TCP rules "syn-ack", "refused", "drop", "unreachable"
+	Result string    `json:"result"` // "reply", "drop", "unreachable"; with a path also "time-exceeded", "port-unreachable", "syn-ack"; for TCP rules "syn-ack", "refused", "drop", "unreachable", "closed", "reset"; for DNS rules "answer", "nxdomain", "servfail", "drop"
 	Code   string    `json:"code"`   // for "unreachable": "host", "net" or "admin"
 	Reply  bool      `json:"reply"`
 	Delay  string    `json:"delay"` // empty for drops
@@ -261,6 +308,9 @@ type Event struct {
 	// For TCP probes.
 	Port   uint16 `json:"port"`   // the destination port
 	Repeat bool   `json:"repeat"` // a SYN sent again for an attempt already answered, not counted again
+	// For DNS queries for names with a DNS rule (Probe "dns").
+	Name  string `json:"name"`  // the name asked for
+	QType string `json:"qtype"` // "A", "AAAA", ...
 }
 
 // History returns recent requests, oldest first. target, if not empty, is

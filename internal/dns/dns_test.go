@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
 // query builds a query for name of the given type, as a stub resolver
@@ -345,5 +347,62 @@ func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A DNS rule decides how a query is answered, for mocked and forwarded
+// names alike; PTR queries and names without a rule are answered as
+// before.
+func TestRules(t *testing.T) {
+	forwarded := 0
+	s := newServer(func(q []byte, _ bool) ([]byte, error) {
+		forwarded++
+		return respond(q, q[12:], rcodeOK, [][]byte{record(typeA, []byte{93, 184, 216, 34})}), nil
+	})
+	var asked []string
+	s.Rule = func(name string, qtype uint16) (rule.Outcome, time.Duration, bool) {
+		asked = append(asked, fmt.Sprintf("%s/%d", name, qtype))
+		switch name {
+		case "api.example.com":
+			return rule.Reply, 30 * time.Millisecond, true
+		case "gone.example":
+			return rule.NXDomain, 0, true
+		case "broken.example":
+			return rule.ServFail, 0, true
+		case "slow.example":
+			return rule.Drop, 0, true
+		case "real.example":
+			return rule.Reply, 20 * time.Millisecond, true
+		}
+		return 0, 0, false
+	}
+	start := time.Now()
+	p := parse(t, s.Answer(query(1, "api.example.com", typeA)))
+	if p.rcode != rcodeOK || len(p.answers) != 1 || time.Since(start) < 30*time.Millisecond {
+		t.Errorf("mocked name with a delay: %+v after %v", p, time.Since(start))
+	}
+	if p := parse(t, s.Answer(query(2, "gone.example", typeAAAA))); p.rcode != rcodeNXDomain || p.qname != "gone.example" {
+		t.Errorf("nxdomain: %+v", p)
+	}
+	if p := parse(t, s.Answer(query(3, "broken.example", typeA))); p.rcode != rcodeServFail {
+		t.Errorf("servfail: %+v", p)
+	}
+	if resp := s.Answer(query(4, "slow.example", typeA)); resp != nil {
+		t.Errorf("drop answered % x", resp)
+	}
+	if forwarded != 0 {
+		t.Errorf("faults were forwarded %d times", forwarded)
+	}
+	// A forwarded name: the answer from the host, after the rule's delay.
+	start = time.Now()
+	if p := parse(t, s.Answer(query(5, "real.example", typeA))); p.rcode != rcodeOK || forwarded != 1 || time.Since(start) < 20*time.Millisecond {
+		t.Errorf("forwarded with a delay: %+v", p)
+	}
+	// No rule: forwarded at once; PTR: never asked about.
+	s.Answer(query(6, "other.example", typeA))
+	s.Answer(query(7, "1.0.99.10.in-addr.arpa", typePTR))
+	want := "[api.example.com/1 gone.example/28 broken.example/1 slow.example/1 real.example/1 other.example/1]"
+	if fmt.Sprint(asked) != want {
+		t.Errorf("asked %v, want %s", asked, want)
 	}
 }

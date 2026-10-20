@@ -16,7 +16,7 @@ import (
 var knownFields = map[string]bool{
 	"dev": true, "addr": true, "addr6": true, "api": true,
 	"seed": true, "history": true, "default": true, "rules": true, "hosts": true, "paths": true,
-	"tcp": true,
+	"tcp": true, "dns": true,
 }
 
 // yamlToJSON converts a YAML configuration into the equivalent JSON, which

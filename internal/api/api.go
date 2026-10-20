@@ -17,9 +17,11 @@ import (
 
 // NewHandler returns the HTTP control API. ensureRoute is called before a
 // rule is installed, so that pings to its target reach pingmock. version is
-// what GET /version reports.
-func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error, version string) http.Handler {
-	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute, version: version}
+// what GET /version reports. dnsTarget checks the name of a DNS rule and
+// whether such a rule can take effect, and returns it as rules are keyed.
+func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error, version string,
+	dnsTarget func(name string) (string, error)) http.Handler {
+	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute, version: version, dnsTarget: dnsTarget}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rules", h.getRules)                  // default, rules and per-target stats
 	mux.HandleFunc("PUT /rules/{target...}", h.setRule)       // body: the text form or JSON
@@ -34,7 +36,45 @@ func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip
 	mux.HandleFunc("DELETE /paths/{target...}", h.deletePath) // the target has no route again
 	mux.HandleFunc("PUT /tcp/{target...}", h.setTCP)          // target ADDR[:PORT], PREFIX[:PORT], [IPv6]:PORT; body as for rules
 	mux.HandleFunc("DELETE /tcp/{target...}", h.deleteTCP)    // connections to it are ignored again
+	mux.HandleFunc("PUT /dns/{name}", h.setDNS)               // pingmock exec only; body as for rules
+	mux.HandleFunc("DELETE /dns/{name}", h.deleteDNS)         // queries for it are answered as without a rule
 	return mux
+}
+
+// setDNS installs a DNS rule for a name.
+func (h *handler) setDNS(w http.ResponseWriter, r *http.Request) {
+	name, err := h.dnsTarget(r.PathValue("name"))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	text := strings.TrimSpace(string(body))
+	var sc rule.DNSScenario
+	if strings.HasPrefix(text, "{") {
+		if err := json.Unmarshal([]byte(text), &sc); err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON rule: %w", err))
+			return
+		}
+	} else if sc, err = rule.ParseDNSScenario(text); err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	h.rules.SetDNS(name, sc.Scenario)
+	writeJSON(w, http.StatusOK, map[string]any{"target": name, "rule": sc})
+}
+
+func (h *handler) deleteDNS(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if !h.rules.DeleteDNS(name) {
+		httpError(w, http.StatusNotFound, fmt.Errorf("no DNS rule for %s", name))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // tcpTarget parses the target of a TCP rule in the URL. Names are only
@@ -147,6 +187,7 @@ type handler struct {
 	history     *engine.History
 	ensureRoute func(netip.Prefix) error
 	version     string
+	dnsTarget   func(string) (string, error)
 }
 
 func (h *handler) getRules(w http.ResponseWriter, r *http.Request) {
@@ -202,13 +243,18 @@ func (h *handler) resetStats(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) getHistory(w http.ResponseWriter, r *http.Request) {
 	var filter *netip.Prefix
+	name := ""
 	if t := r.URL.Query().Get("target"); t != "" {
 		p, err := rule.ParsePrefix(t)
 		if err != nil {
-			httpError(w, http.StatusBadRequest, err)
-			return
+			if !isName(t) {
+				httpError(w, http.StatusBadRequest, err)
+				return
+			}
+			name = t // the DNS queries for a name
+		} else {
+			filter = &p
 		}
-		filter = &p
 	}
 	limit := 0
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -219,8 +265,24 @@ func (h *handler) getHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
-	events, total := h.history.Events(filter, limit)
+	var events []engine.Event
+	var total uint64
+	if name != "" {
+		events, total = h.history.EventsNamed(name, limit)
+	} else {
+		events, total = h.history.Events(filter, limit)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": events, "total": total, "capacity": h.history.Capacity()})
+}
+
+// isName reports whether s is a host name rather than a mistyped address:
+// valid, and with a top-level label that is not a number (RFC 3696 2).
+func isName(s string) bool {
+	if rule.ValidName(s) != nil {
+		return false
+	}
+	labels := strings.Split(strings.TrimSuffix(s, "."), ".")
+	return strings.Trim(labels[len(labels)-1], "0123456789") != ""
 }
 
 func (h *handler) clearHistory(w http.ResponseWriter, r *http.Request) {

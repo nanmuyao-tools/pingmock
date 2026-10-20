@@ -129,6 +129,47 @@ tcp=$(run -tcp db.example.com:80=after=close -tcp db.example.com:81=after=reset 
 same "TCP inside exec: after=close closes the connection (curl exit 52)" "$(echo "$tcp" | sed -n 1p)" 52
 same "TCP inside exec: after=reset resets it (curl exit 56)" "$(echo "$tcp" | sed -n 2p)" 56
 
+# DNS rules inside exec. Python's getaddrinfo tells the errors apart:
+# -2 (EAI_NONAME) for NXDOMAIN, -3 (EAI_AGAIN) for SERVFAIL and timeouts.
+lookup='import socket, sys, time
+for name in sys.argv[1:]:
+    t = time.monotonic()
+    try:
+        r = socket.getaddrinfo(name, None, socket.AF_INET)[0][4][0]
+    except socket.gaierror as e:
+        r = "error%d" % e.errno
+    print(name, r, round((time.monotonic() - t) * 1000))'
+dns=$(run -host fixed.example=10.99.0.5 -rule api.example.com=5ms \
+  -dns gone.example=nxdomain -dns broken.example=servfail -dns api.example.com=60ms \
+  -dns 'flaky.example=nxdomain for 2 requests; 0ms' -host flaky.example=10.99.0.7 \
+  -dns slow.example=timeout -- sh -c "
+  RES_OPTIONS='timeout:1 attempts:1' python3 -c '$lookup' gone.example broken.example api.example.com \
+    flaky.example flaky.example flaky.example slow.example fixed.example
+  grep -c 'api.example.com' /etc/hosts || true
+  curl -s localhost:9100/rules | tr -d ' \n' | grep -o '\"flaky.example/A\":{[^}]*}'
+  curl -s 'localhost:9100/history?target=gone.example' | tr -d ' \n' | grep -o '\"result\":\"[a-z]*\"' | sort -u")
+field() { echo "$dns" | awk -v n="$1" -v f="$2" 'NR == n {print $f}'; }
+same "DNS: nxdomain fails the lookup as not found (EAI_NONAME)" "$(field 1 2)" error-2
+same "DNS: servfail fails it as a temporary failure (EAI_AGAIN)" "$(field 2 2)" error-3
+same "DNS: a delayed name still resolves to its mocked address" "$(field 3 2)" 10.99.0.253
+awk -v ms="$(field 3 3)" 'BEGIN { exit !(ms >= 55 && ms < 300) }' && pass "DNS: the lookup takes the rule's delay: $(field 3 3)ms" || fail "DNS: delayed lookup took $(field 3 3)ms, want about 60ms"
+same "DNS: nxdomain for 2 requests fails two lookups, then the name resolves" "$(field 4 2) $(field 5 2) $(field 6 2)" "error-2 error-2 10.99.0.7"
+same "DNS: timeout leaves the query unanswered (EAI_AGAIN after the resolver's timeout)" "$(field 7 2)" error-3
+same "DNS: a name without a DNS rule resolves as before" "$(field 8 2)" 10.99.0.5
+same "DNS: a name with a DNS rule is left out of the command's /etc/hosts" "$(echo "$dns" | sed -n 9p)" 0
+echo "$dns" | sed -n 10p | grep -q '"requests":3,"answered":1,"nxdomain":2' && pass "DNS: statistics count the queries per name and type" || fail "DNS: stats: $(echo "$dns" | sed -n 10p)"
+same "DNS: the history records the result of each query" "$(echo "$dns" | sed -n 11p)" '"result":"nxdomain"'
+# Rules change while the command runs, also for names that are not
+# mocked (localhost.example is forwarded otherwise).
+changed=$(run -dns gone.example=nxdomain -host gone.example=10.99.0.8 -- sh -c "
+  curl -s -X PUT localhost:9100/dns/localhost.example -d servfail >/dev/null
+  curl -s -X PUT localhost:9100/dns/gone.example -d 0ms >/dev/null
+  RES_OPTIONS='timeout:1 attempts:1' python3 -c '$lookup' localhost.example gone.example
+  curl -s -o /dev/null -w '%{http_code}\n' -X DELETE localhost:9100/dns/gone.example")
+same "DNS: a rule set through the API takes effect" "$(echo "$changed" | awk 'NR == 1 {print $2}')" error-3
+same "DNS: a rule changed to answer gives the mocked address again" "$(echo "$changed" | awk 'NR == 2 {print $2}')" 10.99.0.8
+same "DNS: DELETE /dns removes a rule" "$(echo "$changed" | sed -n 3p)" 204
+
 # A path inside exec: traceroute, which opens raw sockets, works there
 # without root, and sees the hops.
 if command -v traceroute >/dev/null; then

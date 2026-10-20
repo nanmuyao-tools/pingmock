@@ -37,7 +37,16 @@ func newAPIFixture(t *testing.T) *apiFixture {
 		f.routed = append(f.routed, p)
 		return nil
 	}
-	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure, "v0.0.0-test"))
+	dnsTarget := func(name string) (string, error) {
+		if name == "in-hosts.example" {
+			return "", errors.New("in the command's /etc/hosts")
+		}
+		if err := rule.ValidName(name); err != nil {
+			return "", err
+		}
+		return strings.ToLower(name), nil
+	}
+	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure, "v0.0.0-test", dnsTarget))
 	t.Cleanup(f.srv.Close)
 	return f
 }
@@ -280,5 +289,59 @@ func TestAPIPaths(t *testing.T) {
 	}
 	if _, ok := f.rs.Path(netip.MustParseAddr("9.9.9.9")); ok {
 		t.Error("path installed although routing failed")
+	}
+}
+
+func TestAPIDNS(t *testing.T) {
+	f := newAPIFixture(t)
+	var got map[string]any
+	if code := f.do("PUT", "/dns/API.example.com", "servfail for 2 requests; 10ms", &got); code != 200 ||
+		got["target"] != "api.example.com" || got["rule"] != "delay=0s,servfail for 2 requests; delay=10ms" {
+		t.Fatalf("PUT text: %d %v", code, got)
+	}
+	if code := f.do("PUT", "/dns/gone.example", `{"nxdomain": true}`, &got); code != 200 || got["rule"] != "delay=0s,nxdomain" {
+		t.Fatalf("PUT JSON: %d %v", code, got)
+	}
+	if d, ok := f.rs.DecideDNS("api.example.com", 1); !ok || d.Outcome != rule.ServFail {
+		t.Errorf("rule not installed: %+v", d)
+	}
+	for path, body := range map[string]string{
+		"/dns/in-hosts.example": "nxdomain", // rejected by dnsTarget
+		"/dns/bad_name..":       "nxdomain",
+		"/dns/ok.example":       "refuse", // not a DNS setting
+		"/dns/ok2.example":      "{bad json",
+	} {
+		var e map[string]string
+		if code := f.do("PUT", path, body, &e); code != 400 || e["error"] == "" {
+			t.Errorf("PUT %s %q: %d %v", path, body, code, e)
+		}
+	}
+	var state struct {
+		DNS []map[string]string `json:"dns"`
+	}
+	f.do("GET", "/rules", "", &state)
+	if len(state.DNS) != 2 || state.DNS[0]["target"] != "api.example.com" {
+		t.Errorf("GET /rules dns: %v", state.DNS)
+	}
+	if code := f.do("DELETE", "/dns/gone.example", "", nil); code != 204 {
+		t.Errorf("DELETE: %d", code)
+	}
+	if code := f.do("DELETE", "/dns/gone.example", "", nil); code != 404 {
+		t.Errorf("DELETE again: %d", code)
+	}
+	// The history of a name: GET /history?target=NAME.
+	f.hist.Add(engine.Event{Probe: "dns", Name: "api.example.com", QType: "A", Result: "servfail"})
+	f.hist.Add(engine.Event{Dst: netip.MustParseAddr("10.99.0.1"), Result: "reply"})
+	var h struct {
+		Events []engine.Event `json:"events"`
+	}
+	if code := f.do("GET", "/history?target=api.example.com", "", &h); code != 200 || len(h.Events) != 1 || h.Events[0].QType != "A" {
+		t.Errorf("history by name: %d %+v", code, h.Events)
+	}
+	if code := f.do("GET", "/history?target=10.99.0.1", "", &h); code != 200 || len(h.Events) != 1 || h.Events[0].Result != "reply" {
+		t.Errorf("history by address: %d %+v", code, h.Events)
+	}
+	if code := f.do("GET", "/history?target=not%20a%20name", "", nil); code != 400 {
+		t.Errorf("history with a bad target: %d", code)
 	}
 }

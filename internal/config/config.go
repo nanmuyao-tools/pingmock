@@ -50,6 +50,51 @@ type Config struct {
 	//	  10.99.0.1:5432: timeout
 	//	  "[fd99::1]:443": refuse
 	TCP map[string]rule.TCPScenario `json:"tcp"`
+	// DNS gives names DNS rules, for pingmock exec:
+	//
+	//	dns:
+	//	  api.example.com: nxdomain
+	//	  backup.example.com: servfail for 2 requests; 10ms
+	DNS map[string]rule.DNSScenario `json:"dns"`
+}
+
+// DNSRule is a parsed entry of Config.DNS.
+type DNSRule struct {
+	Name     string // lower case, without a trailing dot
+	Scenario rule.Scenario
+}
+
+// SortedDNS returns the file's DNS rules, validated and sorted by name.
+func (c *Config) SortedDNS(path string) ([]DNSRule, error) {
+	keys := make([]string, 0, len(c.DNS))
+	for k := range c.DNS {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]DNSRule, 0, len(keys))
+	seen := map[string]string{}
+	for _, k := range keys {
+		name, err := ParseDNSName(k)
+		if err != nil {
+			return nil, fmt.Errorf("%s: dns %q: %w", path, k, err)
+		}
+		if other, dup := seen[name]; dup {
+			return nil, fmt.Errorf("%s: dns %q and %q are the same name", path, other, k)
+		}
+		seen[name] = k
+		out = append(out, DNSRule{name, c.DNS[k].Scenario})
+	}
+	return out, nil
+}
+
+// ParseDNSName checks the name of a DNS rule and returns it in the form
+// names are compared in: lower case, without a trailing dot.
+func ParseDNSName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if err := rule.ValidName(name); err != nil {
+		return "", err
+	}
+	return strings.ToLower(strings.TrimSuffix(name, ".")), nil
 }
 
 // TCPRule is a parsed entry of Config.TCP.
@@ -197,6 +242,9 @@ func Load(path string) (*Config, []Rule, error) {
 		return nil, nil, err
 	}
 	if _, err := cfg.SortedTCP(path); err != nil {
+		return nil, nil, err
+	}
+	if _, err := cfg.SortedDNS(path); err != nil {
 		return nil, nil, err
 	}
 	if cfg.History != nil && *cfg.History < 0 {

@@ -21,6 +21,9 @@ const (
 	// For TCP rules, on a connection already accepted (see After):
 	Closed // TCP FIN: pingmock closed the connection
 	Reset  // TCP RST: pingmock reset the connection
+	// For DNS rules:
+	NXDomain // the name does not exist
+	ServFail // the server failed
 )
 
 func (o Outcome) String() string {
@@ -41,6 +44,10 @@ func (o Outcome) String() string {
 		return "closed"
 	case Reset:
 		return "reset"
+	case NXDomain:
+		return "nxdomain"
+	case ServFail:
+		return "servfail"
 	}
 	return "reply"
 }
@@ -71,6 +78,25 @@ func parseAfter(s string) (After, error) {
 		}
 	}
 	return AfterHang, fmt.Errorf("unknown after %q: want close, reset or hang", s)
+}
+
+// DNSFail is the error a DNS rule answers with.
+type DNSFail uint8
+
+const (
+	DNSFailNone DNSFail = iota
+	DNSNXDomain         // NXDOMAIN: the name does not exist
+	DNSServFail         // SERVFAIL: the server failed
+)
+
+func (f DNSFail) String() string {
+	switch f {
+	case DNSNXDomain:
+		return "nxdomain"
+	case DNSServFail:
+		return "servfail"
+	}
+	return ""
 }
 
 // UnreachCode is the reason given in a destination unreachable message.
