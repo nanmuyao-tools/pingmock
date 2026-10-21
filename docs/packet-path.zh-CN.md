@@ -24,12 +24,12 @@ pingmock 内部
   按规则决定怎么回应 → 构造应答 → 等待 50ms
 
 回程（应答）
-  pingmock 的 Write() ──► pingmock0 ──► 内核当作"从 pingmock0 收到一个包"
-                                         │ ③ 反向路径检查：回复 10.99.0.1 也走 pingmock0，通过
-                                         │ ④ 目标 10.99.0.254 在 local 表里，是本机地址，收下
-                                         │ ⑤ 是 ICMP 应答，交给 ping 的套接字
-                                         ▼
-                                       ping 的 recvmsg() 收到应答，计算延迟：50ms
+  pingmock Write() ──► pingmock0 ──► 内核当作"从 pingmock0 收到一个包"
+                                      │ ③ 反向路径检查：回复 10.99.0.1 也走 pingmock0，通过
+                                      │ ④ 目标 10.99.0.254 在 local 表里，是本机地址，收下
+                                      │ ⑤ 是 ICMP 应答，交给 ping 的套接字
+                                      ▼
+                                    ping recvmsg() 收到应答，计算延迟：50ms
 ```
 
 `ping` 自始至终只和内核打交道，完全不知道 pingmock 的存在。是内核按照路由表把请求交给了 pingmock，又把 pingmock 写回的应答当成网络上来的包交给了 `ping`。

@@ -18,17 +18,19 @@ pingmock 创建一块**虚拟网卡**（TUN 设备），把要模拟的地址都
 main.go                   程序入口，只有几行，调用 internal/app
 internal/
   app/                    命令行：解析参数、启动、exec 模式      ← 把各模块组装起来
-  tun/                    虚拟网卡：创建设备、设置地址和路由      ┐
-  responder/              主循环：读取数据包，回应，写回         │ 一个 ping 请求
-  icmp/                   数据包：解析 ping 请求，构造回复        │ 依次经过的模块
-  engine/                 决策：每个目标该怎么回应，统计和历史    │
-  rule/                   规则：一条规则是什么，怎么书写          ┘
+  tun/                 *  虚拟网卡：创建设备、设置地址和路由
+  responder/           *  主循环：读取数据包，回应，写回
+  icmp/                *  数据包：解析 ping 请求，构造回复
+  engine/              *  决策：每个目标该怎么回应，统计和历史
+  rule/                *  规则：一条规则是什么，怎么书写
   api/                    HTTP 控制接口：运行中修改规则
   config/                 YAML 配置文件
   dns/                    pingmock exec 为命令运行的 DNS 服务，执行 DNS 规则
 client/                   给 Go 测试用的 API 客户端（唯一公开的包）
 test/                     端到端测试脚本
 ```
+
+带 `*` 的几个模块，就是一个 ping 请求从上到下依次经过的。
 
 `internal/` 下的包只供本项目使用；`client/` 是公开的，其他项目可以引用。
 
@@ -102,9 +104,9 @@ TCP 和 DNS 规则沿用上面的一切：同样的 `Spec`、`Phase`、`Scenario
 规则可以写在三个地方，最后都汇集到同一套解析代码：
 
 ```
-命令行 -rule 10.99.0.1=50ms   ─→  rule.ParseScenario（解析文本）
-YAML 配置文件                 ─→  config.Load ─→ 转成 JSON ─┐
-HTTP API 的 JSON 请求体       ──────────────────────────────┴─→  Scenario.UnmarshalJSON
+-rule 10.99.0.1=50ms    ─→  rule.ParseScenario                        命令行的文本
+pingmock.yaml           ─→  config.Load ─→ yamlToJSON ─┐              YAML 配置文件
+PUT /rules {...}        ───────────────────────────────┴─→  Scenario.UnmarshalJSON     HTTP API 的 JSON 请求体
 ```
 
 YAML 配置先被转换成 JSON（[`yamlToJSON`](../internal/config/yaml.go)），这样 YAML 配置和 HTTP API 共用同一套 JSON 解析和校验逻辑（[`json.go`](../internal/rule/json.go)），不需要写两遍。转换之前，`yamlToJSON` 会先检查最常见的错误，以便报告出错的行号。
