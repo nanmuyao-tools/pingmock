@@ -327,7 +327,42 @@ TCP rules answer connection attempts, so the packets are TCP segments instead of
 | 16-17 | `de 12` | checksum | over a pseudo-header and the segment, as for ICMPv6 in section 11 |
 | 20-39 | | options | MSS 1460, SACK permitted, timestamps, window scale 7 |
 
-[`ParseProbe`](../internal/icmp/probe.go) sorts TCP segments by their flags: SYN without ACK is a connection attempt (`Kind` `TCP`); a segment with neither SYN nor RST is a later segment of a connection (`Kind` `Segment`), whose data length is what follows the header: the IP total length, minus the IP header, minus the data offset. SYN-ACKs and resets are never answered, so pingmock's own answers, and the client's reset to a SYN-ACK it did not expect, end there.
+### 12.1 How pingmock recognizes TCP: `ParseProbe`
+
+The checks follow those of section 5, in [`ParseProbe`](../internal/icmp/probe.go), which handles every kind of packet pingmock may answer (pings, and for TCP and paths also UDP and TCP). For IPv4 (`probe4`), on the SYN above:
+
+| Check | Where in the packet | In the example | Why |
+|---|---|---|---|
+| IPv4 or IPv6 | byte 0 `>> 4` | 4 | as in section 5.1 |
+| Long enough, header length and total length plausible | bytes 0, 2-3 | 60 bytes, header 20 | as in section 5.2 |
+| Not a fragment | bytes 6-7 `& 0x3fff` | `0x4000 & 0x3fff` = 0 | the TCP header could be cut in two |
+| Carries TCP | byte 9 (IPv6: byte 6, next header, with no extension header in between) | 6 | rules out ICMP and UDP, which go other ways |
+| Long enough for a TCP header | after the IP header | 40 ≥ 20 | the ports, numbers and flags are in the first 20 bytes |
+| **What the flags say** | TCP byte 13 | `0x02` | see below |
+
+The flags decide everything, with two masks:
+
+```
+flags & (SYN|ACK) == SYN    0x02 & 0x12 = 0x02   a connection attempt: Kind TCP
+flags & (SYN|RST) == 0      neither SYN nor RST  a later segment of a connection: Kind Segment
+anything else               SYN-ACK, or a reset  not answered
+```
+
+- **A SYN without ACK** is how every connection starts; pingmock keeps its ports and its sequence number, the ISN.
+- **A later segment** (the handshake's last ACK, data, a FIN) also needs its data offset to be sane, at least 20 bytes and within the segment, because the **length of its data** is computed from it: IP total length − IP header − data offset. pingmock keeps its flags, its sequence and acknowledgment numbers and that length.
+- **SYN-ACKs and resets are never answered.** pingmock sends SYN-ACKs and resets itself, and a client's kernel answers a SYN-ACK it did not expect with a reset; answering those would only start an exchange that never ends.
+
+### 12.2 Whose segment is it
+
+Being a TCP segment is not enough to be answered: pingmock answers only what a rule or a path made its own.
+
+1. **A SYN to an address with a path** is a probe of traceroute or mtr, and the path answers it, as for UDP probes ([`DecideProbe`](../internal/engine/path.go)).
+2. **A SYN to an address and port with a TCP rule** is a connection attempt ([`DecideTCP`](../internal/engine/tcp.go)). An attempt is identified by the addresses, the ports and the ISN: a SYN the client's kernel sends again repeats all five, and gets the answer the first one got, recorded with `"repeat": true` and not counted.
+3. **Any other SYN is ignored and not recorded**, so a port without a rule looks closed by a firewall that drops, as before TCP rules existed.
+4. **A later segment** is answered only if its connection was accepted under `after=close` or `after=reset` ([`DecideSegment`](../internal/engine/tcp.go)). The connection is found by its addresses and ports, and the segment must acknowledge pingmock's own sequence numbers, `70 69 6e 68` (after the SYN-ACK) or `70 69 6e 69` (after the FIN): a segment of another connection between the same ports never does. Under `after=hang`, the default, later segments are never answered.
+
+
+### 12.3 The answers
 
 The answers carry no options, so they are 40 bytes. Only the TCP header is shown below; their IP headers are the same (`45 00 00 28 00 00 00 00 40 06 65 12`, then the addresses swapped):
 

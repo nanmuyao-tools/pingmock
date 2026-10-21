@@ -328,7 +328,42 @@ TCP 规则回应的是连接请求，数据包是 TCP 报文段，而不是 ICMP
 | 16-17 | `de 12` | 校验和 | 覆盖伪头部和整个报文段，和第 11 节的 ICMPv6 一样 |
 | 20-39 | | 选项 | MSS 1460、允许 SACK、时间戳、窗口扩大因子 7 |
 
-[`ParseProbe`](../internal/icmp/probe.go) 按标志位区分 TCP 报文：有 SYN 没有 ACK 的是连接请求（`Kind` 为 `TCP`）；既没有 SYN 也没有 RST 的是连接上之后的报文（`Kind` 为 `Segment`），它的数据长度是头部之后的部分：IP 总长度减去 IP 头部，再减去数据偏移。SYN-ACK 和 RST 从不回应，所以 pingmock 自己发出的回应，以及客户端对意料之外的 SYN-ACK 回的 RST，都到此为止。
+### 12.1 pingmock 怎样识别 TCP：`ParseProbe`
+
+检查沿用第 5 节的做法，代码在 [`ParseProbe`](../internal/icmp/probe.go)，它处理 pingmock 可能回应的所有数据包（ping，以及 TCP 规则和路径用到的 UDP、TCP）。以 IPv4（`probe4`）和上面的 SYN 为例：
+
+| 检查 | 在数据包的哪里 | 示例中的值 | 为什么 |
+|---|---|---|---|
+| IPv4 还是 IPv6 | 第 0 字节 `>> 4` | 4 | 同第 5.1 节 |
+| 长度够、头部长度和总长度合理 | 第 0、2-3 字节 | 60 字节，头部 20 | 同第 5.2 节 |
+| 不是分片 | 第 6-7 字节 `& 0x3fff` | `0x4000 & 0x3fff` = 0 | TCP 头部可能被切成两半 |
+| 装的是 TCP | 第 9 字节（IPv6 是第 6 字节「下一个头部」，中间不能有扩展头部） | 6 | 排除 ICMP 和 UDP，它们另有处理 |
+| 长度够一个 TCP 头部 | IP 头部之后 | 40 ≥ 20 | 端口、序号和标志位都在前 20 字节里 |
+| **标志位说明了什么** | TCP 第 13 字节 | `0x02` | 见下 |
+
+决定一切的是标志位，用两个掩码判断：
+
+```
+flags & (SYN|ACK) == SYN    0x02 & 0x12 = 0x02   连接请求：Kind 为 TCP
+flags & (SYN|RST) == 0      既没有 SYN 也没有 RST  连接上之后的报文：Kind 为 Segment
+其他                         SYN-ACK 或 RST        不回应
+```
+
+- **有 SYN 没有 ACK**：每个连接都这样开始；pingmock 记下它的端口和序号，也就是 ISN。
+- **之后的报文**（握手的最后一个 ACK、数据、FIN）还要求数据偏移合理：至少 20 字节，而且不超出报文段，因为**数据长度**要靠它算：IP 总长度 − IP 头部 − 数据偏移。pingmock 记下它的标志位、序号、确认号和这个长度。
+- **SYN-ACK 和 RST 从不回应**。pingmock 自己会发 SYN-ACK 和 RST，客户端内核收到意料之外的 SYN-ACK 也会回 RST；回应它们只会引出一场没完没了的往来。
+
+### 12.2 这个报文是谁的
+
+是 TCP 报文还不够，pingmock 只回应规则或路径「认领」的报文：
+
+1. **发往有路径的地址的 SYN** 是 traceroute 或 mtr 的探测，由路径回应，和 UDP 探测一样（[`DecideProbe`](../internal/engine/path.go)）。
+2. **发往有 TCP 规则的地址和端口的 SYN** 是连接请求（[`DecideTCP`](../internal/engine/tcp.go)）。一次连接尝试由地址、端口和 ISN 确定：客户端内核重发的 SYN 这五项都相同，得到第一次的回应，记为 `"repeat": true`，不重复计数。
+3. **其他的 SYN 一律不理，也不记录**，所以没有规则的端口看起来像被丢包的防火墙挡住，和有 TCP 规则之前一样。
+4. **之后的报文**只有在它的连接以 `after=close` 或 `after=reset` 被接受时才回应（[`DecideSegment`](../internal/engine/tcp.go)）。连接按地址和端口找到，而且报文必须确认 pingmock 自己的序号：`70 69 6e 68`（SYN-ACK 之后）或 `70 69 6e 69`（FIN 之后）；相同端口之间别的连接的报文不会这样确认。默认的 `after=hang` 下，之后的报文永远不回应。
+
+
+### 12.3 回应
 
 回应不带选项，所以是 40 字节。下面只列出 TCP 头部；它们的 IP 头部都一样（`45 00 00 28 00 00 00 00 40 06 65 12`，然后是交换后的地址）：
 
