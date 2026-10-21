@@ -6,6 +6,8 @@
 
 请求是怎样从 `ping` 到达 pingmock 的，参见[一个 ping 的往返之旅](packet-path.zh-CN.md)；pingmock 内部怎样处理，参见[代码导读](architecture.zh-CN.md)。
 
+如果地址、数据包、TCP 或 DNS 对你来说还比较陌生，请先读[网络基础](basics.zh-CN.md)，那里配着示意图讲解了这些概念。
+
 ## 1. 一个真实的 ping 请求
 
 执行 `ping 10.98.0.1` 后，从 TUN 网卡读到的请求共 84 字节（每行 16 字节，左边是十进制的偏移位置）：

@@ -6,6 +6,8 @@ This document takes a ping request apart, and in section 12 a TCP connection att
 
 For how the request gets from `ping` to pingmock, see [The round trip of one ping](packet-path.md); for how pingmock handles it inside, see the [code tour](architecture.md).
 
+If addresses, packets, TCP or DNS are new to you, read [Network basics](basics.md) first: it explains them with diagrams.
+
 ## 1. A real ping request
 
 After `ping 10.98.0.1`, the request read from the TUN device is 84 bytes long (16 bytes per line, with the decimal offset on the left):

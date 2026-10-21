@@ -4,6 +4,8 @@ English | [中文](architecture.zh-CN.md)
 
 This document helps you read the pingmock code: what it is made of, how a ping is handled step by step, and in which order to read it. The code is about 6,600 lines without tests; ping is the heart of it, and read in the order below, the ping path takes an hour or two. TCP connections and DNS queries follow the same pattern and are described after it.
 
+If addresses, packets, TCP or DNS are new to you, read [Network basics](basics.md) first: it explains them with diagrams.
+
 ## The idea in one paragraph
 
 pingmock creates a **virtual network device** (a TUN device) and routes the addresses it mocks to it. From then on, whenever a program pings one of those addresses, the kernel hands the ping packet to pingmock. pingmock decides how to answer from the rules (reply after some delay, drop it, or report the destination unreachable), builds the answer itself and writes it back to the device, and the kernel delivers it to the program that pinged.

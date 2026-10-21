@@ -4,6 +4,8 @@ English | [中文](packet-path.zh-CN.md)
 
 This document follows one ping request from the `ping` program through the kernel to pingmock, and the reply back to `ping`. Once you understand this, you understand why pingmock controls the latency software sees **without any change to that software**.
 
+If addresses, packets, TCP or DNS are new to you, read [Network basics](basics.md) first: it explains them with diagrams.
+
 The example uses the defaults: pingmock's virtual device is `pingmock0` with the address `10.99.0.254/24`, there is a rule `10.99.0.1=50ms`, and a program runs `ping 10.99.0.1`.
 
 ## The whole picture

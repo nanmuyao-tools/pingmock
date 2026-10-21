@@ -4,11 +4,11 @@
 
 [English](README.md) | 中文
 
-在 Linux 上模拟网络的回应，从 ping 起步：ICMP 和 ICMPv6 Echo、TCP 连接，以及 `pingmock exec` 下的 DNS。可以精确设定每个目标地址、端口和域名的**延迟、抖动、丢包率、不可达错误、拒绝连接和 DNS 故障**，并在运行中随时修改。
+**pingmock 为你的测试伪造网络。** 你的程序会 ping 服务器、连接数据库、解析域名，并根据结果做决定：选最快的服务器、重试、切换线路、显示「离线」。要测这些决定，就需要网络恰好在测试需要的时候变慢、出错或连不上。用 pingmock，你写下「这台服务器 300ms 才回应」「那个数据库拒绝连接」「这个域名不存在」这样的规则，程序一行不改，得到的就是这些回应。
+
+它运行在 Linux 上，模拟 ping（ICMP 和 ICMPv6 Echo）、TCP 连接，以及 `pingmock exec` 下的 DNS：每个地址、端口和域名的**延迟、抖动、丢包率、不可达错误、拒绝连接和 DNS 故障**，并可以在测试运行中修改。不熟悉网络？[网络基础](docs/basics.zh-CN.md)配着示意图讲清楚 ping、TCP 和 DNS，[第一步](#第一步)带你一条命令一条命令地试一遍。
 
 ![一个 ping 三台服务器并选出最快者的程序，随着 pingmock 改变各台的延迟，每次选出不同的服务器](docs/demo/demo.svg)
-
-用 ping 探测网络的软件会根据结果做出不同的行为：选最快的服务器、切换线路、判断网络是否可用、显示信号强度。这些行为很难测试，因为真实网络不会刚好处在测试需要的状态。pingmock 让它们可以稳定复现：被测程序照常调用 `ping`（或自己发送 ICMP），一行代码不用改，得到的却是你设定的结果。
 
 最短的例子，不需要 root：
 
@@ -111,6 +111,75 @@ go build -o pingmock .
 ```
 
 用 `go install` 安装的程序在 `$(go env GOPATH)/bin` 下。因为需要 root 权限运行，`sudo` 时可能找不到它，可以写完整路径，例如 `sudo $(go env GOPATH)/bin/pingmock`。
+
+## 第一步
+
+五条命令，每条展示 pingmock 的一种能力。它们都用 `pingmock exec`，不需要 root：它在一份私有的网络里运行 `--` 后面的命令，你机器上的东西都不会变。`-addr6=` 关掉 IPv6，让输出短一点。pingmock 先在以 `[pingmock]` 开头的行里打印规则，下面省略了这些行。
+
+**1. 一台 200ms 才回应的服务器。** pingmock 假装 10.99.0.1 上有一台机器，每个 ping 都在 200ms 后回应：
+
+```console
+$ pingmock exec -addr6= -rule 10.99.0.1=200ms -- ping -c 3 10.99.0.1
+64 bytes from 10.99.0.1: icmp_seq=1 ttl=64 time=201 ms
+64 bytes from 10.99.0.1: icmp_seq=2 ttl=64 time=200 ms
+64 bytes from 10.99.0.1: icmp_seq=3 ttl=64 time=203 ms
+3 packets transmitted, 3 received, 0% packet loss, time 2005ms
+```
+
+10.99.0.1 上并没有机器：`ping` 没有任何改动，是 pingmock 替它回答的（[原理](docs/basics.zh-CN.md#8-pingmock-怎样插到中间)）。`time=` 就是规则设定的延迟。
+
+**2. 宕机的服务器，两种样子。** `unreachable` 立即回一个错误；`timeout` 从不回应，所以 `ping` 一直等（这里等 1 秒，`-W 1`），什么也收不到：
+
+```console
+$ pingmock exec -addr6= -rule 10.99.0.2=unreachable -rule 10.99.0.3=timeout -- \
+    sh -c 'ping -c 2 -W 1 10.99.0.2; ping -c 2 -W 1 10.99.0.3'
+From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
+From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
+2 packets transmitted, 0 received, +2 errors, 100% packet loss, time 1057ms
+2 packets transmitted, 0 received, 100% packet loss, time 1018ms
+```
+
+程序通常会区别对待这两种：错误立刻就知道，超时则要白等（[为什么](docs/basics.zh-CN.md#4-没有回应时超时和不可达)）。
+
+**3. 在程序运行中修改规则。** pingmock 在 `localhost:9100` 上接收修改。服务器先是很快，然后变慢：
+
+```console
+$ pingmock exec -addr6= -rule 10.99.0.1=20ms -- sh -c '
+    ping -c 2 -q 10.99.0.1 | tail -1
+    curl -s -X PUT localhost:9100/rules/10.99.0.1 -d 300ms
+    ping -c 2 -q 10.99.0.1 | tail -1'
+rtt min/avg/max/mdev = 20.515/20.919/21.324/0.404 ms
+{
+  "rule": "delay=300ms",
+  "target": "10.99.0.1/32"
+}
+rtt min/avg/max/mdev = 300.179/300.573/300.967/0.394 ms
+```
+
+测试就是这样让网络在中途变化的：在测试代码里用 `curl` 或[客户端库](#在自动化测试中使用)。
+
+**4. 一个拒绝连接的数据库，和一个从不回应的。** TCP 规则作用在地址和端口上：
+
+```console
+$ pingmock exec -addr6= -tcp 10.99.0.1:80=refuse -tcp 10.99.0.2:80=timeout -- \
+    sh -c 'curl -sS http://10.99.0.1/; curl -sS --connect-timeout 2 http://10.99.0.2/'
+curl: (7) Failed to connect to 10.99.0.1 port 80 after 0 ms: Couldn't connect to server
+curl: (28) Failed to connect to 10.99.0.2 port 80 after 2002 ms: Timeout was reached
+```
+
+第一个立即被拒绝，第二个在给 curl 的 2 秒之后超时（[TCP 基础](docs/basics.zh-CN.md#5-tcp-连接)）。
+
+**5. 一个不存在的域名。** DNS 规则让解析失败，这里是「没有这个域名」（NXDOMAIN）；`getent` 以 2 退出，表示「找不到」：
+
+```console
+$ pingmock exec -addr6= -dns api.example.com=nxdomain -- getent hosts api.example.com.
+$ echo $?
+2
+```
+
+域名末尾的点让解析不去试你网络的 search 域（[DNS 基础](docs/basics.zh-CN.md#7-dns从域名到地址)、[DNS 故障](#dns-故障)）。
+
+测试你自己的程序时，把它放在 `--` 后面：`pingmock exec -rule 10.99.0.1=200ms -- ./my-app`。README 的其余部分会逐一详细介绍这些内容。
 
 ## 使用
 

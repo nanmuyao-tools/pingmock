@@ -4,11 +4,11 @@
 
 English | [中文](README.zh-CN.md)
 
-Mock network answers on Linux, starting with ping: ICMP and ICMPv6 Echo, TCP connections, and DNS under `pingmock exec`. Set the **delay, jitter, packet loss, unreachable errors, refused connections and DNS failures** for each target address, port and name precisely, and change them while your tests are running.
+**pingmock fakes the network for your tests.** Your program pings servers, connects to databases, looks up names, and decides things from what happens: it picks the fastest server, retries, fails over, shows "offline". Testing those decisions needs a network that is slow, broken or unreachable exactly when the test wants it. With pingmock you write rules such as "this server answers in 300 ms", "that database refuses connections" or "this name does not exist", and your program, unchanged, gets those answers.
+
+It runs on Linux and mocks ping (ICMP and ICMPv6 Echo), TCP connections and, under `pingmock exec`, DNS: the **delay, jitter, packet loss, unreachable errors, refused connections and DNS failures** of each address, port and name, changed while your tests run. New to networking? [Network basics](docs/basics.md) explains ping, TCP and DNS with diagrams, and [First steps](#first-steps) tries them out one command at a time.
 
 ![A program that pings three servers and picks the fastest chooses a different one each time pingmock changes their latency](docs/demo/demo.svg)
-
-Software that measures the network with ping behaves differently depending on the result: it picks the fastest server, fails over to another link, decides whether the network is up, shows a signal-strength indicator. Those behaviors are hard to test, because the real network is never in the state a test needs. pingmock makes them reproducible: the program under test keeps running `ping` (or sending ICMP itself) unchanged, and gets the answers you decided on.
 
 The shortest example, with no root needed:
 
@@ -111,6 +111,75 @@ go build -o pingmock .
 ```
 
 Programs installed with `go install` live in `$(go env GOPATH)/bin`. Since pingmock must run as root, `sudo` may not find it on its `PATH`; use the full path instead, e.g. `sudo $(go env GOPATH)/bin/pingmock`.
+
+## First steps
+
+Five commands, each showing one thing pingmock does. They use `pingmock exec`, which needs no root: it runs the command after `--` in a private network, so nothing on your machine changes. `-addr6=` turns IPv6 off to keep the output short. pingmock prints its rules first, in lines starting with `[pingmock]`; they are left out below.
+
+**1. A server that answers in 200 ms.** pingmock pretends there is a machine at 10.99.0.1, and answers each ping after 200 ms:
+
+```console
+$ pingmock exec -addr6= -rule 10.99.0.1=200ms -- ping -c 3 10.99.0.1
+64 bytes from 10.99.0.1: icmp_seq=1 ttl=64 time=201 ms
+64 bytes from 10.99.0.1: icmp_seq=2 ttl=64 time=200 ms
+64 bytes from 10.99.0.1: icmp_seq=3 ttl=64 time=203 ms
+3 packets transmitted, 3 received, 0% packet loss, time 2005ms
+```
+
+There is no machine at 10.99.0.1: `ping` is unchanged, and pingmock answers for it ([how](docs/basics.md#8-how-pingmock-gets-in-the-middle)). `time=` is the latency the rule set.
+
+**2. A server that is down, two ways.** `unreachable` answers with an error at once; `timeout` never answers, so `ping` waits (here 1 second, `-W 1`) and gets nothing:
+
+```console
+$ pingmock exec -addr6= -rule 10.99.0.2=unreachable -rule 10.99.0.3=timeout -- \
+    sh -c 'ping -c 2 -W 1 10.99.0.2; ping -c 2 -W 1 10.99.0.3'
+From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
+From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
+2 packets transmitted, 0 received, +2 errors, 100% packet loss, time 1057ms
+2 packets transmitted, 0 received, 100% packet loss, time 1018ms
+```
+
+A program usually treats the two differently: an error is known at once, a timeout costs waiting ([why](docs/basics.md#4-when-there-is-no-answer-timeout-versus-unreachable)).
+
+**3. Change a rule while the program runs.** pingmock listens on `localhost:9100` for changes. The server is fast, then becomes slow:
+
+```console
+$ pingmock exec -addr6= -rule 10.99.0.1=20ms -- sh -c '
+    ping -c 2 -q 10.99.0.1 | tail -1
+    curl -s -X PUT localhost:9100/rules/10.99.0.1 -d 300ms
+    ping -c 2 -q 10.99.0.1 | tail -1'
+rtt min/avg/max/mdev = 20.515/20.919/21.324/0.404 ms
+{
+  "rule": "delay=300ms",
+  "target": "10.99.0.1/32"
+}
+rtt min/avg/max/mdev = 300.179/300.573/300.967/0.394 ms
+```
+
+This is how a test makes the network change in the middle: from the test code, with `curl` or a [client library](#using-it-in-automated-tests).
+
+**4. A database that refuses connections, and one that never answers.** TCP rules work on an address and a port:
+
+```console
+$ pingmock exec -addr6= -tcp 10.99.0.1:80=refuse -tcp 10.99.0.2:80=timeout -- \
+    sh -c 'curl -sS http://10.99.0.1/; curl -sS --connect-timeout 2 http://10.99.0.2/'
+curl: (7) Failed to connect to 10.99.0.1 port 80 after 0 ms: Couldn't connect to server
+curl: (28) Failed to connect to 10.99.0.2 port 80 after 2002 ms: Timeout was reached
+```
+
+The first is refused at once, the second times out after the 2 seconds curl was given ([TCP basics](docs/basics.md#5-tcp-connections)).
+
+**5. A name that does not exist.** DNS rules make lookups fail, here with "no such name" (NXDOMAIN); `getent` exits with 2, "not found":
+
+```console
+$ pingmock exec -addr6= -dns api.example.com=nxdomain -- getent hosts api.example.com.
+$ echo $?
+2
+```
+
+The dot at the end of the name keeps the lookup from trying your network's search domains ([DNS basics](docs/basics.md#7-dns-from-a-name-to-an-address), [DNS faults](#dns-faults)).
+
+To test your own program, put it after `--` instead: `pingmock exec -rule 10.99.0.1=200ms -- ./my-app`. The rest of this README goes through each of these in detail.
 
 ## Usage
 
