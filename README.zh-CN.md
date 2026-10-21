@@ -48,7 +48,7 @@ From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
 From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
 ```
 
-为了简短，这里把 pingmock 和 `ping` 放在同一个容器里。测试自己的程序时，可以用 [`pingmock exec`](#不用-root-运行pingmock-exec) 运行它，或者像 [`examples/compose-demo`](examples/compose-demo/) 那样用 Docker Compose 让它加入 pingmock 的网络。
+为了简短，这里把 pingmock 和 `ping` 放在同一个容器里。测试自己的程序时，可以用 [`pingmock exec`](#不用-root-运行pingmock-exec) 运行它，或者像 [`examples/compose-demo`](examples/compose-demo/README.zh-CN.md) 那样用 Docker Compose 让它加入 pingmock 的网络。
 
 ## 原理
 
@@ -56,15 +56,18 @@ pingmock 创建一块 TUN 虚拟网卡，把测试网段（默认是 `10.99.0.0/
 
 因此被测软件**不需要任何修改**：无论它调用 `ping` 命令，还是自己用原始套接字发送 ICMP，都会被模拟。回复会原样带回请求中的负载，所以 `ping` 这类在负载里写入时间戳的工具，计算出的延迟就是设定值。
 
+连接请求也走同一条路：pingmock 从网卡读到 TCP SYN，写回 SYN-ACK、RST 或者什么都不写，握手的其余部分由程序自己的内核完成。DNS 查询不经过网卡：在 `pingmock exec` 下，命令的 `resolv.conf` 指向 pingmock 为它运行的一个小 DNS 服务。[网络基础](docs/basics.zh-CN.md#8-pingmock-怎样插到中间)画出了这个过程，[代码导读](docs/architecture.zh-CN.md#连接和-dns-查询)讲了对应的代码。
+
 ### 什么时候用它，什么时候用别的
 
-pingmock 用来测试**根据 ping 的结果或连接能否建立来做决定的程序**。它不会把真实流量变慢，也不碰 TCP 连接上传输的数据。下面三个工具各有各的用处：
+pingmock 用来测试**根据 ping 的结果或连接能否建立来做决定的程序**。它不会把真实流量变慢，也不碰 TCP 连接上传输的数据。下面这些工具各有各的用处：
 
 | 你想做的事 | 用什么 |
 |---|---|
 | 测试一个会 ping 或建立连接的程序：选服务器、切换线路、判断网络是否可用、显示延迟、连接超时和被拒绝 | **pingmock** |
 | 把某块网卡上的真实流量变慢、丢包，对所有协议都生效：压力测试、"在 3G 网络下程序的体验" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html)，内核自带的网络模拟器 |
 | 让到某个服务的 TCP 连接上的数据变慢或出错：延迟、限速、传输中途重置，针对数据库或 API | [Toxiproxy](https://github.com/Shopify/toxiproxy)，带 API 和多语言客户端的 TCP 代理 |
+| 在测试之外，让整台机器或整个集群的域名解析出错 | 让客户端指向一个 DNS 服务器，比如 CoreDNS 的 `erratic` 插件，或者混沌测试工具；只改一个域名的话，在 `/etc/hosts` 里加一行。pingmock 的 [DNS 故障](#dns-故障)按域名设置，在 `pingmock exec` 下使用 |
 
 netem 作用在网卡和队列上，一条规则往往会波及所有流量（包括你自己的 SSH），而且需要 root。Toxiproxy 夹在应用和某个 TCP 服务之间，应用得改成连代理。pingmock 是**透明**的：程序照常 ping、照常连接它原来的地址和端口，不需要改成连代理；`pingmock exec` **不需要 root**，也不会改动被测命令之外的任何东西。在此之上，它吸收了这两者面向测试的那一面：故障**按目标地址、网段和端口**声明在和测试放在一起的配置文件里，随机丢包和抖动用 seed **可以复现**，规则可以通过 API **在程序运行中修改**。
 
@@ -74,8 +77,8 @@ pingmock 做的每一件事，都同时满足这四点：
 
 | | 含义 | 怎样做到 |
 |---|---|---|
-| **透明** | 被测程序不需要修改代码或配置，照常 ping 它原来 ping 的地址 | TUN 网卡和路由拦截请求，连 `ping` 命令都能直接用 |
-| **按目标** | 每个目标可以有自己的网络状况 | 规则按地址或网段设置 |
+| **透明** | 被测程序不需要修改代码或配置，照常 ping、连接和解析它原来用的地址、端口和域名 | TUN 网卡和路由拦截请求，`pingmock exec` 下还有一个私有的 DNS 服务回答域名；连 `ping` 命令都能直接用 |
+| **按目标** | 每个目标可以有自己的网络状况 | 规则按地址或网段设置，TCP 规则还可以按端口，`pingmock exec` 下还可以按域名 |
 | **可复现** | 同样的设置，每次运行的结果都一样 | `-seed`、确定性的 `pattern`、按次数或时间的场景、`POST /reset` |
 | **可控、可观察** | 测试进行中可以改变网络状况，事后能看到程序实际做了什么 | HTTP API 和 Go 客户端、请求历史和统计 |
 
@@ -110,7 +113,7 @@ cd pingmock
 go build -o pingmock .
 ```
 
-用 `go install` 安装的程序在 `$(go env GOPATH)/bin` 下。因为需要 root 权限运行，`sudo` 时可能找不到它，可以写完整路径，例如 `sudo $(go env GOPATH)/bin/pingmock`。
+用 `go install` 安装的程序在 `$(go env GOPATH)/bin` 下。用 root 运行时，`sudo` 可能找不到它，可以写完整路径，例如 `sudo $(go env GOPATH)/bin/pingmock`。
 
 ## 第一步
 
@@ -185,8 +188,8 @@ $ echo $?
 
 pingmock 有两种运行方式：
 
-- `sudo pingmock [参数]` 为整台机器模拟 ping，直到你停止它。本节其余部分介绍的就是这种方式。
-- `pingmock exec [参数] -- 命令` 在一个独立的网络里运行命令，该命令的 ping 会被模拟。这种方式**不需要 root**，也不影响宿主机的网络，最适合测试和 CI。参见[不用 root 运行](#不用-root-运行pingmock-exec)。
+- `sudo pingmock [参数]` 为整台机器模拟 ping 和连接，直到你停止它。本节其余部分介绍的就是这种方式。
+- `pingmock exec [参数] -- 命令` 在一个独立的网络里运行命令，该命令的 ping、连接和域名解析都会被模拟。这种方式**不需要 root**，也不影响宿主机的网络，最适合测试和 CI。参见[不用 root 运行](#不用-root-运行pingmock-exec)。
 
 第一种方式需要 root 权限（或 `CAP_NET_ADMIN`）。
 
@@ -326,7 +329,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`、[`paths`](#路径traceroute-和-mtr)、[`tcp`](#tcp-连接)，以及供 `pingmock exec` 使用的 [`hosts`](#域名) 和 [`dns`](#dns-故障)；在 `pingmock exec` 下，规则的键也可以是域名。映射写法里，TCP 规则还可以用 `refuse` 和 `after`，DNS 规则可以用 `nxdomain` 和 `servfail`（`{delay: 5ms, after: reset}`、`{servfail: true}`）。
+每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`，每个阶段是一个 `spec`，加上 `for: 10s`（时长）或 `count: 5`（请求数）。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`、[`paths`](#路径traceroute-和-mtr)、[`tcp`](#tcp-连接)，以及供 `pingmock exec` 使用的 [`hosts`](#域名) 和 [`dns`](#dns-故障)；在 `pingmock exec` 下，规则的键也可以是域名。映射写法里，TCP 规则还可以用 `refuse` 和 `after`，DNS 规则可以用 `nxdomain` 和 `servfail`（`{delay: 5ms, after: reset}`、`{servfail: true}`）。
 
 出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。早期版本使用的 JSON 配置文件无需修改即可继续使用，因为 JSON 本身就是合法的 YAML。
 
@@ -350,7 +353,117 @@ sudo ./pingmock -config examples/pingmock.yaml
 | `-tcp` | | `目标=规则`，可重复：发往目标（`地址[:端口]`、`网段[:端口]`、`[IPv6]:端口`）的 TCP 连接怎样回应，见 [TCP 连接](#tcp-连接) |
 | `-dns` | | `域名=规则`，可重复，只用于 `pingmock exec`：命令对该域名的 DNS 查询怎样回应，见 [DNS 故障](#dns-故障) |
 | `-v` | `false` | 打印每个请求的处理日志 |
-| `-version` | | 打印版本号并退出 |
+
+`pingmock version`（或 `-version`）作为唯一的参数时，打印版本号并退出。
+
+## TCP 连接
+
+很多检查网络的软件也会建立连接：连数据库、连 API、检测某个端口。**TCP 规则**决定发往某个地址和端口的连接请求怎样回应，程序不需要任何改动，就会遇到连接很慢、被拒绝，或者一直连不上：
+
+```bash
+pingmock exec \
+  -tcp 10.99.0.1:5432=timeout \
+  -tcp 10.99.0.2:5432=5ms \
+  -tcp '10.99.0.3:443=refuse for 3 requests; 20ms' \
+  -- ./my-app
+```
+
+这里第一个数据库从不回应，`connect` 会超时，程序应该切换到第二个，它 5ms 就接受连接。第三台服务器先拒绝三次连接（立即得到 `ECONNREFUSED`），之后接受。
+
+目标写成 `地址:端口`、`网段:端口`，不写端口就是该地址或网段的所有端口。IPv6 和 URL 里一样加方括号：`[fd99::1]:443`、`[fd99::/64]:443`、`[fd99::1]`。不加括号时 `fd99::1:443` 本身就是一个地址，所以会被拒绝。在 `pingmock exec` 下，目标还可以是[域名](#域名)，比如 `db.example.com:5432`。
+
+规则的写法和 `-rule` 相同，含义如下：
+
+| 设置 | 程序看到的 |
+|---|---|
+| `20ms`、`delay=`、`jitter=` | 延迟之后接受连接：`connect` 用时就是这个延迟 |
+| `refuse` | 立即拒绝连接（有延迟时在延迟之后）：TCP reset，`ECONNREFUSED` |
+| `timeout`、`loss=30%` | 不回应：`connect` 超时，每次都超时或者 30% 的连接超时 |
+| `unreachable[=net\|admin]` | `connect` 立即失败：`EHOSTUNREACH`（"No route to host"），`net` 则是 `ENETUNREACH`（"Network is unreachable"） |
+| `pattern=..r` | 按顺序轮流：`.` 接受、`x` 不回应、`u` 不可达、`r` 拒绝 |
+| `after=close` | 接受连接，然后立即关闭：读取得到文件结束（EOF），HTTP 客户端得到空回复（curl："Empty reply from server"） |
+| `after=reset` | 接受连接，等程序第一次发送数据或关闭时重置：`ECONNRESET`（"Connection reset by peer"） |
+| `after=hang` | 默认：接受连接并保持打开，不发送任何数据 |
+| `ttl=` | 回应的 TTL |
+
+场景按连接请求计数：`for 3 requests`（也可以写 `connections`）。一次连接请求只算一次，不管客户端的内核在等待期间重发了几次 SYN，所以 `timeout for 2 requests` 就是两次连接请求，和内核的重传时间无关。多条规则匹配时，先比网段谁更精确，再比有端口的优先于不带端口的。
+
+和 ping 的规则一样，root 模式下为真实地址设置 TCP 规则，会把发往这个地址的**所有**流量交给 pingmock，见[模拟真实地址](#模拟真实地址)；`pingmock exec` 只影响它运行的命令。
+
+### 连接建立之后
+
+接受的连接会保持打开，但不会发送任何数据：程序读取时会遇到读取超时，可以和连接超时区分开。没有 TCP 规则的端口和以前一样不回应，除非这个地址设了[路径](#路径traceroute-和-mtr)，路径的目标接受任何端口的连接。
+
+同样的规则可以测试 **TLS 握手超时**：连接建立了，客户端发出 ClientHello，却一直等不到回应。`pingmock exec -tcp api.example.com:443=5ms -- ./my-app` 让发往这个域名的每个 HTTPS 请求都卡在握手：Python 的 `ssl` 报 "The handshake operation timed out"，curl 以退出码 28 放弃，Go 的 `http.Transport` 在 `TLSHandshakeTimeout` 之后失败。
+
+用 `after=` 可以改为别的做法，测试程序怎样应对服务器断开它：`-tcp '10.99.0.1:5432=after=reset'` 让发往这个数据库的每次查询都失败于 "connection reset by peer"；`-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` 先给两次空回复，之后服务器恢复（接受连接并保持）。
+
+`after=reset` 会等程序发送数据：如果连接一建立就重置，重置有时会在 `connect` 还没返回时到达，让 `connect` 本身失败。因此先等服务器说话的程序（SSH、SMTP、MySQL 客户端）在 `after=reset` 下会遇到读取超时，在 `after=close` 下读到文件结束。
+
+关闭之后程序再写入的数据会得到重置，和关闭了 socket 的真实服务器一样；之后再写会以 `EPIPE` 失败。动作在接受连接时就决定了，所以即使程序发送数据之前阶段已经结束，动作也不会变。空闲 10 分钟的连接会被忘掉，之后不再回应。
+
+### 配置文件、API 和历史
+
+配置文件（带方括号的键要加引号）和 API 中的写法：
+
+```yaml
+tcp:
+  10.99.0.1:5432: timeout
+  10.99.0.3:443: refuse for 3 requests; 20ms
+  "[fd99::1]:443": {delay: 200ms, jitter: 20ms}
+  10.99.0.4:8080: {delay: 5ms, after: reset}
+```
+
+```bash
+curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
+curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
+```
+
+Go 客户端有 `SetTCP`、`DeleteTCP` 和 `TCPStats`。`GET /rules` 在 `tcp` 中列出 TCP 规则，在 `tcp_stats` 中按地址和端口（`"10.99.0.1:5432"`）给出统计：请求、接受、拒绝、丢弃、不可达，以及接受的连接中被关闭和被重置的数目。连接请求的历史记录带有 `"probe": "tcp"` 和 `port`，结果是 `syn-ack`（接受）、`refused`、`drop` 或 `unreachable`；内核重发的 SYN 记为 `"repeat": true`，不重复计数。关闭或重置一个已接受的连接时，会多记一条结果为 `closed` 或 `reset` 的事件，带有接受它的规则和阶段。随机性来自种子，按地址和端口各自独立，和发往同一地址的 ping 互不影响，ping 在同一种子下的结果不变。
+
+## 路径：traceroute 和 mtr
+
+有些软件看的不只是终点，还有去往终点的路。可以给目标设置一条**路径**：从这里到它之间的每一台路由器，像真实路由器一样回应 TTL 在它那里耗尽的探测包。traceroute 和 mtr 就能看到每一跳，三种探测方式（UDP、ICMP、TCP）都能到达终点。
+
+```bash
+sudo pingmock -rule 8.8.8.8=30ms \
+  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
+```
+
+```
+$ traceroute -n 8.8.8.8
+ 1  192.168.1.1  2.3 ms
+ 2  10.0.0.1  15.8 ms
+ 3  *
+ 4  72.14.0.1  25.4 ms
+ 5  8.8.8.8  30.6 ms
+```
+
+路径是用 `>` 连接的若干跳，每跳写成 `地址@设置`，或者用 `*` 表示一台从不回应的路由器。设置项有：
+
+| 设置 | 含义 |
+|---|---|
+| `2ms`、`delay=2ms` | 到这一跳的往返延迟 |
+| `jitter=3ms` | 延迟在 ±3ms 内均匀波动 |
+| `loss=10%` | 这一跳对 10% 的、在它这里终止的探测包不回应，就像限制 ICMP 速率的路由器。其他都不受影响：mtr 只在这一行显示丢包 |
+| `cut=5%` | 这一跳丢掉 5% 经过它的包：发给后面各跳和终点的探测包，还有发给终点的 ping。有问题的链路就是这样：从这一跳起都有丢包 |
+| `ttl=250` | 这一跳回应的 TTL（默认 64） |
+
+终点自己的规则仍然决定终点怎么回应：它的延迟和丢包像以前一样作用于 ping，也作用于 traceroute 的最后一行。设置了路径的目标还会用"端口不可达"回应 UDP 探测、用 SYN-ACK 回应 TCP 探测，任何端口都是，traceroute 的 UDP 和 TCP 模式就是靠这个知道到达了终点；在终点，这个端口的 [TCP 规则](#tcp-连接)优先。没有路径的目标仍然不理会 UDP，也不理会没有 TCP 规则的端口上的 TCP。各跳的地址会被加上指向虚拟网卡的路由，这样在严格的反向路径检查下内核也接受它们的回应；在 `pingmock exec` 里这不会影响命令之外的任何东西。随机数来自 seed、按目标独立，所以 `loss` 和 `cut` 在 `-seed` 下可以精确复现。
+
+配置文件里的写法（以 `*` 开头的路径要加引号，否则 YAML 会当成别名）和 API：
+
+```yaml
+paths:
+  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
+```
+
+```bash
+curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
+curl -X DELETE localhost:9100/paths/8.8.8.8
+```
+
+Go 客户端有 `SetPath` 和 `DeletePath`。`GET /rules` 会列出路径；历史记录里每个探测包都带有 `ttl`、回应或丢掉它的 `hop`，以及回应来自哪个地址（`from`）；探测包的 `result` 是某一跳回的 `time-exceeded`，或者终点回的 `port-unreachable`、`syn-ack`。
 
 ## 不用 root 运行：pingmock exec
 
@@ -358,7 +471,7 @@ sudo ./pingmock -config examples/pingmock.yaml
 pingmock exec [参数] -- 命令 [参数...]
 ```
 
-会在一个**独立的网络命名空间**里运行命令，pingmock 在其中模拟 ping，参数和前面完全相同：
+会在一个**独立的网络命名空间**里运行命令，pingmock 在其中模拟 ping 和连接，有 `-dns` 规则或域名时还模拟 DNS 查询，参数和前面完全相同：
 
 ```bash
 pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
@@ -421,9 +534,13 @@ pingmock exec \
 | `timeout`、`loss=30%` | 不回应：解析器等到超时（默认 5 秒）后重试，然后以 `EAI_AGAIN` 失败 |
 | `pattern=.ns` | 按顺序轮流：`.` 回复、`x` 不回应、`n` NXDOMAIN、`s` SERVFAIL |
 
+`unreachable` 和 `ttl` 对 DNS 没有意义，会被拒绝。一条规则覆盖这个域名的所有查询类型；只针对一种类型的写法 `api.example.com/AAAA` 已经预留，目前会被拒绝。
+
 规则对模拟的域名（用 `-host` 或为域名写的规则）和真实的域名都有效，真实域名的故障直接由 pingmock 回答，不去问宿主机。有规则的域名不写进命令的 `/etc/hosts`，因为程序会先读 hosts 文件、不问 DNS。
 
-场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 只让一次解析失败，因为 C 库默认问两次（`resolv.conf` 里的 `attempts:2`）。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。解析器加上 `resolv.conf` 的 search 域去试的名字（`api.example.com.corp.example`）是别的域名，照常转发。C 库在一个域名失败后会去试这些名字，并报告最后一个回复：宿主机有 `search` 行时，`api.example.com` 的 SERVFAIL 或超时可能最终变成"找不到"，甚至变成 search 域给出的地址。要看到规则本身的故障，请在域名末尾加点（`api.example.com.`），或者在没有 search 域的机器上测试。
+场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 只让一次解析失败，因为 C 库默认问两次（`resolv.conf` 里的 `attempts:2`）。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。
+
+解析器加上 `resolv.conf` 的 search 域去试的名字（`api.example.com.corp.example`）是别的域名，照常转发。C 库在一个域名失败后会去试这些名字，并报告最后一个回复：宿主机有 `search` 行时，`api.example.com` 的 SERVFAIL 或超时可能最终变成"找不到"，甚至变成 search 域给出的地址。要看到规则本身的故障，请在域名末尾加点（`api.example.com.`），或者在没有 search 域的机器上测试。
 
 延迟接近解析器的超时时，不同解析器的表现不同：C 库在超时后已经重试的情况下仍会接受迟到的回复，Go 的解析器不会。
 
@@ -445,107 +562,6 @@ Go 客户端有 `SetDNS`、`DeleteDNS` 和 `DNSStats`。通过 API 可以为任�
 
 DNS 规则只用于 `pingmock exec`：为整台机器模拟时，pingmock 无法插到程序和机器的解析器之间，所以 `sudo pingmock -dns` 会被拒绝。
 
-## TCP 连接
-
-很多检查网络的软件也会建立连接：连数据库、连 API、检测某个端口。**TCP 规则**决定发往某个地址和端口的连接请求怎样回应，程序不需要任何改动，就会遇到连接很慢、被拒绝，或者一直连不上：
-
-```bash
-pingmock exec \
-  -tcp 10.99.0.1:5432=timeout \
-  -tcp 10.99.0.2:5432=5ms \
-  -tcp '10.99.0.3:443=refuse for 3 requests; 20ms' \
-  -- ./my-app
-```
-
-这里第一个数据库从不回应，`connect` 会超时，程序应该切换到第二个，它 5ms 就接受连接。第三台服务器先拒绝三次连接（立即得到 `ECONNREFUSED`），之后接受。
-
-目标写成 `地址:端口`、`网段:端口`，不写端口就是该地址或网段的所有端口。IPv6 和 URL 里一样加方括号：`[fd99::1]:443`、`[fd99::/64]:443`、`[fd99::1]`。不加括号时 `fd99::1:443` 本身就是一个地址，所以会被拒绝。在 `pingmock exec` 下，目标还可以是[域名](#域名)，比如 `db.example.com:5432`。
-
-规则的写法和 `-rule` 相同，含义如下：
-
-| 设置 | 程序看到的 |
-|---|---|
-| `20ms`、`delay=`、`jitter=` | 延迟之后接受连接：`connect` 用时就是这个延迟 |
-| `refuse` | 立即拒绝连接（有延迟时在延迟之后）：TCP reset，`ECONNREFUSED` |
-| `timeout`、`loss=30%` | 不回应：`connect` 超时，每次都超时或者 30% 的连接超时 |
-| `unreachable[=net\|admin]` | `connect` 立即失败：`EHOSTUNREACH`（"No route to host"），`net` 则是 `ENETUNREACH`（"Network is unreachable"） |
-| `pattern=..r` | 按顺序轮流：`.` 接受、`x` 不回应、`u` 不可达、`r` 拒绝 |
-| `after=close` | 接受连接，然后立即关闭：读取得到文件结束（EOF），HTTP 客户端得到空回复（curl："Empty reply from server"） |
-| `after=reset` | 接受连接，等程序第一次发送数据或关闭时重置：`ECONNRESET`（"Connection reset by peer"） |
-| `after=hang` | 默认：接受连接并保持打开，不发送任何数据 |
-| `ttl=` | 回应的 TTL |
-
-场景按连接请求计数：`for 3 requests`（也可以写 `connections`）。一次连接请求只算一次，不管客户端的内核在等待期间重发了几次 SYN，所以 `timeout for 2 requests` 就是两次连接请求，和内核的重传时间无关。多条规则匹配时，先比网段谁更精确，再比有端口的优先于不带端口的。
-
-和 ping 的规则一样，root 模式下为真实地址设置 TCP 规则，会把发往这个地址的**所有**流量交给 pingmock，见[模拟真实地址](#模拟真实地址)；`pingmock exec` 只影响它运行的命令。
-
-接受的连接会保持打开，但不会发送任何数据：程序读取时会遇到读取超时，可以和连接超时区分开。pingmock 不模拟任何服务。没有 TCP 规则的端口和以前一样不回应。
-
-同样的规则可以测试 **TLS 握手超时**：连接建立了，客户端发出 ClientHello，却一直等不到回应。`pingmock exec -tcp api.example.com:443=5ms -- ./my-app` 让发往这个域名的每个 HTTPS 请求都卡在握手：Python 的 `ssl` 报 "The handshake operation timed out"，curl 以退出码 28 放弃，Go 的 `http.Transport` 在 `TLSHandshakeTimeout` 之后失败。
-
-用 `after=` 可以改为别的做法，测试程序怎样应对服务器断开它：`-tcp '10.99.0.1:5432=after=reset'` 让发往这个数据库的每次查询都失败于 "connection reset by peer"；`-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` 先给两次空回复，之后服务器恢复（接受连接并保持）。`after=reset` 会等程序发送数据：如果连接一建立就重置，重置有时会在 `connect` 还没返回时到达，让 `connect` 本身失败。因此先等服务器说话的程序（SSH、SMTP、MySQL 客户端）在 `after=reset` 下会遇到读取超时，在 `after=close` 下读到文件结束。关闭之后程序再写入的数据会得到重置，和关闭了 socket 的真实服务器一样；之后再写会以 `EPIPE` 失败。动作在接受连接时就决定了，所以即使程序发送数据之前阶段已经结束，动作也不会变。空闲 10 分钟的连接会被忘掉，之后不再回应。
-
-配置文件（带方括号的键要加引号）和 API 中的写法：
-
-```yaml
-tcp:
-  10.99.0.1:5432: timeout
-  10.99.0.3:443: refuse for 3 requests; 20ms
-  "[fd99::1]:443": {delay: 200ms, jitter: 20ms}
-  10.99.0.4:8080: {delay: 5ms, after: reset}
-```
-
-```bash
-curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
-curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
-```
-
-Go 客户端有 `SetTCP`、`DeleteTCP` 和 `TCPStats`。`GET /rules` 在 `tcp` 中列出 TCP 规则，在 `tcp_stats` 中按地址和端口（`"10.99.0.1:5432"`）给出统计：请求、接受、拒绝、丢弃、不可达，以及接受的连接中被关闭和被重置的数目。连接请求的历史记录带有 `"probe": "tcp"` 和 `port`，结果是 `syn-ack`（接受）、`refused`、`drop` 或 `unreachable`；内核重发的 SYN 记为 `"repeat": true`，不重复计数。关闭或重置一个已接受的连接时，会多记一条结果为 `closed` 或 `reset` 的事件，带有接受它的规则和阶段。随机性来自种子，按地址和端口各自独立，和发往同一地址的 ping 互不影响，ping 在同一种子下的结果不变。
-
-## 路径：traceroute 和 mtr
-
-有些软件看的不只是终点，还有去往终点的路。可以给目标设置一条**路径**：从这里到它之间的每一台路由器，像真实路由器一样回应 TTL 在它那里耗尽的探测包。traceroute 和 mtr 就能看到每一跳，三种探测方式（UDP、ICMP、TCP）都能到达终点。
-
-```bash
-sudo pingmock -rule 8.8.8.8=30ms \
-  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
-```
-
-```
-$ traceroute -n 8.8.8.8
- 1  192.168.1.1  2.3 ms
- 2  10.0.0.1  15.8 ms
- 3  *
- 4  72.14.0.1  25.4 ms
- 5  8.8.8.8  30.6 ms
-```
-
-路径是用 `>` 连接的若干跳，每跳写成 `地址@设置`，或者用 `*` 表示一台从不回应的路由器。设置项有：
-
-| 设置 | 含义 |
-|---|---|
-| `2ms`、`delay=2ms` | 到这一跳的往返延迟 |
-| `jitter=3ms` | 延迟在 ±3ms 内均匀波动 |
-| `loss=10%` | 这一跳对 10% 的、在它这里终止的探测包不回应，就像限制 ICMP 速率的路由器。其他都不受影响：mtr 只在这一行显示丢包 |
-| `cut=5%` | 这一跳丢掉 5% 经过它的包：发给后面各跳和终点的探测包，还有发给终点的 ping。有问题的链路就是这样：从这一跳起都有丢包 |
-| `ttl=250` | 这一跳回应的 TTL（默认 64） |
-
-终点自己的规则仍然决定终点怎么回应：它的延迟和丢包像以前一样作用于 ping，也作用于 traceroute 的最后一行。设置了路径的目标还会用"端口不可达"回应 UDP 探测、用 SYN-ACK 回应 TCP 探测，traceroute 的 UDP 和 TCP 模式就是靠这个知道到达了终点；没有路径的目标仍然不理会 UDP 和 TCP。各跳的地址会被加上指向虚拟网卡的路由，这样在严格的反向路径检查下内核也接受它们的回应；在 `pingmock exec` 里这不会影响命令之外的任何东西。随机数来自 seed、按目标独立，所以 `loss` 和 `cut` 在 `-seed` 下可以精确复现。
-
-配置文件里的写法（以 `*` 开头的路径要加引号，否则 YAML 会当成别名）和 API：
-
-```yaml
-paths:
-  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
-```
-
-```bash
-curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
-curl -X DELETE localhost:9100/paths/8.8.8.8
-```
-
-Go 客户端有 `SetPath` 和 `DeletePath`。`GET /rules` 会列出路径；历史记录里每个探测包都带有 `ttl`、回应或丢掉它的 `hop`，以及回应来自哪个地址（`from`）；探测包的 `result` 是某一跳回的 `time-exceeded`，或者终点回的 `port-unreachable`、`syn-ack`。
-
 ### 系统要求
 
 普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间，并且 `/dev/net/tun` 允许所有人打开（`crw-rw-rw-`），大多数发行版默认如此。如果条件不满足，pingmock 会说明缺少什么以及如何解决。
@@ -557,11 +573,11 @@ sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
 sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```
 
-在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事。[`examples/github-actions`](examples/github-actions/) 是一份可以直接复制的配置，包括安装 pingmock 和这份 AppArmor 配置。
+在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事。[`examples/github-actions`](examples/github-actions/README.zh-CN.md) 是一份可以直接复制的配置，包括安装 pingmock 和这份 AppArmor 配置。
 
 ## Docker
 
-镜像 `ghcr.io/nanmuyao/pingmock` 需要 `NET_ADMIN` 权限和 TUN 设备。与它共享网络的容器发出的 ping 都会被模拟，并且可以通过 `127.0.0.1:9100` 访问 API：
+镜像 `ghcr.io/nanmuyao/pingmock` 需要 `NET_ADMIN` 权限和 TUN 设备。与它共享网络的容器发出的 ping 和连接都会被模拟，并且可以通过 `127.0.0.1:9100` 访问 API：
 
 ```bash
 docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
@@ -575,16 +591,17 @@ docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
 docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
 ```
 
-[`examples/compose-demo`](examples/compose-demo/) 更进一步：一个被测服务实时响应从宿主机修改的规则，以及用 `docker compose run` 运行的测试。
+[`examples/compose-demo`](examples/compose-demo/README.zh-CN.md) 更进一步：一个被测服务实时响应从宿主机修改的规则，以及用 `docker compose run` 运行的测试。
 
-不带参数时，镜像中的 API 监听所有地址，可以用 `-p 9100:9100` 映射出来。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
+不带参数时，镜像运行 `pingmock -api 0.0.0.0:9100`，所以 API 可以用 `-p 9100:9100` 映射出来；给了参数就会替换这个默认值，要映射 API 的话请在参数里加上 `-api 0.0.0.0:9100`。镜像为它所在的网络命名空间运行 pingmock，就像 `sudo pingmock` 为整台机器运行一样，所以那里不能用域名、`-host` 和 `-dns`，请写地址。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
 
 ## 运行时控制 API
 
 测试过程中可以通过 HTTP 随时修改规则，修改立即生效。请求体可以是和 `-rule` 相同的文本格式，也可以是 JSON。
 
 ```bash
-# 查看种子、规则和每个目标的统计（请求数、回复数、丢弃数、不可达数、当前阶段）
+# 查看种子、默认规则、规则、路径和每个目标的统计
+# （stats：requests、replied、dropped、unreachable、hops、rule、phase），
 # 以及 TCP 规则（tcp、tcp_stats）和 DNS 规则（dns、dns_stats）的同类信息
 curl localhost:9100/rules
 
@@ -606,6 +623,10 @@ curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 curl -X PUT localhost:9100/dns/api.example.com -d nxdomain
 curl -X DELETE localhost:9100/dns/api.example.com
 
+# 路径（traceroute 和 mtr 用）：给目标设置路径，然后删除
+curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
+curl -X DELETE localhost:9100/paths/8.8.8.8
+
 # 修改默认规则
 curl -X PUT localhost:9100/default -d timeout
 
@@ -622,7 +643,7 @@ curl -X DELETE localhost:9100/history
 # 每个目标的场景和随机序列重新开始
 curl -X POST localhost:9100/reset
 
-# 这是哪个版本的 pingmock：{"version": "v0.11.0"}
+# 这是哪个版本的 pingmock：{"version": "vX.Y.Z"}
 curl localhost:9100/version
 ```
 
@@ -635,6 +656,20 @@ curl localhost:9100/version
  "id": 4242, "seq": 3, "result": "unreachable", "code": "host", "reply": false,
  "delay": "40ms", "rule": "10.99.0.1/32", "phase": 2}
 ```
+
+一条记录可能有的所有字段：
+
+| 字段 | 什么时候有 | 取值 |
+|---|---|---|
+| `time`、`src`、`dst`、`rule`、`phase`、`reply` | 总是有 | `reply` 只在回显应答时为 true；DNS 查询的 `src` 和 `dst` 是 127.0.0.1，即命令的 DNS 服务 |
+| `id`、`seq` | ping | 回显请求的标识和序号 |
+| `result` | 总是有 | ping：`reply`、`drop`、`unreachable`；路径：`time-exceeded`、`port-unreachable`、`syn-ack`；TCP 规则：`syn-ack`、`refused`、`drop`、`unreachable`、`closed`、`reset`；DNS 规则：`answer`、`nxdomain`、`servfail`、`drop` |
+| `code` | 不可达的回应 | `host`、`net` 或 `admin` |
+| `delay` | 有回应时 | 比如 `40ms` |
+| `probe` | ping 以外的请求 | `udp`、`tcp` 或 `dns` |
+| `ttl`、`hop`、`from` | UDP 和 TCP 探测 | 探测包的 TTL、回应或丢掉它的那一跳（终点不出现）、回应来自哪个地址 |
+| `port`、`repeat` | TCP | 目的端口；内核重发的 SYN 为 `true`，不重复计数 |
+| `name`、`qtype` | DNS | 查询的域名，以及 `A`、`AAAA`…… |
 
 ## 在自动化测试中使用
 
@@ -649,7 +684,7 @@ CI 会在 Ubuntu 24.04 和 26.04 上，用 [`test/e2e-compat.sh`](test/e2e-compa
 | [pro-bing](https://github.com/prometheus-community/pro-bing)（Go） | 原始套接字，以及免 root 的 ping 套接字 |
 | [icmplib](https://github.com/ValentinBELYN/icmplib)（Python） | 原始套接字，以及免 root 的 ping 套接字 |
 
-设置了[路径](#路径traceroute-和-mtr)的目标，traceroute 和 mtr 能看到各跳，UDP、ICMP、TCP 三种模式都可以，CI 都有检查。没有路径的目标看起来就在一跳之外，而且只回应 ping。
+设置了[路径](#路径traceroute-和-mtr)的目标，traceroute 和 mtr 能看到各跳，UDP、ICMP、TCP 三种模式都可以，CI 都有检查。没有路径的目标看起来就在一跳之外，见[限制](#限制)。
 
 对于 [TCP 规则](#tcp-连接)，同一个脚本用 Go（`net.Dial`）和 Python（`socket`）的标准库建立连接，检查它们分别看到：延迟之后连上、随后读取超时，`ECONNREFUSED`，连接超时，`EHOSTUNREACH`。curl 和 bash 的 `/dev/tcp` 在端到端测试里检查。
 
@@ -696,7 +731,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则、设置 TCP 和 DNS 规则（`SetTCP`、`SetDNS`，以及 `TCPStats`、`DNSStats`）、把一切恢复成启动时的样子（`Reset`，适合放在每个测试的开头），详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
+客户端覆盖了全部 API：规则（`SetRule`、`DeleteRule`、`SetDefault`）、路径（`SetPath`、`DeletePath`）、TCP 和 DNS 规则（`SetTCP`、`DeleteTCP`、`SetDNS`、`DeleteDNS`）、统计（`State`、`Stats`、`TCPStats`、`DNSStats`、`ResetStats`）、历史（`History`、`ClearHistory`）、把一切恢复成启动时样子的 `Reset`（适合放在每个测试的开头）和 `Version`；用 `New`、`FromEnv`、`URL` 连接，`IsNotFound` 用来区分「规则不存在」和其他错误。详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/README.zh-CN.md) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
 
 ### 其他语言
 
@@ -706,7 +741,7 @@ func TestPicksFastestServer(t *testing.T) {
 pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
 ```
 
-[`examples/python-demo`](examples/python-demo/) 是一个完整的示例，其中的 pytest fixture 可以直接复制使用。
+[`examples/python-demo`](examples/python-demo/README.zh-CN.md) 是一个完整的示例，其中的 pytest fixture 可以直接复制使用。
 
 ```python
 import os, requests
@@ -739,7 +774,7 @@ def test_retries():
 make test         # go vet 和带竞态检测的单元测试
 make e2e          # 编译 pingmock，并用 sudo 运行 test/e2e.sh
 make e2e-exec     # pingmock exec，分别以普通用户和 root 运行
-make e2e-compat   # 用 fping、pro-bing 和 icmplib 测试 pingmock（需要安装 fping 和 icmplib）
+make e2e-compat   # 用 ping、fping、pro-bing、icmplib，以及 Go 和 Python 的 TCP 客户端测试 pingmock（需要安装 fping 和 icmplib）
 make e2e-docker   # 容器镜像和 Compose 示例
 ```
 
@@ -749,9 +784,9 @@ make e2e-docker   # 容器镜像和 Compose 示例
 
 ## 限制
 
-- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。在 `pingmock exec` 下，对有 [DNS 规则](#dns-故障)的域名的 DNS 查询按规则回应。接受的连接上不交换数据：pingmock 不模拟任何服务。其他 TCP 流量和 UDP 不会得到响应，设置了路径的目标收到的 traceroute、mtr 探测除外。
+- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。在 `pingmock exec` 下，对有 [DNS 规则](#dns-故障)的域名的 DNS 查询按规则回应。pingmock 从不在 TCP 连接上发送应用数据：它运行的唯一一个服务，是 `pingmock exec` 下为命令运行的 DNS 服务。其他 TCP 流量和 UDP 不会得到响应，设置了路径的目标收到的 traceroute、mtr 探测除外。
 - **绑定网卡**的 ping 不会被模拟：`ping -I eth0 8.8.8.8` 无论路由怎样都会从 `eth0` 发出，因此绕过了 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）则照常被模拟。
-- 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外，而且只回应 ping：发给它的 UDP 和 TCP 探测得不到任何回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，但不会交换任何数据：pingmock 不模拟任何服务。
+- 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外：回应它的 ping，TCP 探测只在有 TCP 规则的端口上回应，UDP 探测一概不回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，任何端口都是，除非这个端口有 TCP 规则另作规定。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
 - 不支持分片的请求（例如 `ping -s 2000`）和带扩展头的 IPv6 请求，这类请求会被忽略。
 - 只支持 Linux。普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。

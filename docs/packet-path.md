@@ -46,16 +46,17 @@ Recording the processes pingmock starts with `strace` shows every command it run
 ip addr add 10.99.0.254/24 dev pingmock0          # ① give the device its address and network
 ip link set pingmock0 up                          # ② bring the device up
 ip -6 addr add fd99::fe/64 dev pingmock0 nodad    # ③ the IPv6 address
-ip route replace 8.8.8.8/32 dev pingmock0         # ④ a route for a real address outside the network
+ip -o -4 route show exact 8.8.8.8/32 table main  # ④ does the host already route this address?
+ip route replace 8.8.8.8/32 dev pingmock0         # ⑤ a route for a real address outside the network
 ```
 
 | Command | Code | Notes |
 |---|---|---|
 | ① ② | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr` (or `addr` in a configuration file), `10.99.0.254/24` by default |
 | ③ | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr6`, `fd99::fe/64` by default. If the kernel has no IPv6, this command fails and pingmock says so and continues with IPv4 only |
-| ④ | [`Router.Ensure`](../internal/tun/tun_linux.go) | Only for targets **outside the network**. 10.99.0.1 is in 10.99.0.0/24, for which the kernel already added a route after command ①, so nothing is run for it |
+| ④ ⑤ | [`Router.Ensure`](../internal/tun/tun_linux.go) | Only for targets **outside the network**. 10.99.0.1 is in 10.99.0.0/24, for which the kernel already added a route after command ①, so nothing is run for it. ④ asks whether the host has a route for exactly that prefix: if it does, pingmock routes the prefix as two halves instead (`/25` and `/25` for a `/24`), so that the host's own route stays, or refuses a single address ([Mocking real addresses](../README.md#mocking-real-addresses)). The hops of a path get routes the same way |
 
-Every command goes through [`tun.IP`](../internal/tun/tun_linux.go), which runs the system's `ip` program (from iproute2).
+Every command runs the system's `ip` program (from iproute2): the changes through [`tun.IP`](../internal/tun/tun_linux.go), the query ④ from `Router.existing`.
 
 Under `pingmock exec`, one more command comes first:
 
@@ -155,8 +156,8 @@ pingmock's main loop, [`Responder.Serve`](../internal/responder/responder.go), k
 
 Having read the packet, [`Responder.handle`](../internal/responder/responder.go):
 
-1. checks with [`ParseEchoRequest`](../internal/icmp/icmp.go) that it is a ping request and takes its destination, 10.99.0.1;
-2. asks [`RuleSet.Decide`](../internal/engine/ruleset.go) what to do according to the rules: reply, drop or answer unreachable, and after how long. Here: reply after 50ms;
+1. checks with [`ParseProbe`](../internal/icmp/probe.go) that it is a ping request and takes its destination, 10.99.0.1;
+2. asks [`RuleSet.DecideProbe`](../internal/engine/path.go), which hands a ping to a target without a path to [`RuleSet.Decide`](../internal/engine/ruleset.go), what to do according to the rules: reply, drop or answer unreachable, and after how long. Here: reply after 50ms;
 3. builds the reply with [`BuildEchoReply`](../internal/icmp/icmp.go): **it swaps the source and destination addresses**, changes the ICMP type from 8 (request) to 0 (reply), recomputes the checksums, and **keeps everything else as it was**, including the time of sending that ping put in the data.
 
 `Serve` then writes the reply to the device after 50ms with `time.AfterFunc`. If the rule drops the request, nothing is written. See the [code tour](architecture.md) for more, and [Inside the packets](packets.md) for what every byte of the request and reply means.
@@ -217,4 +218,4 @@ While pingmock runs, these commands show each step above:
 | What ping hands the kernel | `strace -e sendto ping -c 1 10.99.0.1` | 64 bytes starting with `\10\0` (type 8) |
 | Packets each way | `cat /sys/class/net/pingmock0/statistics/{tx,rx}_packets` | each answered request adds one to both; a dropped one only to tx |
 | The route for a hijacked address | `ip route show` with `-rule 8.8.8.8=30ms` | `8.8.8.8 dev pingmock0` |
-| The commands pingmock runs | `sudo strace -f -e trace=execve pingmock -rule 8.8.8.8=30ms` | `ip addr add`, `ip link set ... up`, `ip -6 addr add`, `ip route replace` |
+| The commands pingmock runs | `sudo strace -f -e trace=execve pingmock -rule 8.8.8.8=30ms` | `ip addr add`, `ip link set ... up`, `ip -6 addr add`, `ip route show exact`, `ip route replace` |

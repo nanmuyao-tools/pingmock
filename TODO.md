@@ -1,6 +1,6 @@
 # TODO
 
-已发布 v0.8.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
+已发布 v0.11.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
 接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
 
@@ -344,6 +344,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 - [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI（原属 v0.6）
 - [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装（原属 v0.8）
 - [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈（原属 v0.8）
+- [ ] 示例里用上 TCP 和 DNS 规则（文档审查发现，2026-10-21）：README 开头就有 `-tcp`、`-dns`，但没有一个示例用到。候选：go-demo 加一个连接超时后切换的测试，python-demo 加一个连接被拒绝或 NXDOMAIN 的测试；python-demo 的 fixture 也补上 `set_tcp`、`set_dns`
 - [ ] 用 Java、Node.js 客户端验证 TCP 规则（含 `after=`）：现在验证过的是 curl、bash `/dev/tcp`、Go `net`、Python `socket`
 
 ### 推广帖子，由作者本人发布

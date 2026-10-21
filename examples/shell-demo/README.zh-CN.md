@@ -51,7 +51,7 @@ PASS switches to the backup when the primary does not answer
 | flapping primary | 主线路一直时断时续 | 循环的场景：`timeout for 3 pings; 20ms for 3 pings; repeat` |
 | sends 3 pings to the primary and none to the backup | — | 用[请求历史](../../README.zh-CN.md#运行时控制-api)检查脚本实际发了几个 ping |
 
-最后两组测试体现了场景规则的用处：脚本每次检查正好发 3 个 ping，所以 `for 3 pings` 的阶段和脚本的每次运行一一对应，结果每次都完全一样。
+`recovery` 和 `flapping primary` 这两组测试体现了场景规则的用处：脚本每次检查正好发 3 个 ping，所以 `for 3 pings` 的阶段和脚本的每次运行一一对应，结果每次都完全一样。
 
 这些测试能发现真实的问题。比如把防抖动关掉（`RECOVER_CHECKS=1`），恰好是检查防抖动的 3 个测试会失败：
 

@@ -46,16 +46,17 @@ pingmock 启动时对系统做的事情，本质上就是**用代码创建一块
 ip addr add 10.99.0.254/24 dev pingmock0          # ① 给网卡设置地址和网段
 ip link set pingmock0 up                          # ② 启用网卡
 ip -6 addr add fd99::fe/64 dev pingmock0 nodad    # ③ 设置 IPv6 地址
-ip route replace 8.8.8.8/32 dev pingmock0         # ④ 为网段之外的真实地址添加路由
+ip -o -4 route show exact 8.8.8.8/32 table main  # ④ 宿主机是否已经有这个地址的路由？
+ip route replace 8.8.8.8/32 dev pingmock0         # ⑤ 为网段之外的真实地址添加路由
 ```
 
 | 命令 | 代码位置 | 说明 |
 |---|---|---|
 | ① ② | [`configureDevice`](../internal/app/instance.go) | 地址来自 `-addr` 参数（或配置文件里的 `addr`），默认 `10.99.0.254/24` |
 | ③ | [`configureDevice`](../internal/app/instance.go) | 地址来自 `-addr6`，默认 `fd99::fe/64`。如果内核没有启用 IPv6，这条命令会失败，pingmock 打印提示后只用 IPv4 继续运行 |
-| ④ | [`Router.Ensure`](../internal/tun/tun_linux.go) | 只为**网段之外**的目标执行。10.99.0.1 本来就在 10.99.0.0/24 里，第 ① 条命令之后内核已经自动生成了路由，所以没有为它执行 |
+| ④ ⑤ | [`Router.Ensure`](../internal/tun/tun_linux.go) | 只为**网段之外**的目标执行。10.99.0.1 本来就在 10.99.0.0/24 里，第 ① 条命令之后内核已经自动生成了路由，所以没有为它执行。④ 查询宿主机是否已经有这个网段本身的路由：有的话，pingmock 改为把它拆成两半来路由（`/24` 拆成两个 `/25`），保留宿主机原有的路由；如果是单个地址则拒绝（见[模拟真实地址](../README.zh-CN.md#模拟真实地址)）。路径上的每一跳也这样添加路由 |
 
-所有命令都通过 [`tun.IP`](../internal/tun/tun_linux.go) 执行，它就是运行系统里的 `ip` 程序（来自 iproute2）。
+所有命令都是运行系统里的 `ip` 程序（来自 iproute2）：修改通过 [`tun.IP`](../internal/tun/tun_linux.go)，第 ④ 条查询来自 `Router.existing`。
 
 用 `pingmock exec` 运行时，开头会多一条：
 
@@ -155,8 +156,8 @@ pingmock 的主循环 [`Responder.Serve`](../internal/responder/responder.go) �
 
 读到包之后，[`Responder.handle`](../internal/responder/responder.go) 依次：
 
-1. 用 [`ParseEchoRequest`](../internal/icmp/icmp.go) 确认这是 ping 请求，取出目标地址 10.99.0.1
-2. 用 [`RuleSet.Decide`](../internal/engine/ruleset.go) 按规则决定：回复、丢弃还是返回不可达，延迟多久。这里是"50ms 后回复"
+1. 用 [`ParseProbe`](../internal/icmp/probe.go) 确认这是 ping 请求，取出目标地址 10.99.0.1
+2. 用 [`RuleSet.DecideProbe`](../internal/engine/path.go)（没有路径的目标交给 [`RuleSet.Decide`](../internal/engine/ruleset.go)）按规则决定：回复、丢弃还是返回不可达，延迟多久。这里是"50ms 后回复"
 3. 用 [`BuildEchoReply`](../internal/icmp/icmp.go) 构造应答：**对调源地址和目标地址**，ICMP 类型从 8（请求）改成 0（应答），重新计算校验和，**其余内容原样保留**，包括数据里 ping 写入的发送时间
 
 然后 `Serve` 用 `time.AfterFunc` 在 50ms 后把应答写回网卡。如果规则决定丢弃，就什么都不写。详见[代码导读](architecture.zh-CN.md)；请求和应答里每个字节的含义，参见[数据包详解](packets.zh-CN.md)。
@@ -217,4 +218,4 @@ IPv6 的过程完全相同，只是：网卡地址是 `fd99::fe/64`，内核同�
 | ping 交给内核的内容 | `strace -e sendto ping -c 1 10.99.0.1` | 64 字节，以 `\10\0` 开头（类型 8） |
 | 去程和回程的包数 | `cat /sys/class/net/pingmock0/statistics/{tx,rx}_packets` | 每回复一个请求，发送和接收各加 1；被丢弃的请求只加发送 |
 | 劫持真实地址的路由 | `-rule 8.8.8.8=30ms` 时 `ip route show` | `8.8.8.8 dev pingmock0` |
-| pingmock 执行的命令 | `sudo strace -f -e trace=execve pingmock -rule 8.8.8.8=30ms` | `ip addr add`、`ip link set ... up`、`ip -6 addr add`、`ip route replace` |
+| pingmock 执行的命令 | `sudo strace -f -e trace=execve pingmock -rule 8.8.8.8=30ms` | `ip addr add`、`ip link set ... up`、`ip -6 addr add`、`ip route show exact`、`ip route replace` |

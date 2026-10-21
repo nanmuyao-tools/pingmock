@@ -6,7 +6,7 @@ pingmock runs on Linux only, and its end-to-end checks need root, a TUN device a
 
 ## What is inside
 
-Go (the version is pinned in the [`Dockerfile`](Dockerfile)), iproute2, `ping`, `curl`, traceroute, mtr, fping, Python with icmplib and pytest, shellcheck, git, and Claude Code. The container runs as the unprivileged user `dev`, who can `sudo` without a password for the checks that need root.
+Go (the version is pinned in the [`Dockerfile`](Dockerfile)), iproute2, `ping`, `curl`, traceroute, mtr, fping, nscd (for a check of `pingmock exec`), Python with icmplib and pytest, shellcheck, git, and Claude Code. The container runs as the unprivileged user `dev`, who can `sudo` without a password for the checks that need root.
 
 ## Opening it
 
@@ -37,7 +37,7 @@ Measured on a Mac with Docker Desktop. The end-to-end checks spend their time wa
 
 | Command | Time | Use it when |
 |---|---|---|
-| `go test ./internal/rule/... ./internal/engine/... ./internal/icmp/... ./internal/dns/... ./internal/config/... ./internal/api/... ./client/...` on the Mac itself | seconds | Changing anything but `internal/app` and `internal/tun`, which build on Linux only |
+| `go test ./internal/rule/... ./internal/engine/... ./internal/icmp/... ./internal/responder/... ./internal/dns/... ./internal/config/... ./internal/api/... ./client/...` on the Mac itself | seconds | Changing anything but `internal/app` and `internal/tun`, which build on Linux only |
 | `make test` | about 15 s | Any change |
 | `make e2e` | about 25 s | Packets, rules, routes, paths |
 | `make e2e-exec` | about 30 s | `pingmock exec`, names, DNS |

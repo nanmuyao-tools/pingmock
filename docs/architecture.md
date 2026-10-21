@@ -27,7 +27,10 @@ internal/
   config/                 the YAML configuration file
   dns/                    the DNS server pingmock exec runs for its command, with DNS rules
 client/                   Go client for the API, for tests (the only public package)
-test/                     end-to-end checks
+test/                     end-to-end and compatibility checks
+examples/                 programs and tests to copy from, one per language or tool
+docs/                     these documents
+contrib/, scripts/        the AppArmor profile; the release notes script
 ```
 
 Packages under `internal/` are for this project only; `client/` is public and may be imported by others.
@@ -40,8 +43,8 @@ With the rule `10.99.0.1=50ms`, a program runs `ping 10.99.0.1`:
 flowchart TD
     A["ping 10.99.0.1"] -->|"the kernel routes it<br>to the virtual device"| B["virtual device pingmock0"]
     B --> C["responder: Serve reads the packet"]
-    C --> D["icmp: ParseEchoRequest<br>is it a ping? to which address?"]
-    D --> E["engine: RuleSet.Decide<br>which rule, which phase for this target"]
+    C --> D["icmp: ParseProbe<br>a ping? to which address?"]
+    D --> E["engine: RuleSet.DecideProbe, then Decide<br>which rule, which phase for this target"]
     E --> F["rule: Spec.Decide<br>reply, drop or unreachable, and the delay"]
     F --> G["icmp: BuildEchoReply<br>build the reply"]
     G -->|"after 50ms"| H["written back to the device"]
@@ -51,11 +54,11 @@ flowchart TD
 In the code:
 
 1. **Read**: [`Responder.Serve`](../internal/responder/responder.go) is the main loop of the program. It reads packets from the device and passes each to `handle`.
-2. **Parse**: [`ParseEchoRequest`](../internal/icmp/icmp.go) checks that the packet is a ping (ICMP over IPv4 or ICMPv6 over IPv6) and extracts its source, destination and sequence number. Other packets are ignored.
-3. **Decide**: [`RuleSet.Decide`](../internal/engine/ruleset.go) finds the rule for the destination (the most specific prefix wins), works out which phase of the rule this target is in, and calls [`Spec.Decide`](../internal/rule/spec.go) for the outcome: reply, drop or unreachable, and the delay.
+2. **Parse**: [`ParseProbe`](../internal/icmp/probe.go) checks what the packet is: here a ping (ICMP over IPv4 or ICMPv6 over IPv6), whose source, destination, TTL, identifier and sequence number it extracts. It also recognizes TCP segments and UDP probes; anything else is ignored.
+3. **Decide**: [`RuleSet.DecideProbe`](../internal/engine/path.go) sends a ping to a target without a path on to [`RuleSet.Decide`](../internal/engine/ruleset.go), which finds the rule for the destination (the most specific prefix wins), works out which phase of the rule this target is in, and calls [`Spec.Decide`](../internal/rule/spec.go) for the outcome: reply, drop or unreachable, and the delay.
 4. **Build**: depending on the outcome, [`BuildEchoReply`](../internal/icmp/icmp.go) builds the reply, which is the request with its addresses swapped and its type changed, or [`BuildUnreachable`](../internal/icmp/icmp.go) builds a destination unreachable error.
 5. **Record**: [`Responder.record`](../internal/responder/responder.go) adds the request to the history that `GET /history` returns.
-6. **Write back later**: `Serve` uses `time.AfterFunc` to write the answer to the device after the delay. Each answer has its own timer, so a slow answer never holds up other requests.
+6. **Write back later**: `Serve` uses `time.AfterFunc` to write the answer to the device after the delay. Each answer has its own timer, so a slow answer never holds up other requests; answers without a delay are written at once, in order.
 
 The ping program measures the round trip and finds the configured 50ms.
 
@@ -84,12 +87,12 @@ These types are the key to the code. They live in `rule` and `engine`:
 
 | Concept | Code | Meaning |
 |---|---|---|
-| **Spec** | [`rule.Spec`](../internal/rule/spec.go) | How to answer **one** request: delay, jitter, loss or a loss pattern, unreachable or not. `delay=50ms,loss=5%` is a Spec |
+| **Spec** | [`rule.Spec`](../internal/rule/spec.go) | How to answer **one** request: delay, jitter, loss or a loss pattern, unreachable or not, TTL; for TCP rules also `refuse` and `after`, for DNS rules `nxdomain` and `servfail`. `delay=50ms,loss=5%` is a Spec |
 | **Phase** | [`rule.Phase`](../internal/rule/scenario.go) | A Spec with a length: a duration (`for 10s`) or a number of requests (`for 5 pings`) |
 | **Scenario** | [`rule.Scenario`](../internal/rule/scenario.go) | A sequence of phases, such as `30ms for 10 pings; timeout`. A plain rule is a scenario with one endless phase |
 | **Outcome** | [`rule.Outcome`](../internal/rule/outcome.go) | What happens to a request: `Reply`, `Drop` or `Unreachable`; for paths also `TimeExceeded`, `PortUnreachable` and `SynAck`, and for TCP rules `Refused`, and `Closed` and `Reset` for connections they accepted with `after=`; for DNS rules `NXDomain` and `ServFail` |
 | **RuleSet** | [`engine.RuleSet`](../internal/engine/ruleset.go) | The installed rules, and **the state of each target address**: its phase, how many requests it got in that phase, and its own random source; likewise for each address and port of TCP rules ([`tcp.go`](../internal/engine/tcp.go)) and each name and query type of DNS rules ([`dns.go`](../internal/engine/dns.go)) |
-| **Decision** | [`engine.Decision`](../internal/engine/ruleset.go) | What `RuleSet.Decide` returns: the outcome, the delay, and the rule and phase that applied |
+| **Decision** | [`engine.Decision`](../internal/engine/ruleset.go) | What `RuleSet.DecideProbe` and `Decide` return: the outcome, the delay, and the rule and phase that applied |
 | **History** | [`engine.History`](../internal/engine/history.go) | Recent requests, in a fixed-size ring buffer |
 
 Two design choices that are easy to wonder about:
@@ -144,9 +147,9 @@ The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../
 ## Suggested reading order
 
 1. **[`rule/doc.go`](../internal/rule/doc.go)**: what rules look like and which concepts there are
-2. **`Spec.Decide`** in [`rule/spec.go`](../internal/rule/spec.go): how a rule decides the outcome of a request, under 30 lines
-3. **`RuleSet.Decide` and `advance`** in [`engine/ruleset.go`](../internal/engine/ruleset.go): how each target gets its rule and phase
-4. **[`responder/responder.go`](../internal/responder/responder.go)**: the main loop that ties these together, under 100 lines
+2. **`Spec.Decide`** in [`rule/spec.go`](../internal/rule/spec.go): how a rule decides the outcome of a request, about 40 lines
+3. **`RuleSet.DecideProbe`** in [`engine/path.go`](../internal/engine/path.go), then **`RuleSet.Decide` and `advance`** in [`engine/ruleset.go`](../internal/engine/ruleset.go): how each target gets its rule and phase
+4. **[`responder/responder.go`](../internal/responder/responder.go)**: the main loop that ties these together, about 150 lines
 5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**: the packet formats; skip it at first if network protocols do not interest you, or read [Inside the packets](packets.md), which goes through every field it handles, byte by byte
 6. **[`app/`](../internal/app/)**: flags, starting up and exec
 7. **[`engine/tcp.go`](../internal/engine/tcp.go)**, then **[`engine/dns.go`](../internal/engine/dns.go)** and **[`dns/dns.go`](../internal/dns/dns.go)**: the other protocols, once the ping path is clear
@@ -167,4 +170,4 @@ The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../
 | Add a configuration field | `Config` in `config/config.go`, `knownFields` in `config/yaml.go`, and `applyConfig` in `app/settings.go` |
 | Add a command-line flag | `defineFlags` and `resolve` in `app/settings.go` |
 
-When you change behavior that users see, update both `README.md` and `README.zh-CN.md`.
+When you change behavior that users see, change both languages together: `README.md` and `README.zh-CN.md`, every document in `docs/`, and both READMEs of every example.

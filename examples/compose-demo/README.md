@@ -20,7 +20,7 @@ The key is this line:
 network_mode: service:pingmock
 ```
 
-It puts `monitor` and `tests` in the `pingmock` container's network, so their pings are mocked and `127.0.0.1:9100` is the control API. `pingmock`'s health check makes the other two wait until it is ready.
+It puts `monitor` and `tests` in the `pingmock` container's network, so their pings and connections are mocked and `127.0.0.1:9100` is the control API. `pingmock`'s health check makes the other two wait until it is ready.
 
 The pingmock container needs `NET_ADMIN` and the TUN device (`cap_add` and `devices`); the containers under test need no special privileges.
 

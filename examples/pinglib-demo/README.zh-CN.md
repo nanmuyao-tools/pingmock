@@ -50,4 +50,4 @@ go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 - `30ms for 3 pings; timeout` 模拟运行中宕机的主机，见[场景](../../README.zh-CN.md#场景随时间变化的规则)
 - `ttl=1` 到 `ttl=255`
 
-[GitHub Actions 示例](../github-actions/)展示了怎样在 CI 里运行这样的测试。
+[GitHub Actions 示例](../github-actions/README.zh-CN.md)展示了怎样在 CI 里运行这样的测试。

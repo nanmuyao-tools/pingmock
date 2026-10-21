@@ -51,7 +51,7 @@ Each test in [`test.sh`](test.sh) starts with `network PRIMARY_RULE BACKUP_RULE`
 | flapping primary | the primary keeps going down and up | a repeating scenario: `timeout for 3 pings; 20ms for 3 pings; repeat` |
 | sends 3 pings to the primary and none to the backup | — | the [request history](../../README.md#runtime-control-api), to check how many pings the script really sent |
 
-The last groups show what scenarios are for: each check sends exactly 3 pings, so the `for 3 pings` phases line up with the script's runs and the results are the same every time.
+The recovery and flapping tests show what scenarios are for: each check sends exactly 3 pings, so the `for 3 pings` phases line up with the script's runs and the results are the same every time.
 
 These tests catch real mistakes. Turn off the protection against flapping (`RECOVER_CHECKS=1`), and exactly the 3 tests that check it fail:
 

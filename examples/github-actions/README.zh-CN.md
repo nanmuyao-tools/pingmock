@@ -51,18 +51,18 @@ GitHub 的 Ubuntu 机器通过 AppArmor 限制了普通用户创建用户命名�
 
 | 测试方式 | `run:` 写法 | 示例 |
 |---|---|---|
-| Go | `go test -exec "pingmock exec -config pingmock.yaml --" ./...` | [go-demo](../go-demo/) |
-| Python（pytest） | `pingmock exec -config pingmock.yaml -- python -m pytest` | [python-demo](../python-demo/) |
-| Shell 脚本 | `pingmock exec -config pingmock.yaml -- ./test.sh` | [shell-demo](../shell-demo/) |
+| Go | `go test -exec "pingmock exec -config pingmock.yaml --" ./...` | [go-demo](../go-demo/README.zh-CN.md) |
+| Python（pytest） | `pingmock exec -config pingmock.yaml -- python -m pytest` | [python-demo](../python-demo/README.zh-CN.md) |
+| Shell 脚本 | `pingmock exec -config pingmock.yaml -- ./test.sh` | [shell-demo](../shell-demo/README.zh-CN.md) |
 
 `pingmock exec` 以测试命令的退出码退出，所以测试失败时，这一步也会失败。
 
 ## 注意事项
 
 - **依赖要在 `pingmock exec` 之外安装。** `pingmock exec` 里的程序没有外网访问，所以 `pip install`、`npm install` 之类的步骤要放在测试步骤之前单独运行。`go test -exec` 会先编译再运行，所以 Go 不受影响
-- **使用 Docker Compose 的项目不需要前两步**，直接在 Compose 文件里使用 pingmock 镜像即可，参见 [compose-demo](../compose-demo/)
+- **使用 Docker Compose 的项目不需要前两步**，直接在 Compose 文件里使用 pingmock 镜像即可，参见 [compose-demo](../compose-demo/README.zh-CN.md)
 - 如果不想安装 AppArmor 配置，也可以把第 3 步改成 `sudo pingmock exec ...`，以 root 运行时不受这个限制。不过测试也会以 root 运行
 
 ## 这份配置经过了验证
 
-本仓库的 CI 会**从这份文件中提取每一步的命令，原样执行**，而且在 Ubuntu 24.04 和 26.04 上各执行一遍：安装 `PINGMOCK_VERSION` 指定的正式版，安装 AppArmor 配置，然后运行 [go-demo](../go-demo/) 的测试，并且要求所有测试都通过、没有被跳过。所以照着复制，就能得到一份可用的配置，无论 `ubuntu-latest` 迁移前还是迁移后。
+本仓库的 CI 会**从这份文件中提取每一步的命令，原样执行**，而且在 Ubuntu 24.04 和 26.04 上各执行一遍：安装 `PINGMOCK_VERSION` 指定的正式版，安装 AppArmor 配置，然后运行 [go-demo](../go-demo/README.zh-CN.md) 的测试，并且要求所有测试都通过、没有被跳过。所以照着复制，就能得到一份可用的配置，无论 `ubuntu-latest` 迁移前还是迁移后。

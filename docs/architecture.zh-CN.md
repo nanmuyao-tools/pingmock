@@ -27,7 +27,10 @@ internal/
   config/                 YAML 配置文件
   dns/                    pingmock exec 为命令运行的 DNS 服务，执行 DNS 规则
 client/                   给 Go 测试用的 API 客户端（唯一公开的包）
-test/                     端到端测试脚本
+test/                     端到端测试和兼容性测试
+examples/                 可以照抄的示例，每种语言或工具一个
+docs/                     这些文档
+contrib/, scripts/        AppArmor 配置；生成发布说明的脚本
 ```
 
 带 `*` 的几个模块，就是一个 ping 请求从上到下依次经过的。
@@ -42,8 +45,8 @@ test/                     端到端测试脚本
 flowchart TD
     A["ping 10.99.0.1"] -->|"内核按路由表<br>发往虚拟网卡"| B["虚拟网卡 pingmock0"]
     B --> C["responder: Serve 读到数据包"]
-    C --> D["icmp: ParseEchoRequest<br>是 ping 请求吗？目标地址是？"]
-    D --> E["engine: RuleSet.Decide<br>该目标匹配哪条规则、处在哪个阶段"]
+    C --> D["icmp: ParseProbe<br>是 ping 请求吗？目标地址是？"]
+    D --> E["engine: RuleSet.DecideProbe，再到 Decide<br>该目标匹配哪条规则、处在哪个阶段"]
     E --> F["rule: Spec.Decide<br>回复 / 丢弃 / 不可达，延迟多久"]
     F --> G["icmp: BuildEchoReply<br>构造回复包"]
     G -->|"等待 50ms"| H["写回虚拟网卡"]
@@ -53,11 +56,11 @@ flowchart TD
 对应到代码：
 
 1. **读取**：[`Responder.Serve`](../internal/responder/responder.go) 是整个程序的主循环，不断从网卡读取数据包，交给 `handle` 处理。
-2. **解析**：[`ParseEchoRequest`](../internal/icmp/icmp.go) 检查这是不是一个 ping 请求（IPv4 的 ICMP 或 IPv6 的 ICMPv6），并取出源地址、目标地址、序号。其他数据包直接忽略。
-3. **决策**：[`RuleSet.Decide`](../internal/engine/ruleset.go) 找到目标地址匹配的规则（最精确的网段优先），确定这个目标当前处在规则的哪个阶段，再调用 [`Spec.Decide`](../internal/rule/spec.go) 得出结果：回复、丢弃还是不可达，以及延迟多久。
+2. **解析**：[`ParseProbe`](../internal/icmp/probe.go) 判断这是什么数据包：这里是一个 ping 请求（IPv4 的 ICMP 或 IPv6 的 ICMPv6），并取出源地址、目标地址、TTL、标识和序号。它也认得 TCP 报文和 UDP 探测包，其他数据包一律忽略。
+3. **决策**：[`RuleSet.DecideProbe`](../internal/engine/path.go) 把发往没有路径的目标的 ping 交给 [`RuleSet.Decide`](../internal/engine/ruleset.go)，后者找到目标地址匹配的规则（最精确的网段优先），确定这个目标当前处在规则的哪个阶段，再调用 [`Spec.Decide`](../internal/rule/spec.go) 得出结果：回复、丢弃还是不可达，以及延迟多久。
 4. **构造**：根据结果，[`BuildEchoReply`](../internal/icmp/icmp.go) 构造回复包，或者 [`BuildUnreachable`](../internal/icmp/icmp.go) 构造"目标不可达"错误包。回复包就是把请求包的源地址和目标地址对调，再改一下类型字段。
 5. **记录**：[`Responder.record`](../internal/responder/responder.go) 把这次请求写进历史记录，供 `GET /history` 查询。
-6. **延迟写回**：`Serve` 用 `time.AfterFunc` 在设定的延迟之后把回复包写回网卡。每个回复各自计时，所以一个慢回复不会挡住其他请求。
+6. **延迟写回**：`Serve` 用 `time.AfterFunc` 在设定的延迟之后把回复包写回网卡。每个回复各自计时，所以一个慢回复不会挡住其他请求；没有延迟的回复立即按顺序写出。
 
 ping 程序收到回复时计算往返时间，得到的就是设定的 50ms。
 
@@ -86,12 +89,12 @@ TCP 和 DNS 规则沿用上面的一切：同样的 `Spec`、`Phase`、`Scenario
 
 | 概念 | 代码 | 说明 |
 |---|---|---|
-| **规则** | [`rule.Spec`](../internal/rule/spec.go) | 怎样回应**一个**请求：延迟、抖动、丢包率或丢包模式、是否返回不可达。`delay=50ms,loss=5%` 就是一个 Spec |
+| **规则** | [`rule.Spec`](../internal/rule/spec.go) | 怎样回应**一个**请求：延迟、抖动、丢包率或丢包模式、是否返回不可达、TTL；TCP 规则还有 `refuse` 和 `after`，DNS 规则还有 `nxdomain` 和 `servfail`。`delay=50ms,loss=5%` 就是一个 Spec |
 | **阶段** | [`rule.Phase`](../internal/rule/scenario.go) | 一个 Spec 加上持续多久（`for 10s`）或持续几个请求（`for 5 pings`） |
 | **场景** | [`rule.Scenario`](../internal/rule/scenario.go) | 若干阶段组成的序列，比如 `30ms for 10 pings; timeout`。普通规则就是只有一个阶段、永不结束的场景 |
 | **结果** | [`rule.Outcome`](../internal/rule/outcome.go) | 一个请求的结局：`Reply`（回复）、`Drop`（丢弃）、`Unreachable`（不可达）；路径还有 `TimeExceeded`、`PortUnreachable`、`SynAck`，TCP 规则还有 `Refused`（拒绝），以及用 `after=` 关闭或重置已接受连接时的 `Closed`、`Reset`；DNS 规则还有 `NXDomain`、`ServFail` |
 | **规则集** | [`engine.RuleSet`](../internal/engine/ruleset.go) | 所有已安装的规则，以及**每个目标地址各自的状态**：处在哪个阶段、阶段里已经收到几个请求、自己的随机数生成器；TCP 规则的每个地址和端口（[`tcp.go`](../internal/engine/tcp.go)）、DNS 规则的每个域名和查询类型（[`dns.go`](../internal/engine/dns.go)）也一样 |
-| **决策** | [`engine.Decision`](../internal/engine/ruleset.go) | `RuleSet.Decide` 的返回值：结果、延迟、匹配的规则和阶段 |
+| **决策** | [`engine.Decision`](../internal/engine/ruleset.go) | `RuleSet.DecideProbe` 和 `Decide` 的返回值：结果、延迟、匹配的规则和阶段 |
 | **历史** | [`engine.History`](../internal/engine/history.go) | 最近请求的记录，固定大小的环形缓冲区 |
 
 两个容易困惑的设计：
@@ -146,9 +149,9 @@ main.go: main
 ## 建议的阅读顺序
 
 1. **[`rule/doc.go`](../internal/rule/doc.go)**：先看规则长什么样，有哪几个概念
-2. **[`rule/spec.go`](../internal/rule/spec.go)** 中的 `Spec.Decide`：一条规则如何决定一个请求的结果，不到 30 行
-3. **[`engine/ruleset.go`](../internal/engine/ruleset.go)** 中的 `RuleSet.Decide` 和 `advance`：如何为每个目标选择规则和阶段
-4. **[`responder/responder.go`](../internal/responder/responder.go)**：主循环，把上面几步串起来，不到 100 行
+2. **[`rule/spec.go`](../internal/rule/spec.go)** 中的 `Spec.Decide`：一条规则如何决定一个请求的结果，约 40 行
+3. **[`engine/path.go`](../internal/engine/path.go)** 中的 `RuleSet.DecideProbe`，然后是 **[`engine/ruleset.go`](../internal/engine/ruleset.go)** 中的 `RuleSet.Decide` 和 `advance`：如何为每个目标选择规则和阶段
+4. **[`responder/responder.go`](../internal/responder/responder.go)**：主循环，把上面几步串起来，约 150 行
 5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**：数据包的格式细节。如果不关心网络协议，可以先跳过；想深入了解的话，[数据包详解](packets.zh-CN.md)逐字节讲解了它处理的每个字段
 6. **[`app/`](../internal/app/)**：参数解析、启动和 exec 模式
 7. **[`engine/tcp.go`](../internal/engine/tcp.go)**，然后是 **[`engine/dns.go`](../internal/engine/dns.go)** 和 **[`dns/dns.go`](../internal/dns/dns.go)**：理解了 ping 的路径之后，再看其他协议
@@ -169,4 +172,4 @@ main.go: main
 | 配置文件新增字段 | `config/config.go` 的 `Config`，`config/yaml.go` 的 `knownFields`，`app/settings.go` 的 `applyConfig` |
 | 新增命令行参数 | `app/settings.go` 的 `defineFlags` 和 `resolve` |
 
-修改用户能看到的行为时，记得同时更新 `README.md` 和 `README.zh-CN.md`。
+修改用户能看到的行为时，中英文要一起改：`README.md` 和 `README.zh-CN.md`、`docs/` 下的每篇文档、每个示例的两份 README。

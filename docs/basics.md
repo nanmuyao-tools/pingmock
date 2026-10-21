@@ -140,8 +140,8 @@ sequenceDiagram
     participant C as program (client)
     participant S as server 10.99.0.1:5432
     C->>S: SYN "I want to connect", my starting number is 1000
-    S-->>C: SYN-ACK "OK", my number is 7000, I got your 1000
-    C->>S: ACK "got your 7000"
+    S-->>C: SYN-ACK "OK", my number is 5000, I got your 1000
+    C->>S: ACK "got your 5000"
     Note over C: connect() returns: the connection is open
     C->>S: data (a query)
     S-->>C: data (the answer)
@@ -185,7 +185,7 @@ A connection can fail in more ways than a ping:
 | The connection opens, then the server closes it (**FIN**) | reading gets end of file; an HTTP client reports an empty reply |
 | The connection opens, then the server resets it (**RST**) | "connection reset by peer" (`ECONNRESET`) |
 
-**For pingmock**: a TCP rule picks one of these per address and port: `5ms` accepts after 5 ms, `refuse` answers RST, `timeout` never answers, `unreachable` sends the ICMP error, and `after=hang|close|reset` decides what happens once the connection is open. pingmock does not run a server: it writes the SYN-ACK, RST or FIN itself, and the program's own kernel does the rest of the handshake. See [TCP connections](../README.md#tcp-connections).
+**For pingmock**: a TCP rule picks one of these per address and port: `5ms` accepts after 5 ms, `refuse` answers RST, `timeout` never answers, `unreachable` sends the ICMP error, and `after=hang|close|reset` decides what happens once the connection is open. pingmock does not run a server: it writes the SYN-ACK, RST or FIN itself, and the program's own kernel does the rest of the handshake. A port without a TCP rule gets no answer, unless the address has a [path](../README.md#paths-traceroute-and-mtr), whose target accepts every port. See [TCP connections](../README.md#tcp-connections).
 
 ## 6. traceroute: TTL and hops
 

@@ -77,6 +77,6 @@ fastest: 10.99.0.3
 
 1. 在测试中用 `client.FromEnv()` 连接 pingmock，出错时 `t.Skip`，参考 [`fastest_test.go`](fastest_test.go) 中的 `pingmock` 函数
 2. 写一个配置文件，列出测试开始时的网络状况；每个测试需要的额外状况，用 `SetRule` 添加，用 `t.Cleanup` 删除
-3. 用 `go test -exec 'pingmock exec -config pingmock.yaml --' ./...` 运行测试；在 CI 中也这样运行。[`examples/github-actions`](../github-actions/) 是一份可以直接复制的配置
+3. 用 `go test -exec 'pingmock exec -config pingmock.yaml --' ./...` 运行测试；在 CI 中也这样运行。[`examples/github-actions`](../github-actions/README.zh-CN.md) 是一份可以直接复制的配置
 
 配置文件里设置了 `seed: 42`，所以即使用了随机的丢包和抖动，每次运行的结果也都一样。

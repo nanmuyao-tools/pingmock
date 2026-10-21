@@ -6,7 +6,7 @@ pingmock 只能在 Linux 上运行，端到端检查还需要 root、TUN 设备�
 
 ## 里面有什么
 
-Go（版本固定在 [`Dockerfile`](Dockerfile) 里）、iproute2、`ping`、`curl`、traceroute、mtr、fping、带 icmplib 和 pytest 的 Python、shellcheck、git，以及 Claude Code。容器以普通用户 `dev` 运行，需要 root 的检查可以免密码 `sudo`。
+Go（版本固定在 [`Dockerfile`](Dockerfile) 里）、iproute2、`ping`、`curl`、traceroute、mtr、fping、nscd（`pingmock exec` 的一项检查要用）、带 icmplib 和 pytest 的 Python、shellcheck、git，以及 Claude Code。容器以普通用户 `dev` 运行，需要 root 的检查可以免密码 `sudo`。
 
 ## 怎样打开
 
@@ -37,7 +37,7 @@ docker run --rm -it --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tu
 
 | 命令 | 用时 | 什么时候跑 |
 |---|---|---|
-| 在 Mac 上直接 `go test ./internal/rule/... ./internal/engine/... ./internal/icmp/... ./internal/dns/... ./internal/config/... ./internal/api/... ./client/...` | 几秒 | 改的不是 `internal/app` 和 `internal/tun`（这两个只能在 Linux 上编译）时 |
+| 在 Mac 上直接 `go test ./internal/rule/... ./internal/engine/... ./internal/icmp/... ./internal/responder/... ./internal/dns/... ./internal/config/... ./internal/api/... ./client/...` | 几秒 | 改的不是 `internal/app` 和 `internal/tun`（这两个只能在 Linux 上编译）时 |
 | `make test` | 约 15 秒 | 任何改动 |
 | `make e2e` | 约 25 秒 | 数据包、规则、路由、路径 |
 | `make e2e-exec` | 约 30 秒 | `pingmock exec`、域名、DNS |

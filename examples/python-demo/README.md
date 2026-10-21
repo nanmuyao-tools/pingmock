@@ -46,7 +46,7 @@ Note the difference between unreachable and timeout: both mean offline, but an u
 
 ## The test helper
 
-[`conftest.py`](conftest.py) has a pytest fixture, `pingmock`: a small client written with the standard library alone, ready to copy into your own project:
+[`conftest.py`](conftest.py) has a pytest fixture, `pingmock`: a small client written with the standard library alone, ready to copy into your own project. It covers what these tests use, ping rules, the history and `reset`; the other endpoints (`/tcp/`, `/dns/`, `/paths/`) take a method of the same few lines:
 
 ```python
 def test_something(pingmock):

@@ -17,7 +17,7 @@ A second rule decides what to build at all: *test applications, not protocols*. 
 
 ## Development
 
-You need Linux, Go 1.22 or later, and iproute2. The end-to-end checks also need root, `ping` and `curl`.
+You need Linux, Go 1.22 or later, and iproute2. The end-to-end checks also need root, `ping` and `curl`; with traceroute, mtr and nscd installed they run more checks, and skip those without them.
 
 Without Linux at hand, for example on a Mac, use the [development container](.devcontainer/README.md): it has all of it, and runs the checks the way CI does.
 
@@ -35,7 +35,7 @@ CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks 
 
 ## How the code is organized
 
-[docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on. In short:
+[docs/basics.md](docs/basics.md) ([中文](docs/basics.zh-CN.md)) explains the networking pingmock relies on, for newcomers; [docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on. In short:
 
 ```
 main.go                  entry point; calls internal/app
@@ -43,22 +43,26 @@ internal/
   app/                   the command: flags and configuration, starting up, pingmock exec
   tun/                   TUN device, addresses and routes (Linux only)
   responder/             reads packets from the device and answers them
-  icmp/                  parsing echo requests and building replies (IPv4 and IPv6)
+  icmp/                  parsing pings, UDP and TCP probes; building replies, ICMP errors,
+                         SYN-ACK, RST and FIN (IPv4 and IPv6)
   engine/                per-target state, decisions, statistics, history
   rule/                  rule types and their text and JSON forms
   api/                   HTTP control API
   config/                YAML configuration files (-config)
+  dns/                   the DNS server pingmock exec runs for its command, with DNS rules
 client/                  public Go client for the control API
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
-docs/                    the code tour, the packet path, the packet anatomy, and how the roadmap is planned
-examples/                example configuration, Compose file, and complete examples in Go, Python and shell
+docs/                    network basics, the code tour, the packet path, the packet anatomy,
+                         and how the roadmap is planned
+examples/                example configuration, Compose file, complete examples in Go, Python
+                         and shell, a ping library's tests, and a GitHub Actions workflow
 test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-compat.sh, e2e-docker.sh;
                          test/compat holds the libraries e2e-compat.sh uses, as its own module
 scripts/release-notes.sh release notes from an annotated tag
 Dockerfile               the container image
 ```
 
-Everything except `tun`, `app/instance.go` and `app/exec_linux.go` can be tested without root. `responder` takes any `io.ReadWriter`, so its tests feed it packets directly, and `engine` accepts a fake clock through `engine.WithClock`.
+Everything except `tun` and the `*_linux.go` files of `app` can be tested without root. `responder` takes any `io.ReadWriter`, so its tests feed it packets directly, and `engine` accepts a fake clock through `engine.WithClock`.
 
 Code under `internal/` is not part of the public API and may change at any time. `client/` is public: keep it compatible, and test it against the real API handler as its tests do. `examples/go-demo` uses it the way users do; CI runs its tests, and those of the other examples, against the current code, so update the examples along with what they use.
 
@@ -66,7 +70,7 @@ Code under `internal/` is not part of the public API and may change at any time.
 
 - Keep pull requests focused on one change, and include tests for it. Bug fixes should come with a test that fails without the fix.
 - pingmock depends only on the Go standard library and `go.yaml.in/yaml/v3` (for configuration files, in `internal/config`); please discuss before adding a dependency. The `client` package uses the standard library alone, so programs that import it pull in nothing else.
-- Update both `README.md` and `README.zh-CN.md` when behavior visible to users changes. If you can only write one of them, say so in the pull request and the other will be updated.
+- Change both languages together when behavior visible to users changes: `README.md` and `README.zh-CN.md`, every document in `docs/`, and both READMEs of every example. If you can only write one language, say so in the pull request and the other will be updated.
 - Seeded random sequences are part of the behavior users rely on: with the same seed and rules, a target must keep getting the same results across versions. Changes that alter them need a good reason and a note in the release.
 
 ## Releasing

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这个示例演示怎样用 Docker Compose 让一个**被测服务**运行在 pingmock 的网络里。被测服务就是 [Shell 示例](../shell-demo/)中的线路切换脚本，在这里它作为一个持续运行的监控服务，每 2 秒检查一次线路。
+这个示例演示怎样用 Docker Compose 让一个**被测服务**运行在 pingmock 的网络里。被测服务就是 [Shell 示例](../shell-demo/README.zh-CN.md)中的线路切换脚本，在这里它作为一个持续运行的监控服务，每 2 秒检查一次线路。
 
 ## 组成
 
@@ -20,7 +20,7 @@
 network_mode: service:pingmock
 ```
 
-它让 `monitor` 和 `tests` 加入 `pingmock` 容器的网络，于是它们发出的 ping 都会被模拟，`127.0.0.1:9100` 就是控制 API。`pingmock` 的健康检查确保它准备好之后，另外两个服务才启动。
+它让 `monitor` 和 `tests` 加入 `pingmock` 容器的网络，于是它们发出的 ping 和连接都会被模拟，`127.0.0.1:9100` 就是控制 API。`pingmock` 的健康检查确保它准备好之后，另外两个服务才启动。
 
 pingmock 容器需要 `NET_ADMIN` 权限和 TUN 设备（`cap_add` 和 `devices` 两项），被测服务的容器则不需要任何特殊权限。
 

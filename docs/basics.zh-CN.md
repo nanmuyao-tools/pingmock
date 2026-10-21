@@ -146,8 +146,8 @@ sequenceDiagram
     participant C as 程序（客户端）
     participant S as 服务器 10.99.0.1:5432
     C->>S: SYN「我要连接」，我的起始编号是 1000
-    S-->>C: SYN-ACK「好的」，我的编号是 7000，收到你的 1000
-    C->>S: ACK「收到你的 7000」
+    S-->>C: SYN-ACK「好的」，我的编号是 5000，收到你的 1000
+    C->>S: ACK「收到你的 5000」
     Note over C: connect() 返回：连接建立
     C->>S: 数据（一个查询）
     S-->>C: 数据（结果）
@@ -203,7 +203,7 @@ SYN、ACK、FIN、RST 是**标志位**：TCP 头部里的单个比特，说明�
 | 连接建立后，服务器关闭了它（**FIN**） | 读到文件结束；HTTP 客户端报空回复 |
 | 连接建立后，服务器重置了它（**RST**） | 「connection reset by peer」（`ECONNRESET`） |
 
-**和 pingmock 的关系**：TCP 规则为每个地址和端口选其中一种：`5ms` 在 5ms 后接受，`refuse` 回 RST，`timeout` 不回应，`unreachable` 回 ICMP 错误，`after=hang|close|reset` 决定连接建立之后怎样。pingmock 并不运行服务器：它自己写出 SYN-ACK、RST 或 FIN，握手的其余部分由程序自己的内核完成。见 [TCP 连接](../README.zh-CN.md#tcp-连接)。
+**和 pingmock 的关系**：TCP 规则为每个地址和端口选其中一种：`5ms` 在 5ms 后接受，`refuse` 回 RST，`timeout` 不回应，`unreachable` 回 ICMP 错误，`after=hang|close|reset` 决定连接建立之后怎样。pingmock 并不运行服务器：它自己写出 SYN-ACK、RST 或 FIN，握手的其余部分由程序自己的内核完成。没有 TCP 规则的端口不会得到回应，除非这个地址设了[路径](../README.zh-CN.md#路径traceroute-和-mtr)，路径的目标接受任何端口的连接。见 [TCP 连接](../README.zh-CN.md#tcp-连接)。
 
 ## 6. traceroute：TTL 和跳
 
@@ -624,7 +624,7 @@ FlagRST | FlagACK = 0x04 | 0x10 = 0x14          refuse 发的 RST
 0x83 & 0x0f        = 3             RCODE 3：NXDOMAIN
 ```
 
-IPv4 的分片判断是去掉第 6-7 字节的一位、保留其余 14 位：`0x4000 & 0x3fff` 为 0，是只设置了「不分片」的完整包；分片会设置「还有分片」（`0x2000`）或者有偏移，结果不为 0。pingmock 里：[`dns.go`](../internal/dns/dns.go) 的 `q[2]&0x80`（是回答，忽略）和 `(q[2] >> 3) & 0x0f`（操作码），[`probe.go`](../internal/icmp/probe.go) 的 `&0x3fff != 0`；[数据包详解](packets.zh-CN.md)第 6 节用真实的分片把这个判断推演了一遍。
+IPv4 的分片判断是去掉第 6-7 字节的一位、保留其余 14 位：`0x4000 & 0x3fff` 为 0，是只设置了「不分片」的完整包；分片会设置「还有分片」（`0x2000`）或者有偏移，结果不为 0。pingmock 里：[`dns.go`](../internal/dns/dns.go) 的 `q[2]&0x80`（是回答，忽略）和 `(q[2] >> 3) & 0x0f`（操作码），[`probe.go`](../internal/icmp/probe.go) 的 `&0x3fff != 0`；[数据包详解第 6 节](packets.zh-CN.md#6-标志与分片偏移0x40000x3fff0x00b9-是怎么来的)用真实的分片把这个判断推演了一遍。
 
 **6. 复制一部分位，改动另一部分。** pingmock 回答 DNS 查询时，沿用查询的操作码和 RD 位，再加上自己的 QR 和 AA：用掩码留下要保留的，用或加上要设置的。
 

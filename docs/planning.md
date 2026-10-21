@@ -2,12 +2,12 @@
 
 English | [中文](planning.zh-CN.md)
 
-This document records how pingmock's technical roadmap is planned, and the evidence and sources the round of October 2026 used. The aim is that the next round can follow the same steps, and that every direction can be traced back to what it rests on. The roadmap itself is in [TODO.md](../TODO.md#技术路线) (in Chinese).
+This document records how pingmock's technical roadmap is planned, and the evidence and sources each round of October 2026 used. The aim is that the next round can follow the same steps, and that every direction can be traced back to what it rests on. The roadmap itself is in [TODO.md](../TODO.md#技术路线) (in Chinese).
 
 ## Principles
 
 - **Four core values, for every protocol.** Everything pingmock does has to be **transparent** (the program under test needs no change to its code or configuration), **per target** (every target can have its own conditions), **reproducible** (the same setup gives the same results every time) and **controllable and observable** (conditions can change during a test, and what the program did can be seen afterwards). Every protocol pingmock comes to support has to keep all four; **a design for a new protocol that cannot keep one of them must be reconsidered.** Definitions and examples are in [CONTRIBUTING](../CONTRIBUTING.md#design-principles).
-- **Test applications, not protocols.** The phrase comes from Toxiproxy's maintainers. pingmock helps people test programs that depend on ping, not study ICMP itself. A feature that does not help users test their own programs waits.
+- **Test applications, not protocols.** The phrase comes from Toxiproxy's maintainers. pingmock helps people test programs that depend on ping, connections and name lookups, not study the protocols themselves. A feature that does not help users test their own programs waits.
 - **Evidence first.** Every direction needs evidence that can be traced: an issue, an experiment, a compatibility test result. A direction without any waits, however useful it sounds.
 - **Verify the premises before designing; agree on the syntax before implementing.** Technical premises are checked by experiment. Syntax users will write into configuration files gets a design proposal agreed with the maintainer first, since it is hard to change once released.
 - **Order by number of users.** Serve the largest group of users first, then widen to narrower ones.
@@ -91,15 +91,15 @@ Note: a fine-grained token granted for one's own repository can read public repo
 
 **Engaging with communities**: Hacker News, Reddit's r/golang and V2EX forbid AI-generated posts and replies. Introducing pingmock in other projects' issues and taking part in discussions should be done by the author; AI can prepare material and check facts.
 
-## The evidence of October 2026
+## The first round, October 2026
 
 ### Compatibility testing
 
 | Tool / library | Result |
 |---|---|
 | The system's `ping` (iputils), fping, Go's pro-bing, Python's icmplib (raw and ping sockets) | Work: delays, deterministic loss, unreachable and a hijacked real address all as the rules say |
-| traceroute (default UDP mode) | `*` at every hop, never reaching the target: pingmock does not answer UDP probes |
-| traceroute -I, mtr | A single hop: pingmock ignores the TTL |
+| traceroute (default UDP mode) | `*` at every hop, never reaching the target: pingmock did not answer UDP probes (before paths, v0.8.0) |
+| traceroute -I, mtr | A single hop: pingmock ignored the TTL (before paths, v0.8.0) |
 | `ping www.baidu.com` (experiment) | Editing `/etc/hosts` works as root; under `exec`, the name does not resolve |
 
 ### What people ask for
@@ -180,11 +180,27 @@ The [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent did mark
 
 Against: those projects fixed their problems cheaply, with unroutable addresses or iptables rules, and Kubernetes probes run outside `pingmock exec`. For DNS faults the agent found no developer asking for them, and chaos tools already offer them.
 
+## Later rounds: after=, DNS and the road to v1.0, 20 and 21 October 2026
+
+Three more rounds by the same agent. The rows marked *checked* were opened or rerun by hand; the others are agent-reported.
+
+| Round | Evidence | Source | What it decided |
+|---|---|---|---|
+| `after=close\|reset` (v0.10.0) | A request for a "connection reset" fault, which became Toxiproxy's `reset_peer` *(checked)* | [Toxiproxy #238](https://github.com/Shopify/toxiproxy/issues/238) | Worth building, because pingmock adds it on the addresses a program already uses |
+| | A prototype on a TUN device: a FIN on the handshake's last ACK gives the same error 40 times out of 40; a reset there races `connect` (38 of 40 failed it); a reset on the first data is reproducible | experiment in the development container | close on the last ACK, reset on the first data |
+| DNS faults (v0.11.0) | Two small projects built their own per-name DNS errors in September and October 2026, with 0 or 1 reactions each | probeboard-api #74, network-doctor #368 and #394 | Weak evidence: the maintainer chose to build it, under `pingmock exec` only, where the DNS server already existed |
+| | With nscd running on the host, `-host` names resolved to the host's addresses under `exec` *(checked: reproduced, then fixed)* | experiment | nscd is hidden from the command |
+| | On the CI runners, a `search` line made a SERVFAIL end as "not found" *(checked: CI failure, then reproduced)* | CI run of 2026-10-21 | the docs and the checks ask for names with a final dot |
+| The road to v1.0 | A TCP rule without `after=` already times out a TLS handshake *(checked)* | experiment: Python `ssl` "The handshake operation timed out", curl exit 28 | documented, no feature needed |
+| | Toxiproxy closed its "close after a time" request unmerged on 2026-10-07; "Protocol aware toxics" has stayed open since 2015 with 9 👍 *(checked)* | [Toxiproxy #195](https://github.com/Shopify/toxiproxy/issues/195), [#50](https://github.com/Shopify/toxiproxy/issues/50) | demand for data after the handshake is indirect; a hand-written subset is planned, no userspace stack |
+
+The maintainer then set the order to v1.0: complete the common protocols first, and write the compatibility promise last. The plan is in [TODO.md](../TODO.md).
+
 ## Next time
 
 1. **Start from users' feedback**: real needs in [Discussions](https://github.com/nanmuyao/pingmock/discussions) and issues come before any research
 2. Rerun the compatibility tests with new versions of the tools and libraries, adding new common tools
-3. Check the issues cited this round for progress (Trippy #1552, #1554, pro-bing #70, Toxiproxy #447)
+3. Check the issues cited in these rounds for progress: Trippy #1551, #1552, #1554; pro-bing #70, #195; Toxiproxy #447, #610, #739; slirp4netns #361; asyncpg #1155
 4. Repeat the seven steps above and add the new evidence to this document
 
 The Claude Code agent [`pingmock-planning`](../.claude/agents/pingmock-planning.md) can take on three kinds of work in this method: market research (steps 2, 3 and 5, the progress of cited issues and users' feedback), technical selection (comparing the options for a question against the four core values, with experiments in the [development container](../.devcontainer/README.md)), and project design (a written proposal for a roadmap item, with the syntax users would write and the open questions). Every claim it makes cites a source, an experiment or a line of code. It writes reports and proposals without changing anything; its findings are checked before they go into this document, and its designs are decided by the maintainer.

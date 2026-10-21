@@ -56,6 +56,8 @@ pingmock creates a TUN virtual network device and routes test subnets (`10.99.0.
 
 The software under test needs **no changes at all**: whether it runs the `ping` command or sends ICMP itself through a raw socket, it gets mocked. The request payload is echoed back unchanged, so tools like `ping` that put a timestamp in the payload report exactly the configured latency.
 
+Connection attempts travel the same way: pingmock reads the TCP SYN from the device and writes back the SYN-ACK, the reset or nothing, and the program's own kernel does the rest of the handshake. DNS queries never reach the device: under `pingmock exec`, the command's `resolv.conf` points at a small DNS server pingmock runs for it. [Network basics](docs/basics.md#8-how-pingmock-gets-in-the-middle) draws this, and the [code tour](docs/architecture.md#connections-and-dns-queries) shows the code.
+
 ### When to use it, and when to use something else
 
 pingmock tests **programs that decide things from ping or from whether a connection opens**. It does not slow real traffic down, and it does not touch the data of TCP connections. Each of these tools has its place:
@@ -65,6 +67,7 @@ pingmock tests **programs that decide things from ping or from whether a connect
 | Test a program that pings or connects: server selection, failover, "is the network up", a latency display, connect timeouts and refusals | **pingmock** |
 | Slow down or lose real traffic on an interface, for every protocol: load tests, "how does the app feel on 3G" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html), the kernel's network emulator |
 | Slow down or break the data of TCP connections to one service: latency, bandwidth, resets in the middle of a stream, for a database or an API | [Toxiproxy](https://github.com/Shopify/toxiproxy), a TCP proxy with an API and client libraries |
+| Make names fail to resolve for the whole machine or a cluster, outside a test | a DNS server you point clients at, such as CoreDNS's `erratic` plugin, or a chaos tool; for one name, an `/etc/hosts` entry. pingmock's [DNS faults](#dns-faults) work per name, under `pingmock exec` |
 
 netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. pingmock is **transparent**: the program keeps pinging and connecting to the addresses and ports it always uses, with no proxy to point it at, and `pingmock exec` needs **no root** and changes nothing outside the command it runs. On top of that it takes the test-oriented side of both: faults are declared **per target address, prefix and port** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, and rules change **while the program runs** through the API.
 
@@ -74,8 +77,8 @@ Four things hold for everything pingmock does:
 
 | | What it means | How |
 |---|---|---|
-| **Transparent** | The program under test is not changed: no code, no configuration. It keeps pinging the addresses it always pings | A TUN device and routes catch the requests; even the `ping` command works as it is |
-| **Per target** | Every target can have its own network conditions | Rules apply to an address or a prefix |
+| **Transparent** | The program under test is not changed: no code, no configuration. It keeps pinging, connecting to and resolving the addresses, ports and names it always uses | A TUN device and routes catch the requests, and under `pingmock exec` a private DNS server answers the names; even the `ping` command works as it is |
+| **Per target** | Every target can have its own network conditions | Rules apply to an address or a prefix, for TCP also to a port, and under `pingmock exec` to a name |
 | **Reproducible** | The same setup gives the same results on every run | `-seed`, deterministic `pattern`, scenarios by count or time, `POST /reset` |
 | **Controllable and observable** | Conditions can change in the middle of a test, and afterwards you can see what the program really did | The HTTP API and the Go client, the request history and statistics |
 
@@ -110,7 +113,7 @@ cd pingmock
 go build -o pingmock .
 ```
 
-Programs installed with `go install` live in `$(go env GOPATH)/bin`. Since pingmock must run as root, `sudo` may not find it on its `PATH`; use the full path instead, e.g. `sudo $(go env GOPATH)/bin/pingmock`.
+Programs installed with `go install` live in `$(go env GOPATH)/bin`. When pingmock runs as root, `sudo` may not find it on its `PATH`; use the full path instead, e.g. `sudo $(go env GOPATH)/bin/pingmock`.
 
 ## First steps
 
@@ -185,8 +188,8 @@ To test your own program, put it after `--` instead: `pingmock exec -rule 10.99.
 
 pingmock runs in one of two ways:
 
-- `sudo pingmock [flags]` mocks pings for the whole machine until you stop it. This is what the rest of this section describes.
-- `pingmock exec [flags] -- CMD` runs a command in a private network where its pings are mocked. It needs **no root** and leaves the host network alone, which makes it the best fit for tests and CI. See [Running without root](#running-without-root-pingmock-exec).
+- `sudo pingmock [flags]` mocks pings and connections for the whole machine until you stop it. This is what the rest of this section describes.
+- `pingmock exec [flags] -- CMD` runs a command in a private network where its pings, connections and name lookups are mocked. It needs **no root** and leaves the host network alone, which makes it the best fit for tests and CI. See [Running without root](#running-without-root-pingmock-exec).
 
 In the first mode, pingmock needs root privileges (or `CAP_NET_ADMIN`).
 
@@ -326,7 +329,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse` and `after` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`).
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`, each phase a `spec` with either `for: 10s` or `count: 5` (requests). The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse` and `after` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`).
 
 Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 
@@ -350,7 +353,117 @@ Flags given on the command line override the file, so one file can serve many te
 | `-tcp` | | `TARGET=RULE`, repeatable: how TCP connections to `TARGET` (`ADDR[:PORT]`, `PREFIX[:PORT]`, `[IPv6]:PORT`) are answered, see [TCP connections](#tcp-connections) |
 | `-dns` | | `NAME=RULE`, repeatable, `pingmock exec` only: how the command's DNS queries for `NAME` are answered, see [DNS faults](#dns-faults) |
 | `-v` | `false` | Log every request |
-| `-version` | | Print the version and exit |
+
+`pingmock version` (or `-version`), as the only argument, prints the version and exits.
+
+## TCP connections
+
+Much software that checks the network also connects: to a database, an API, a port it watches. A **TCP rule** decides how connection attempts to an address and port are answered, so the program sees a slow connect, a refused one, or one that never completes, without any change to it:
+
+```bash
+pingmock exec \
+  -tcp 10.99.0.1:5432=timeout \
+  -tcp 10.99.0.2:5432=5ms \
+  -tcp '10.99.0.3:443=refuse for 3 requests; 20ms' \
+  -- ./my-app
+```
+
+Here the first database never answers, so `connect` times out and the program should fail over to the second, which accepts in 5ms. The third server refuses three connections (`ECONNREFUSED` at once), then accepts.
+
+The target is `ADDR:PORT`, `PREFIX:PORT` or, without a port, every port of `ADDR` or `PREFIX`. IPv6 is written in brackets, as in URLs: `[fd99::1]:443`, `[fd99::/64]:443`, `[fd99::1]`. Without them `fd99::1:443` would itself be an address, so it is rejected. Under `pingmock exec` the target may be a [name](#names), such as `db.example.com:5432`.
+
+The rule is written as for `-rule`, and means:
+
+| Setting | The program sees |
+|---|---|
+| `20ms`, `delay=`, `jitter=` | The connection is accepted after the delay: `connect` takes that long |
+| `refuse` | The connection is refused at once (after the delay, if there is one): a TCP reset, `ECONNREFUSED` |
+| `timeout`, `loss=30%` | No answer: `connect` times out, for every attempt or 30% of them |
+| `unreachable[=net\|admin]` | `connect` fails at once: `EHOSTUNREACH` ("No route to host"), or `ENETUNREACH` ("Network is unreachable") for `net` |
+| `pattern=..r` | Attempts in turn: `.` accepted, `x` no answer, `u` unreachable, `r` refused |
+| `after=close` | The connection is accepted, then closed at once: a read gets end of file, an HTTP client an empty reply (curl: "Empty reply from server") |
+| `after=reset` | The connection is accepted, then reset when the program first sends or closes: `ECONNRESET` ("Connection reset by peer") |
+| `after=hang` | The default: the connection is accepted and held open, nothing is sent |
+| `ttl=` | The TTL of the answers |
+
+Phases count connection attempts: `for 3 requests` (or `connections`). An attempt is counted once, however many times the client's kernel sends its SYN again while waiting, so `timeout for 2 requests` means two attempts whatever the kernel's retry timer. When several rules match, the most specific prefix wins, then a rule for the port over one for every port.
+
+As with ping rules, a TCP rule for a real address in root mode routes **all** traffic to that address to pingmock, see [Mocking real addresses](#mocking-real-addresses); `pingmock exec` affects only the command.
+
+### After the connection opens
+
+An accepted connection is held open, but nothing is ever sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. Ports without a TCP rule are not answered, as before, unless the address has a [path](#paths-traceroute-and-mtr), whose target accepts every port.
+
+The same rule tests a **TLS handshake timeout**: the connection opens, the client sends its ClientHello and never gets an answer. `pingmock exec -tcp api.example.com:443=5ms -- ./my-app` makes every HTTPS request to that name hang in the handshake: Python's `ssl` reports "The handshake operation timed out", curl gives up with exit 28, and Go's `http.Transport` fails after its `TLSHandshakeTimeout`.
+
+`after=` says what happens next instead, to test how a program handles a server that drops it: `-tcp '10.99.0.1:5432=after=reset'` makes every query to that database fail with "connection reset by peer", and `-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` gives two empty replies before the server works (accepts, then holds the connection).
+
+`after=reset` waits for the program to send: a reset sent as soon as the connection opens would sometimes arrive while `connect` is still returning, and fail it instead. A program that waits for the server to speak first, as SSH, SMTP and MySQL clients do, therefore gets a read timeout under `after=reset`, and end of file under `after=close`.
+
+Data the program writes after the close gets a reset, as from a real server that closed its socket; a write after that fails with `EPIPE`. The action is decided when the connection is accepted, so it does not change if a phase ends before the program sends. A connection that stays idle for 10 minutes is forgotten, and gets nothing after that.
+
+### Configuration file, API and history
+
+In a configuration file (quote a key with brackets) and through the API:
+
+```yaml
+tcp:
+  10.99.0.1:5432: timeout
+  10.99.0.3:443: refuse for 3 requests; 20ms
+  "[fd99::1]:443": {delay: 200ms, jitter: 20ms}
+  10.99.0.4:8080: {delay: 5ms, after: reset}
+```
+
+```bash
+curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
+curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
+```
+
+The Go client has `SetTCP`, `DeleteTCP` and `TCPStats`. `GET /rules` lists the TCP rules under `tcp`, and their statistics under `tcp_stats`, keyed by address and port (`"10.99.0.1:5432"`): requests, accepted, refused, dropped, unreachable, and of the accepted ones, closed and reset. History events of connection attempts carry `"probe": "tcp"` and the `port`, with the result `syn-ack` (accepted), `refused`, `drop` or `unreachable`; a SYN the kernel sent again is recorded with `"repeat": true` and not counted. Closing or resetting an accepted connection adds an event with the result `closed` or `reset`, and the rule and phase that accepted it. Randomness comes from the seed, per address and port, separate from the pings to the same address, whose seeded results do not change.
+
+## Paths: traceroute and mtr
+
+For software that looks at the route, not just the destination, a target can get a **path**: the routers between here and it, each answering probes whose TTL runs out there, as real routers do. traceroute and mtr then show the hops, in every probe mode (UDP, ICMP and TCP), and reach the target.
+
+```bash
+sudo pingmock -rule 8.8.8.8=30ms \
+  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
+```
+
+```
+$ traceroute -n 8.8.8.8
+ 1  192.168.1.1  2.3 ms
+ 2  10.0.0.1  15.8 ms
+ 3  *
+ 4  72.14.0.1  25.4 ms
+ 5  8.8.8.8  30.6 ms
+```
+
+A path is hops separated by `>`, each `ADDR@SETTINGS`, or `*` for a router that never answers. The settings are:
+
+| Setting | Meaning |
+|---|---|
+| `2ms`, `delay=2ms` | Round trip to this hop |
+| `jitter=3ms` | Delay uniform in ±3ms |
+| `loss=10%` | This hop does not answer 10% of the probes that end there, as routers that rate-limit ICMP errors do. Nothing else is affected: mtr shows loss on that line only |
+| `cut=5%` | This hop loses 5% of everything going through it: the probes for later hops and the target, and the pings to the target. A lossy link looks like this: loss from that hop on |
+| `ttl=250` | TTL of this hop's answers (default 64) |
+
+The target's own rule still decides what the target answers: its delay and loss apply to pings as before, and to traceroute's last line. A target with a path also answers UDP probes with port unreachable and TCP probes with a SYN-ACK, on every port, which is how traceroute's UDP and TCP modes know they arrived; a [TCP rule](#tcp-connections) for the port takes precedence at the target. Targets without a path keep ignoring UDP, and TCP on ports without a TCP rule. The hops' addresses get routes to the virtual device, so the kernel accepts their answers under strict reverse-path filtering; inside `pingmock exec` this touches nothing outside the command. Randomness comes from the seed, per target, so `loss` and `cut` repeat exactly with `-seed`.
+
+In a configuration file (quote a path that starts with `*`, which YAML would read as an alias) and through the API:
+
+```yaml
+paths:
+  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
+```
+
+```bash
+curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
+curl -X DELETE localhost:9100/paths/8.8.8.8
+```
+
+The Go client has `SetPath` and `DeletePath`. `GET /rules` lists the paths, and the history records each probe with its `ttl`, the `hop` that answered or lost it and the address it answered `from`; a probe's `result` is `time-exceeded` from a hop, `port-unreachable` or `syn-ack` from the target.
 
 ## Running without root: pingmock exec
 
@@ -358,7 +471,7 @@ Flags given on the command line override the file, so one file can serve many te
 pingmock exec [flags] -- CMD [ARGS...]
 ```
 
-runs `CMD` in a **private network namespace** in which pingmock answers pings, with the same flags as above:
+runs `CMD` in a **private network namespace** in which pingmock answers pings and connections, and, for `-dns` rules and names, DNS queries, with the same flags as above:
 
 ```bash
 pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
@@ -421,9 +534,13 @@ The rule is written as for `-rule`, and means:
 | `timeout`, `loss=30%` | No answer: the resolver waits its timeout, by default 5 seconds, tries again, then fails with `EAI_AGAIN` |
 | `pattern=.ns` | Queries in turn: `.` answered, `x` no answer, `n` NXDOMAIN, `s` SERVFAIL |
 
+`unreachable` and `ttl` have no meaning for DNS and are rejected. A rule covers every query type of its name; `api.example.com/AAAA`, for one type only, is reserved and rejected for now.
+
 A rule works for mocked names (with `-host` or a rule for the name) and for real ones, which are then failed without asking the host. Its name is left out of the command's `/etc/hosts`, which programs read before asking DNS.
 
-Phases count **queries**, for each name and query type apart. A lookup usually asks for A and AAAA at once, and a resolver asks again after a SERVFAIL or a timeout, so how many lookups a phase covers depends on what they get: `nxdomain for 2 requests` fails two lookups, since NXDOMAIN is believed at once; `servfail for 2 requests` fails one, since the C library asks twice by default (`attempts:2` in `resolv.conf`). The statistics, keyed as `api.example.com/A` and `api.example.com/AAAA`, show what happened. Names a resolver tries with the search domains of `resolv.conf` (`api.example.com.corp.example`) are other names, forwarded as usual. The C library tries them after a name fails, and reports the last answer: where the host has a `search` line, a SERVFAIL or a timeout for `api.example.com` can end as "not found", or even as an address, from the search domain. To see the rule's failure itself, ask for the name with a final dot (`api.example.com.`), or test on a host without search domains.
+Phases count **queries**, for each name and query type apart. A lookup usually asks for A and AAAA at once, and a resolver asks again after a SERVFAIL or a timeout, so how many lookups a phase covers depends on what they get: `nxdomain for 2 requests` fails two lookups, since NXDOMAIN is believed at once; `servfail for 2 requests` fails one, since the C library asks twice by default (`attempts:2` in `resolv.conf`). The statistics, keyed as `api.example.com/A` and `api.example.com/AAAA`, show what happened.
+
+Names a resolver tries with the search domains of `resolv.conf` (`api.example.com.corp.example`) are other names, forwarded as usual. The C library tries them after a name fails, and reports the last answer: where the host has a `search` line, a SERVFAIL or a timeout for `api.example.com` can end as "not found", or even as an address, from the search domain. To see the rule's failure itself, ask for the name with a final dot (`api.example.com.`), or test on a host without search domains.
 
 Delays close to the resolver's timeout behave differently by resolver: the C library still takes an answer that comes after its timeout, if it has asked again in the meantime, and Go's resolver does not.
 
@@ -445,107 +562,6 @@ The Go client has `SetDNS`, `DeleteDNS` and `DNSStats`. Through the API, a rule 
 
 DNS rules are for `pingmock exec` only: for the whole machine, pingmock cannot get between programs and the machine's resolver, so `sudo pingmock -dns` is refused.
 
-## TCP connections
-
-Much software that checks the network also connects: to a database, an API, a port it watches. A **TCP rule** decides how connection attempts to an address and port are answered, so the program sees a slow connect, a refused one, or one that never completes, without any change to it:
-
-```bash
-pingmock exec \
-  -tcp 10.99.0.1:5432=timeout \
-  -tcp 10.99.0.2:5432=5ms \
-  -tcp '10.99.0.3:443=refuse for 3 requests; 20ms' \
-  -- ./my-app
-```
-
-Here the first database never answers, so `connect` times out and the program should fail over to the second, which accepts in 5ms. The third server refuses three connections (`ECONNREFUSED` at once), then accepts.
-
-The target is `ADDR:PORT`, `PREFIX:PORT` or, without a port, every port of `ADDR` or `PREFIX`. IPv6 is written in brackets, as in URLs: `[fd99::1]:443`, `[fd99::/64]:443`, `[fd99::1]`. Without them `fd99::1:443` would itself be an address, so it is rejected. Under `pingmock exec` the target may be a [name](#names), such as `db.example.com:5432`.
-
-The rule is written as for `-rule`, and means:
-
-| Setting | The program sees |
-|---|---|
-| `20ms`, `delay=`, `jitter=` | The connection is accepted after the delay: `connect` takes that long |
-| `refuse` | The connection is refused at once (after the delay, if there is one): a TCP reset, `ECONNREFUSED` |
-| `timeout`, `loss=30%` | No answer: `connect` times out, for every attempt or 30% of them |
-| `unreachable[=net\|admin]` | `connect` fails at once: `EHOSTUNREACH` ("No route to host"), or `ENETUNREACH` ("Network is unreachable") for `net` |
-| `pattern=..r` | Attempts in turn: `.` accepted, `x` no answer, `u` unreachable, `r` refused |
-| `after=close` | The connection is accepted, then closed at once: a read gets end of file, an HTTP client an empty reply (curl: "Empty reply from server") |
-| `after=reset` | The connection is accepted, then reset when the program first sends or closes: `ECONNRESET` ("Connection reset by peer") |
-| `after=hang` | The default: the connection is accepted and held open, nothing is sent |
-| `ttl=` | The TTL of the answers |
-
-Phases count connection attempts: `for 3 requests` (or `connections`). An attempt is counted once, however many times the client's kernel sends its SYN again while waiting, so `timeout for 2 requests` means two attempts whatever the kernel's retry timer. When several rules match, the most specific prefix wins, then a rule for the port over one for every port.
-
-As with ping rules, a TCP rule for a real address in root mode routes **all** traffic to that address to pingmock, see [Mocking real addresses](#mocking-real-addresses); `pingmock exec` affects only the command.
-
-An accepted connection is held open, but nothing is ever sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. pingmock mocks no service. Ports without a TCP rule are not answered, as before.
-
-The same rule tests a **TLS handshake timeout**: the connection opens, the client sends its ClientHello and never gets an answer. `pingmock exec -tcp api.example.com:443=5ms -- ./my-app` makes every HTTPS request to that name hang in the handshake: Python's `ssl` reports "The handshake operation timed out", curl gives up with exit 28, and Go's `http.Transport` fails after its `TLSHandshakeTimeout`.
-
-`after=` says what happens next instead, to test how a program handles a server that drops it: `-tcp '10.99.0.1:5432=after=reset'` makes every query to that database fail with "connection reset by peer", and `-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` gives two empty replies before the server works (accepts, then holds the connection). `after=reset` waits for the program to send: a reset sent as soon as the connection opens would sometimes arrive while `connect` is still returning, and fail it instead. A program that waits for the server to speak first, as SSH, SMTP and MySQL clients do, therefore gets a read timeout under `after=reset`, and end of file under `after=close`. Data the program writes after the close gets a reset, as from a real server that closed its socket; a write after that fails with `EPIPE`. The action is decided when the connection is accepted, so it does not change if a phase ends before the program sends. A connection that stays idle for 10 minutes is forgotten, and gets nothing after that.
-
-In a configuration file (quote a key with brackets) and through the API:
-
-```yaml
-tcp:
-  10.99.0.1:5432: timeout
-  10.99.0.3:443: refuse for 3 requests; 20ms
-  "[fd99::1]:443": {delay: 200ms, jitter: 20ms}
-  10.99.0.4:8080: {delay: 5ms, after: reset}
-```
-
-```bash
-curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
-curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
-```
-
-The Go client has `SetTCP`, `DeleteTCP` and `TCPStats`. `GET /rules` lists the TCP rules under `tcp`, and their statistics under `tcp_stats`, keyed by address and port (`"10.99.0.1:5432"`): requests, accepted, refused, dropped, unreachable, and of the accepted ones, closed and reset. History events of connection attempts carry `"probe": "tcp"` and the `port`, with the result `syn-ack` (accepted), `refused`, `drop` or `unreachable`; a SYN the kernel sent again is recorded with `"repeat": true` and not counted. Closing or resetting an accepted connection adds an event with the result `closed` or `reset`, and the rule and phase that accepted it. Randomness comes from the seed, per address and port, separate from the pings to the same address, whose seeded results do not change.
-
-## Paths: traceroute and mtr
-
-For software that looks at the route, not just the destination, a target can get a **path**: the routers between here and it, each answering probes whose TTL runs out there, as real routers do. traceroute and mtr then show the hops, in every probe mode (UDP, ICMP and TCP), and reach the target.
-
-```bash
-sudo pingmock -rule 8.8.8.8=30ms \
-  -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
-```
-
-```
-$ traceroute -n 8.8.8.8
- 1  192.168.1.1  2.3 ms
- 2  10.0.0.1  15.8 ms
- 3  *
- 4  72.14.0.1  25.4 ms
- 5  8.8.8.8  30.6 ms
-```
-
-A path is hops separated by `>`, each `ADDR@SETTINGS`, or `*` for a router that never answers. The settings are:
-
-| Setting | Meaning |
-|---|---|
-| `2ms`, `delay=2ms` | Round trip to this hop |
-| `jitter=3ms` | Delay uniform in ±3ms |
-| `loss=10%` | This hop does not answer 10% of the probes that end there, as routers that rate-limit ICMP errors do. Nothing else is affected: mtr shows loss on that line only |
-| `cut=5%` | This hop loses 5% of everything going through it: the probes for later hops and the target, and the pings to the target. A lossy link looks like this: loss from that hop on |
-| `ttl=250` | TTL of this hop's answers (default 64) |
-
-The target's own rule still decides what the target answers: its delay and loss apply to pings as before, and to traceroute's last line. A target with a path also answers UDP probes with port unreachable and TCP probes with a SYN-ACK, which is how traceroute's UDP and TCP modes know they arrived; targets without a path keep ignoring UDP and TCP. The hops' addresses get routes to the virtual device, so the kernel accepts their answers under strict reverse-path filtering; inside `pingmock exec` this touches nothing outside the command. Randomness comes from the seed, per target, so `loss` and `cut` repeat exactly with `-seed`.
-
-In a configuration file (quote a path that starts with `*`, which YAML would read as an alias) and through the API:
-
-```yaml
-paths:
-  8.8.8.8: 192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms
-```
-
-```bash
-curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
-curl -X DELETE localhost:9100/paths/8.8.8.8
-```
-
-The Go client has `SetPath` and `DeletePath`. `GET /rules` lists the paths, and the history records each probe with its `ttl`, the `hop` that answered or lost it and the address it answered `from`; a probe's `result` is `time-exceeded` from a hop, `port-unreachable` or `syn-ack` from the target.
-
 ### Requirements
 
 `pingmock exec` without root needs unprivileged user namespaces and a `/dev/net/tun` that everyone may open (`crw-rw-rw-`), which is the default on most distributions. If something is missing, pingmock says what and how to fix it.
@@ -561,7 +577,7 @@ On GitHub Actions' Ubuntu runners, do the same in a step before running tests; [
 
 ## Docker
 
-The image `ghcr.io/nanmuyao/pingmock` needs `NET_ADMIN` and the TUN device. Containers that share its network get their pings mocked and reach the API at `127.0.0.1:9100`:
+The image `ghcr.io/nanmuyao/pingmock` needs `NET_ADMIN` and the TUN device. Containers that share its network get their pings and connections mocked and reach the API at `127.0.0.1:9100`:
 
 ```bash
 docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
@@ -577,15 +593,16 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 [`examples/compose-demo`](examples/compose-demo/) goes further: a service under test reacting live to rules changed from the host, and tests run with `docker compose run`.
 
-Without arguments, the image listens on all addresses so the API can be published with `-p 9100:9100`. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
+Without arguments, the image runs `pingmock -api 0.0.0.0:9100`, so the API can be published with `-p 9100:9100`; arguments replace that default, so add `-api 0.0.0.0:9100` to them to publish the API. The image runs pingmock for its network namespace, as `sudo pingmock` does for a machine, so names, `-host` and `-dns` are refused there: use addresses. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
 
 ## Runtime control API
 
 Rules can be changed over HTTP at any time during a test, and changes take effect immediately. The request body may use the same text format as `-rule`, or JSON.
 
 ```bash
-# Show the seed, the rules and per-target statistics (requests, replies, drops, unreachable answers, current phase),
-# and the same for TCP rules (tcp, tcp_stats) and DNS rules (dns, dns_stats)
+# Show the seed, the default, the rules, the paths and per-target statistics
+# (stats: requests, replied, dropped, unreachable, hops, rule, phase), and the
+# same for TCP rules (tcp, tcp_stats) and DNS rules (dns, dns_stats)
 curl localhost:9100/rules
 
 # Create or change a rule
@@ -606,6 +623,10 @@ curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 curl -X PUT localhost:9100/dns/api.example.com -d nxdomain
 curl -X DELETE localhost:9100/dns/api.example.com
 
+# Paths, for traceroute and mtr: give a target a route, then remove it
+curl -X PUT localhost:9100/paths/8.8.8.8 -d '192.168.1.1@2ms > * > 72.14.0.1@25ms'
+curl -X DELETE localhost:9100/paths/8.8.8.8
+
 # Change the default rule
 curl -X PUT localhost:9100/default -d timeout
 
@@ -623,7 +644,7 @@ curl -X DELETE localhost:9100/history
 # no statistics, no history. Targets restart their scenarios and random sequences.
 curl -X POST localhost:9100/reset
 
-# Which pingmock this is: {"version": "v0.11.0"}
+# Which pingmock this is: {"version": "vX.Y.Z"}
 curl localhost:9100/version
 ```
 
@@ -636,6 +657,20 @@ Each history event looks like this. `result` is `reply`, `drop` or `unreachable`
  "id": 4242, "seq": 3, "result": "unreachable", "code": "host", "reply": false,
  "delay": "40ms", "rule": "10.99.0.1/32", "phase": 2}
 ```
+
+All the fields an event can have:
+
+| Field | Present | Values |
+|---|---|---|
+| `time`, `src`, `dst`, `rule`, `phase`, `reply` | always | `reply` is true for echo replies only; DNS queries have `src` and `dst` 127.0.0.1, the command's DNS server |
+| `id`, `seq` | pings | the identifier and sequence number of the echo request |
+| `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `closed`, `reset`; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
+| `code` | unreachable answers | `host`, `net` or `admin` |
+| `delay` | anything answered | such as `40ms` |
+| `probe` | anything but a ping | `udp`, `tcp` or `dns` |
+| `ttl`, `hop`, `from` | UDP and TCP probes | the probe's TTL, the hop that answered or lost it (left out for the destination), the address the answer came from |
+| `port`, `repeat` | TCP | the destination port; `true` for a SYN sent again, not counted |
+| `name`, `qtype` | DNS | the name asked for, and `A`, `AAAA`... |
 
 ## Using it in automated tests
 
@@ -650,7 +685,7 @@ Each history event looks like this. `result` is `reply`, `drop` or `unreachable`
 | [pro-bing](https://github.com/prometheus-community/pro-bing), Go | raw, and unprivileged ping sockets |
 | [icmplib](https://github.com/ValentinBELYN/icmplib), Python | raw, and unprivileged ping sockets |
 
-traceroute and mtr show the hops of targets that have a [path](#paths-traceroute-and-mtr), in UDP, ICMP and TCP mode; CI checks all three. Targets without a path look one hop away, and only answer pings.
+traceroute and mtr show the hops of targets that have a [path](#paths-traceroute-and-mtr), in UDP, ICMP and TCP mode; CI checks all three. Targets without a path look one hop away, see [Limitations](#limitations).
 
 For [TCP rules](#tcp-connections), the same script connects with the standard libraries of Go (`net.Dial`) and Python (`socket`), and checks that each sees an accepted connection after the delay and then a read timeout, `ECONNREFUSED`, a connect timeout and `EHOSTUNREACH`. curl and bash's `/dev/tcp` are checked in the end-to-end tests.
 
@@ -697,7 +732,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-The client also reads statistics (`Stats`), deletes rules, changes the default, sets TCP and DNS rules (`SetTCP`, `SetDNS`, with `TCPStats` and `DNSStats`) and puts everything back as at startup (`Reset`, for the beginning of each test); see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
+The client covers the whole API: rules (`SetRule`, `DeleteRule`, `SetDefault`), paths (`SetPath`, `DeletePath`), TCP and DNS rules (`SetTCP`, `DeleteTCP`, `SetDNS`, `DeleteDNS`), statistics (`State`, `Stats`, `TCPStats`, `DNSStats`, `ResetStats`), the history (`History`, `ClearHistory`), `Reset` to put everything back as at startup (for the beginning of each test) and `Version`; `New`, `FromEnv` and `URL` connect it, and `IsNotFound` tells a missing rule from other errors. See its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
 
 ### Other languages
 
@@ -740,7 +775,7 @@ The unit tests do not need root; the end-to-end checks in [`test/`](test/) mostl
 make test         # go vet and unit tests with the race detector
 make e2e          # builds pingmock and runs test/e2e.sh with sudo
 make e2e-exec     # pingmock exec, rootless and as root
-make e2e-compat   # fping, pro-bing and icmplib against pingmock (needs fping and icmplib)
+make e2e-compat   # ping, fping, pro-bing, icmplib, and Go's and Python's TCP clients against pingmock (needs fping and icmplib)
 make e2e-docker   # the container image and the Compose example
 ```
 
@@ -750,9 +785,9 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 
 ## Limitations
 
-- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. No data is exchanged on an accepted connection: pingmock mocks no service. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
+- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. pingmock never sends application data on a TCP connection: the only service it runs is the DNS server it gives a command under `pingmock exec`. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
 - Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
-- Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr, and only its pings are answered: UDP and TCP probes to it get nothing. With a path, UDP and TCP probes get the answers that mean "reached", but no data is exchanged: pingmock mocks no service.
+- Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr: its pings are answered, its TCP probes only on ports with a TCP rule, and its UDP probes not at all. With a path, UDP and TCP probes get the answers that mean "reached", on every port, unless a TCP rule for the port decides otherwise.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.
 - Linux only. `pingmock exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).

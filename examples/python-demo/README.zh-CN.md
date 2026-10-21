@@ -46,7 +46,7 @@ pingmock exec -config pingmock.yaml -- python3 -m pytest -v
 
 ## 测试的辅助工具
 
-[`conftest.py`](conftest.py) 里有一个 pytest fixture `pingmock`，是一个只用标准库写成的小客户端。可以直接复制到自己的项目里用：
+[`conftest.py`](conftest.py) 里有一个 pytest fixture `pingmock`，是一个只用标准库写成的小客户端，可以直接复制到自己的项目里用。它只包含这些测试用到的部分：ping 规则、历史和 `reset`；其他接口（`/tcp/`、`/dns/`、`/paths/`）照同样几行代码加一个方法即可：
 
 ```python
 def test_something(pingmock):
@@ -95,6 +95,6 @@ offline: no host answers (6 unreachable errors)
 
 1. 把 [`conftest.py`](conftest.py) 复制到测试目录，测试函数加上 `pingmock` 参数即可使用
 2. 写一个配置文件，列出测试开始时的网络状况
-3. 先安装好依赖，再用 `pingmock exec -config pingmock.yaml -- python3 -m pytest` 运行测试；在 CI 中也这样运行。[`examples/github-actions`](../github-actions/) 是一份可以直接复制的配置
+3. 先安装好依赖，再用 `pingmock exec -config pingmock.yaml -- python3 -m pytest` 运行测试；在 CI 中也这样运行。[`examples/github-actions`](../github-actions/README.zh-CN.md) 是一份可以直接复制的配置
 
 其他语言也可以照这个思路：从环境变量 `PINGMOCK_API` 读出地址，用该语言的 HTTP 库调用[控制 API](../../README.zh-CN.md#运行时控制-api)。

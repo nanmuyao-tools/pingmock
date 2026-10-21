@@ -2,12 +2,12 @@
 
 [English](planning.md) | 中文
 
-这份文档记录 pingmock 规划技术路线的方法，以及 2026 年 10 月这一轮规划用到的证据和来源。目的是让下一次规划可以照着同样的步骤重做，并且每个方向都能追溯到它的依据。规划的结果见 [TODO.md](../TODO.md#技术路线)。
+这份文档记录 pingmock 规划技术路线的方法，以及 2026 年 10 月各轮规划用到的证据和来源。目的是让下一次规划可以照着同样的步骤重做，并且每个方向都能追溯到它的依据。规划的结果见 [TODO.md](../TODO.md#技术路线)。
 
 ## 原则
 
 - **四个核心价值，每个协议都要保持。** pingmock 做的每一件事都要同时做到：**透明**（被测程序不需要修改代码或配置）、**按目标**（每个目标可以有自己的网络状况）、**可复现**（同样的设置每次结果都一样）、**可控、可观察**（测试中可以改变网络状况，事后能看到程序实际做了什么）。pingmock 将来支持的每一个协议都必须同时做到这四点；**新协议的设计如果做不到其中某一点，就要重新考虑。** 定义和例子见 [CONTRIBUTING](../CONTRIBUTING.md#design-principles)。
-- **测试应用，而不是测试协议。** 这是 Toxiproxy 维护者的说法。pingmock 帮人测试依赖 ping 的程序，而不是研究 ICMP 协议本身。一个功能如果不能帮用户测试自己的程序，就往后放。
+- **测试应用，而不是测试协议。** 这是 Toxiproxy 维护者的说法。pingmock 帮人测试依赖 ping、连接和域名解析的程序，而不是研究这些协议本身。一个功能如果不能帮用户测试自己的程序，就往后放。
 - **证据优先。** 每个方向都要有可以追溯的证据：一个 issue、一次实验、一份兼容性测试的结果。没有找到证据的方向，即使听起来有用，也往后放。
 - **先验证前提，再设计；先确认写法，再实现。** 技术前提用实验确认；用户会写进配置文件的写法，先出设计方案和维护者确认，因为发布后很难再改。
 - **按用户从多到少排序。** 先服务人数最多的用户，再逐步扩展到更窄的人群。
@@ -91,15 +91,15 @@
 
 **和社区互动**：Hacker News、Reddit r/golang 和 V2EX 都禁止 AI 生成的帖子或回复。所以在外部项目的 issue 中介绍 pingmock、参与讨论，都应该由作者本人进行；AI 可以准备素材、核对事实。
 
-## 2026 年 10 月这一轮的证据
+## 第一轮：2026 年 10 月
 
 ### 兼容性测试
 
 | 工具 / 库 | 结果 |
 |---|---|
 | 系统 `ping`（iputils）、fping、Go pro-bing、Python icmplib（原始套接字和 ping 套接字） | 正常：延迟、确定性丢包、不可达、劫持真实地址都正确 |
-| traceroute（默认 UDP 模式） | 每一跳都是 `*`，到不了终点：pingmock 不回应 UDP 探测 |
-| traceroute -I、mtr | 只显示一跳：pingmock 不理会 TTL |
+| traceroute（默认 UDP 模式） | 每一跳都是 `*`，到不了终点：pingmock 当时不回应 UDP 探测（v0.8.0 有路径之前） |
+| traceroute -I、mtr | 只显示一跳：pingmock 当时不理会 TTL（v0.8.0 有路径之前） |
 | `ping www.baidu.com`（实验） | root 模式下改 `/etc/hosts` 可行；`exec` 模式下域名解析失败 |
 
 ### 网上的需求
@@ -180,11 +180,27 @@ pingmock 自己还没有 issue 或 pull request。Discussions 没有查（需要
 
 反面的证据：这些项目都用不可路由的地址或 iptables 规则低成本地解决了问题；Kubernetes 的探针不在 `pingmock exec` 里运行。DNS 故障方面，agent 没有找到有开发者需要它，混沌工具也已经提供。
 
+## 后面几轮：after=、DNS 和通往 v1.0，2026 年 10 月 20、21 日
+
+同一个 agent 又做了三轮。标了*核对过*的行是人工打开或重跑过的，其余是 agent 报告的。
+
+| 轮次 | 证据 | 来源 | 决定了什么 |
+|---|---|---|---|
+| `after=close\|reset`（v0.10.0） | 有人要「connection reset」故障，后来成了 Toxiproxy 的 `reset_peer`（*核对过*） | [Toxiproxy #238](https://github.com/Shopify/toxiproxy/issues/238) | 值得做，因为 pingmock 能在程序本来就用的地址上提供它 |
+| | TUN 上的原型：在握手的最后一个 ACK 上发 FIN，40 次结果都一样；在那里发 RST 会和 `connect` 赛跑（40 次里 38 次让它失败）；在第一段数据上发 RST 可以复现 | 开发容器里的实验 | close 在最后一个 ACK 上，reset 在第一段数据上 |
+| DNS 故障（v0.11.0） | 两个小项目在 2026 年 9、10 月自己做了按域名注入 DNS 错误的办法，各有 0 到 1 个反应 | probeboard-api #74，network-doctor #368、#394 | 证据弱：维护者决定做，只在 `pingmock exec` 下，那里本来就有 DNS 服务 |
+| | 宿主机运行 nscd 时，`exec` 里 `-host` 的域名解析成了宿主机的地址（*核对过：复现，然后修复*） | 实验 | 对命令隐藏 nscd |
+| | CI 机器上的 `search` 行让 SERVFAIL 最后变成了「找不到」（*核对过：CI 失败后复现*） | 2026-10-21 的 CI | 文档和检查改用末尾带点的域名 |
+| 通往 v1.0 | 没有 `after=` 的 TCP 规则本来就能让 TLS 握手超时（*核对过*） | 实验：Python `ssl` 报 "The handshake operation timed out"，curl 退出码 28 | 写进文档，不需要新功能 |
+| | Toxiproxy 在 2026-10-07 关闭了「一段时间后关闭连接」的请求，没有合并；「Protocol aware toxics」从 2015 年开着，9 个 👍（*核对过*） | [Toxiproxy #195](https://github.com/Shopify/toxiproxy/issues/195)、[#50](https://github.com/Shopify/toxiproxy/issues/50) | 对握手之后的数据只有间接的需求；计划手写一个子集，不用用户态协议栈 |
+
+随后维护者定下了通往 v1.0 的顺序：先把常用协议做完整，兼容性承诺放在最后。计划见 [TODO.md](../TODO.md)。
+
 ## 下一次规划时
 
 1. **先看用户的反馈**：[Discussions](https://github.com/nanmuyao/pingmock/discussions) 和 issue 中的真实需求，优先于任何调研
 2. 用新版本的工具和库重新运行兼容性测试，并加入新出现的常用工具
-3. 回头看这一轮引用的 issue 有没有进展（Trippy #1552、#1554，pro-bing #70，Toxiproxy #447）
+3. 回头看这几轮引用的 issue 有没有进展：Trippy #1551、#1552、#1554；pro-bing #70、#195；Toxiproxy #447、#610、#739；slirp4netns #361；asyncpg #1155
 4. 重复上面的七步，把新的证据补充到这份文档中
 
 Claude Code 的 agent [`pingmock-planning`](../.claude/agents/pingmock-planning.md) 可以承担这套方法中的三类工作：市场调研（第 2、3、5 步，以及引用过的 issue 的进展和用户反馈）、技术选型（针对一个问题比较各个方案，逐一检查四个核心价值，在[开发容器](../.devcontainer/README.zh-CN.md)里做实验验证）和项目设计（为路线中的一项写设计方案，包括用户要写的语法和待确认的问题）。它的每条结论都有来源、实验或代码行作为依据。它只写报告和方案，不改动任何东西；结论写进这份文档之前要核对，设计由维护者决定。

@@ -88,31 +88,32 @@ For example, `0x3fff` = `3 f f f` = `0011 1111 1111 1111`, much clearer than dec
 
 ## 5. How pingmock recognizes a ping request
 
-Not everything on the TUN device is a ping request (TCP connection attempts are routed there too), so pingmock first checks that a packet is a ping request it can answer. The code is in [`internal/icmp/icmp.go`](../internal/icmp/icmp.go).
+Not everything on the TUN device is a ping request: TCP connection attempts and the UDP probes of traceroute are routed there too. So pingmock first checks what a packet is, in one function for every kind of packet it may answer: [`ParseProbe`](../internal/icmp/probe.go). This section follows a ping through it; [section 12](#121-how-pingmock-recognizes-tcp-parseprobe) does the same for TCP.
 
-### 5.1 The version first: `ParseEchoRequest`
+### 5.1 The version first: `ParseProbe`
 
 ```go
 switch pkt[0] >> 4 {
 case 4:
-    return parse4(pkt)   // IPv4
+    return probe4(pkt)   // IPv4
 case 6:
-    return parse6(pkt)   // IPv6
+    return probe6(pkt)   // IPv6
 }
-return EchoRequest{}, false
+return Probe{}, false
 ```
 
 The high 4 bits of byte 0 are the version. Shifting right by 4 drops the low 4 bits (the header length):
 
 ```
-pkt[0]      = 0x45 = 0100 0101
-                     version  header length
-pkt[0] >> 4 =        0000 0100 = 4  → IPv4, handled by parse4
+pkt[0]      = 0x45 = 0100 0101     high 4 bits: version, low 4 bits: header length
+pkt[0] >> 4 =        0000 0100     = 4: IPv4, handled by probe4
 ```
 
-An IPv6 packet starts with `0x60`, which gives 6 and goes to `parse6`. Anything else is not a ping request.
+An IPv6 packet starts with `0x60`, which gives 6 and goes to `probe6`. Anything else is not answered.
 
-### 5.2 Then one check after another: `parse4`
+### 5.2 Then one check after another: `probe4` and `transport`
+
+`probe4` checks the IP header, and `transport` what it carries:
 
 | Check | Where in the packet | In the example | Why |
 |---|---|---|---|
@@ -120,10 +121,10 @@ An IPv6 packet starts with `0x60`, which gives 6 and goes to `parse6`. Anything 
 | Length of the IP header | byte 0 `& 0x0f`, × 4 | 5 × 4 = 20 | the IP header **may carry options**, so this says where ICMP starts |
 | Plausible total length | bytes 2-3 | 84 | keeps a malformed packet from sending the code to wrong offsets |
 | Not a fragment | bytes 6-7 `& 0x3fff` | 0 | pingmock does not reassemble fragments; it handles whole packets only (see section 6) |
-| Carries ICMP | byte 9 | 1 | rules out TCP, UDP and other protocols |
+| What it carries | byte 9 | 1: ICMP | 1 goes on to the next check; 6 is TCP ([section 12](#12-tcp-a-connection-attempt-and-pingmocks-answers)) and 17 UDP, which only a path answers; anything else is ignored |
 | Is an echo request | ICMP bytes 0 and 1 | type 8, code 0 | ICMP also has replies, unreachable errors and more |
 
-When every check passes, the source, destination, identifier and sequence number go on to the decision.
+When every check passes, the packet is a `Probe` of kind `Echo`, with its source, destination, TTL, identifier and sequence number, and goes on to the decision ([`RuleSet.DecideProbe`](../internal/engine/path.go), see the [code tour](architecture.md)).
 
 ## 6. Flags and fragment offset: where `0x4000`, `0x3fff` and `0x00b9` come from
 
@@ -331,7 +332,7 @@ TCP rules answer connection attempts, so the packets are TCP segments instead of
 
 ### 12.1 How pingmock recognizes TCP: `ParseProbe`
 
-The checks follow those of section 5, in [`ParseProbe`](../internal/icmp/probe.go), which handles every kind of packet pingmock may answer (pings, and for TCP and paths also UDP and TCP). For IPv4 (`probe4`), on the SYN above:
+The checks are those of section 5, in the same [`ParseProbe`](../internal/icmp/probe.go), up to byte 9, which says 6, TCP. For IPv4 (`probe4`), on the SYN above:
 
 | Check | Where in the packet | In the example | Why |
 |---|---|---|---|
@@ -358,10 +359,11 @@ anything else               SYN-ACK, or a reset  not answered
 
 Being a TCP segment is not enough to be answered: pingmock answers only what a rule or a path made its own.
 
-1. **A SYN to an address with a path** is a probe of traceroute or mtr, and the path answers it, as for UDP probes ([`DecideProbe`](../internal/engine/path.go)).
-2. **A SYN to an address and port with a TCP rule** is a connection attempt ([`DecideTCP`](../internal/engine/tcp.go)). An attempt is identified by the addresses, the ports and the ISN: a SYN the client's kernel sends again repeats all five, and gets the answer the first one got, recorded with `"repeat": true` and not counted.
-3. **Any other SYN is ignored and not recorded**, so a port without a rule looks closed by a firewall that drops, as before TCP rules existed.
-4. **A later segment** is answered only if its connection was accepted under `after=close` or `after=reset` ([`DecideSegment`](../internal/engine/tcp.go)). The connection is found by its addresses and ports, and the segment must acknowledge pingmock's own sequence numbers, `70 69 6e 68` (after the SYN-ACK) or `70 69 6e 69` (after the FIN): a segment of another connection between the same ports never does. Under `after=hang`, the default, later segments are never answered.
+1. **A SYN to an address with a path, whose TTL runs out on the way**, is a probe of traceroute or mtr, and the hop where it runs out answers, as for UDP probes ([`DecideProbe`](../internal/engine/path.go)).
+2. **A SYN that reaches an address and port with a TCP rule** is a connection attempt, path or not ([`DecideTCP`](../internal/engine/tcp.go)). An attempt is identified by the addresses, the ports and the ISN: a SYN the client's kernel sends again repeats all five, and gets the answer the first one got, recorded with `"repeat": true` and not counted.
+3. **A SYN that reaches an address with a path, on a port without a TCP rule**, gets a SYN-ACK, on every port: to traceroute, the destination is reached.
+4. **Any other SYN is ignored and not recorded**, so a port without a rule looks closed by a firewall that drops, as before TCP rules existed.
+5. **A later segment** is answered only if its connection was accepted under `after=close` or `after=reset` ([`DecideSegment`](../internal/engine/tcp.go)). The connection is found by its addresses and ports, and the segment must acknowledge pingmock's own sequence numbers, `70 69 6e 68` (after the SYN-ACK) or `70 69 6e 69` (after the FIN): a segment of another connection between the same ports never does. Under `after=hang`, the default, later segments are never answered.
 
 
 ### 12.3 The answers

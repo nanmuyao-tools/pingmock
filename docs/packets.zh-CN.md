@@ -87,31 +87,32 @@
 
 ## 5. pingmock 怎样认出 ping 请求
 
-TUN 网卡上不只有 ping 请求（比如 TCP 连接请求也会被路由过来），pingmock 要先确认读到的是它能处理的 ping 请求。代码在 [`internal/icmp/icmp.go`](../internal/icmp/icmp.go)。
+TUN 网卡上不只有 ping 请求：TCP 连接请求、traceroute 的 UDP 探测包也会被路由过来。所以 pingmock 先要确认读到的是什么，所有它可能回应的数据包都由同一个函数识别：[`ParseProbe`](../internal/icmp/probe.go)。这一节跟着一个 ping 请求走一遍；[第 12 节](#121-pingmock-怎样识别-tcpparseprobe)对 TCP 做了同样的事。
 
-### 5.1 先看版本号：`ParseEchoRequest`
+### 5.1 先看版本号：`ParseProbe`
 
 ```go
 switch pkt[0] >> 4 {
 case 4:
-    return parse4(pkt)   // IPv4
+    return probe4(pkt)   // IPv4
 case 6:
-    return parse6(pkt)   // IPv6
+    return probe6(pkt)   // IPv6
 }
-return EchoRequest{}, false
+return Probe{}, false
 ```
 
 第 0 个字节的高 4 位是版本号。右移 4 位，把低 4 位（头长度）挤掉：
 
 ```
-pkt[0]      = 0x45 = 0100 0101
-                     版本  头长度
-pkt[0] >> 4 =        0000 0100 = 4  → IPv4，交给 parse4
+pkt[0]      = 0x45 = 0100 0101     高 4 位是版本，低 4 位是头长度
+pkt[0] >> 4 =        0000 0100     = 4：IPv4，交给 probe4
 ```
 
-IPv6 包的第 0 个字节是 `0x60`，右移后得到 6，交给 `parse6`。其他值都不是 ping 请求。
+IPv6 包的第 0 个字节是 `0x60`，右移后得到 6，交给 `probe6`。其他值一律不回应。
 
-### 5.2 再逐项检查：`parse4`
+### 5.2 再逐项检查：`probe4` 和 `transport`
+
+`probe4` 检查 IP 头，`transport` 检查它装的是什么：
 
 | 检查 | 看包里的哪里 | 示例中的值 | 为什么要检查 |
 |---|---|---|---|
@@ -119,10 +120,10 @@ IPv6 包的第 0 个字节是 `0x60`，右移后得到 6，交给 `parse6`。其
 | IP 头有多长 | 第 0 字节 `& 0x0f`，再 × 4 | 5 × 4 = 20 | IP 头**可以带选项**，ICMP 从哪里开始要靠它算出来 |
 | 总长度是否合理 | 第 2-3 字节 | 84 | 防止格式错误的包让后面的代码读错位置 |
 | 是不是分片 | 第 6-7 字节 `& 0x3fff` | 0 | pingmock 不做分片重组，只处理完整的包（见第 6 节） |
-| 装的是不是 ICMP | 第 9 字节 | 1 | 排除 TCP、UDP 等其他协议 |
+| 装的是什么 | 第 9 字节 | 1：ICMP | 1 进入下一项检查；6 是 TCP（[第 12 节](#12-tcp一次连接请求和-pingmock-的回应)），17 是 UDP，只有路径会回应；其他一律忽略 |
 | 是不是回显请求 | ICMP 第 0、1 字节 | 类型 8，代码 0 | ICMP 还有应答、不可达等其他消息 |
 
-全部通过后，取出源地址、目标地址、标识和序号，交给后面的决策环节。
+全部通过后，这个包就是一个 `Echo` 类型的 `Probe`，带着源地址、目标地址、TTL、标识和序号，交给后面的决策环节（[`RuleSet.DecideProbe`](../internal/engine/path.go)，见[代码导读](architecture.zh-CN.md)）。
 
 ## 6. 标志与分片偏移：`0x4000`、`0x3fff`、`0x00b9` 是怎么来的
 
@@ -330,7 +331,7 @@ TCP 规则回应的是连接请求，数据包是 TCP 报文段，而不是 ICMP
 
 ### 12.1 pingmock 怎样识别 TCP：`ParseProbe`
 
-检查沿用第 5 节的做法，代码在 [`ParseProbe`](../internal/icmp/probe.go)，它处理 pingmock 可能回应的所有数据包（ping，以及 TCP 规则和路径用到的 UDP、TCP）。以 IPv4（`probe4`）和上面的 SYN 为例：
+检查和第 5 节一样，在同一个 [`ParseProbe`](../internal/icmp/probe.go) 里，直到第 9 字节显示协议号是 6，即 TCP。以 IPv4（`probe4`）和上面的 SYN 为例：
 
 | 检查 | 在数据包的哪里 | 示例中的值 | 为什么 |
 |---|---|---|---|
@@ -357,10 +358,11 @@ TCP 规则回应的是连接请求，数据包是 TCP 报文段，而不是 ICMP
 
 是 TCP 报文还不够，pingmock 只回应规则或路径「认领」的报文：
 
-1. **发往有路径的地址的 SYN** 是 traceroute 或 mtr 的探测，由路径回应，和 UDP 探测一样（[`DecideProbe`](../internal/engine/path.go)）。
-2. **发往有 TCP 规则的地址和端口的 SYN** 是连接请求（[`DecideTCP`](../internal/engine/tcp.go)）。一次连接尝试由地址、端口和 ISN 确定：客户端内核重发的 SYN 这五项都相同，得到第一次的回应，记为 `"repeat": true`，不重复计数。
-3. **其他的 SYN 一律不理，也不记录**，所以没有规则的端口看起来像被丢包的防火墙挡住，和有 TCP 规则之前一样。
-4. **之后的报文**只有在它的连接以 `after=close` 或 `after=reset` 被接受时才回应（[`DecideSegment`](../internal/engine/tcp.go)）。连接按地址和端口找到，而且报文必须确认 pingmock 自己的序号：`70 69 6e 68`（SYN-ACK 之后）或 `70 69 6e 69`（FIN 之后）；相同端口之间别的连接的报文不会这样确认。默认的 `after=hang` 下，之后的报文永远不回应。
+1. **发往有路径的地址、TTL 在半路耗尽的 SYN** 是 traceroute 或 mtr 的探测，由 TTL 耗尽处的那一跳回应，和 UDP 探测一样（[`DecideProbe`](../internal/engine/path.go)）。
+2. **到达有 TCP 规则的地址和端口的 SYN** 是连接请求，不论有没有路径（[`DecideTCP`](../internal/engine/tcp.go)）。一次连接尝试由地址、端口和 ISN 确定：客户端内核重发的 SYN 这五项都相同，得到第一次的回应，记为 `"repeat": true`，不重复计数。
+3. **到达有路径的地址、而端口没有 TCP 规则的 SYN** 得到 SYN-ACK，任何端口都是：对 traceroute 来说，就是到达了终点。
+4. **其他的 SYN 一律不理，也不记录**，所以没有规则的端口看起来像被丢包的防火墙挡住，和有 TCP 规则之前一样。
+5. **之后的报文**只有在它的连接以 `after=close` 或 `after=reset` 被接受时才回应（[`DecideSegment`](../internal/engine/tcp.go)）。连接按地址和端口找到，而且报文必须确认 pingmock 自己的序号：`70 69 6e 68`（SYN-ACK 之后）或 `70 69 6e 69`（FIN 之后）；相同端口之间别的连接的报文不会这样确认。默认的 `after=hang` 下，之后的报文永远不回应。
 
 
 ### 12.3 回应
