@@ -2,7 +2,7 @@
 
 English | [中文](basics.zh-CN.md)
 
-This page explains the networking that pingmock relies on, for readers who write programs but have never looked inside a network packet. It covers what an address and a port are, what ping, a TCP connection and a DNS lookup actually send, and how pingmock gets in the middle to fake the answers. Each part ends with what it means for pingmock. Read it in order the first time; afterwards, [the glossary](#glossary) at the end is enough.
+This page explains the networking that pingmock relies on, for readers who write programs but have never looked inside a network packet. It covers what an address and a port are, what ping, a TCP connection and a DNS lookup actually send, and how pingmock gets in the middle to fake the answers. Each part ends with what it means for pingmock. Read it in order the first time; afterwards, [the glossary](#glossary) at the end is enough. Section 9 then reads a TCP conversation, a ping and a DNS lookup byte by byte.
 
 Once this page makes sense, [the README](../README.md) shows how to use pingmock, [Inside the packets](packets.md) takes real packets apart byte by byte, and [the code tour](architecture.md) shows how pingmock is built.
 
@@ -279,6 +279,269 @@ There are two ways to run it:
 
 - **`sudo pingmock`** changes the routes of the whole machine, so it needs root (administrator) rights, and every program on the machine sees the mocked addresses.
 - **`pingmock exec -- ./my-app`** needs no root: it gives the command a private copy of the network, a **network namespace**, with its own interfaces and routes. Only that command sees the mocked network, and nothing on the machine changes.
+
+## 9. A worked example, byte by byte
+
+This section builds a few packets by hand and reads them byte by byte: a whole TCP conversation, a ping and a DNS lookup. The numbers are chosen to be easy to follow (the client starts counting at 1000, the server at 5000), and the TCP headers carry no options; real packets are messier, and [Inside the packets](packets.md) takes captured ones apart. These are still valid packets: their checksums are right, and `tcpdump -vv` decodes every one without a complaint.
+
+The addresses are pingmock's defaults: the program runs on **10.99.0.254**, port 40000, and talks to a web server at **10.99.0.1**, port 80.
+
+### 9.1 Reading hexadecimal
+
+Packets are shown in **hexadecimal**: each byte is two digits from `0` to `f`, so `00` to `ff` is 0 to 255. A byte is 8 bits, and each hex digit is 4 of them:
+
+```
+hex      1    8              hex      f    f
+bits   0001 1000           bits   1111 1111
+value  0x18 = 1×16 + 8 = 24       0xff = 15×16 + 15 = 255
+```
+
+Numbers longer than a byte are written with the **most significant byte first** ("network byte order"):
+
+```
+03 e8        = 0x03 × 256 + 0xe8      = 3 × 256 + 232 = 1000
+00 00 13 88  = 0x1388                 = 1 × 4096 + 3 × 256 + 8 × 16 + 8 = 5000
+9c 40        = 0x9c × 256 + 0x40      = 156 × 256 + 64 = 40000
+0a 63 00 fe  = 10.99.0.254            an IPv4 address is 4 bytes, one per number
+```
+
+A dump such as `0010  0a 63 00 01 ...` starts with the **offset** in hex: `0010` means this line starts at byte 16.
+
+### 9.2 The whole conversation
+
+A program fetches a page: it connects, sends `GET / HTTP/1.0`, gets `HTTP/1.0 200 OK` and the text `hi`, and both sides close. Ten packets:
+
+```mermaid
+sequenceDiagram
+    participant C as client 10.99.0.254:40000
+    participant S as server 10.99.0.1:80
+    C->>S: 1 SYN, seq 1000
+    S-->>C: 2 SYN-ACK, seq 5000, ack 1001
+    C->>S: 3 ACK, seq 1001, ack 5001
+    C->>S: 4 PSH-ACK, seq 1001, ack 5001, 18 bytes "GET / ..."
+    S-->>C: 5 ACK, seq 5001, ack 1019
+    S-->>C: 6 PSH-ACK, seq 5001, ack 1019, 21 bytes "HTTP/1.0 200 OK ... hi"
+    C->>S: 7 ACK, seq 1019, ack 5022
+    S-->>C: 8 FIN-ACK, seq 5022, ack 1019
+    C->>S: 9 FIN-ACK, seq 1019, ack 5023
+    S-->>C: 10 ACK, seq 5023, ack 1020
+```
+
+| # | From | Flags | Seq | Ack | Data | What it says |
+|---|---|---|---|---|---|---|
+| 1 | client | SYN | 1000 | | | "I want to connect; I start counting at 1000" |
+| 2 | server | SYN, ACK | 5000 | 1001 | | "OK; I start at 5000; I got your SYN, send byte 1001 next" |
+| 3 | client | ACK | 1001 | 5001 | | "got your SYN": the connection is open |
+| 4 | client | PSH, ACK | 1001 | 5001 | 18 bytes | the request, bytes 1001 to 1018 |
+| 5 | server | ACK | 5001 | 1019 | | "got everything up to 1018" |
+| 6 | server | PSH, ACK | 5001 | 1019 | 21 bytes | the answer, bytes 5001 to 5021 |
+| 7 | client | ACK | 1019 | 5022 | | "got everything up to 5021" |
+| 8 | server | FIN, ACK | 5022 | 1019 | | "I am done sending" |
+| 9 | client | FIN, ACK | 1019 | 5023 | | "got your FIN; I am done too" |
+| 10 | server | ACK | 5023 | 1020 | | "got your FIN": the connection is closed |
+
+### 9.3 The SYN, every byte
+
+Packet 1 is 40 bytes: a 20-byte IP header and a 20-byte TCP header, with no data.
+
+```
+0000  45 00 00 28 10 01 40 00 40 06 15 0b 0a 63 00 fe
+0010  0a 63 00 01 9c 40 00 50 00 00 03 e8 00 00 00 00
+0020  50 02 ff ff f9 a5 00 00
+```
+
+The IP header, bytes 0 to 19:
+
+| Bytes | Hex | Field | Value |
+|---|---|---|---|
+| 0 | `45` | version, header length | high 4 bits 4: IPv4; low 4 bits 5: 5 × 4 = 20 bytes of header |
+| 1 | `00` | type of service | 0, nothing special |
+| 2-3 | `00 28` | total length | 40 bytes, header and everything it carries |
+| 4-5 | `10 01` | identification | a number the sender gives each packet, for fragments |
+| 6-7 | `40 00` | flags, fragment offset | `0x4000`: "don't fragment" set, offset 0 |
+| 8 | `40` | TTL | 64: routers may pass it on 64 times |
+| 9 | `06` | protocol | 6: TCP follows |
+| 10-11 | `15 0b` | header checksum | lets the receiver detect a damaged header |
+| 12-15 | `0a 63 00 fe` | source address | 10.99.0.254, the client |
+| 16-19 | `0a 63 00 01` | destination address | 10.99.0.1, the server |
+
+The TCP header, bytes 20 to 39:
+
+| Bytes | Hex | Field | Value |
+|---|---|---|---|
+| 20-21 | `9c 40` | source port | 40000, chosen by the client's kernel |
+| 22-23 | `00 50` | destination port | 80, the web server |
+| 24-27 | `00 00 03 e8` | sequence number | 1000, the client's starting number (ISN) |
+| 28-31 | `00 00 00 00` | acknowledgment number | 0: nothing to acknowledge yet |
+| 32 | `50` | data offset | high 4 bits 5: 5 × 4 = 20 bytes of header, so no options |
+| 33 | `02` | flags | SYN (see 9.4) |
+| 34-35 | `ff ff` | window | 65535 bytes the client can receive |
+| 36-37 | `f9 a5` | checksum | over the TCP header, the data and a pseudo-header with the addresses |
+| 38-39 | `00 00` | urgent pointer | not used |
+
+### 9.4 The flags byte
+
+Byte 33 of a TCP packet (byte 13 of the TCP header) holds the flags, one bit each:
+
+```
+bit     7     6     5     4     3     2     1     0
+      +-----+-----+-----+-----+-----+-----+-----+-----+
+      | CWR | ECE | URG | ACK | PSH | RST | SYN | FIN |
+      +-----+-----+-----+-----+-----+-----+-----+-----+
+value  0x80  0x40  0x20  0x10  0x08  0x04  0x02  0x01
+```
+
+A packet's flags are the sum of the bits it sets. The combinations in this example, and the ones pingmock sends:
+
+| Hex | Bits | Flags | Meaning |
+|---|---|---|---|
+| `02` | `0000 0010` | SYN | open a connection |
+| `12` | `0001 0010` | SYN, ACK | accept a connection |
+| `10` | `0001 0000` | ACK | acknowledge, nothing else |
+| `18` | `0001 1000` | PSH, ACK | data, to be handed to the program at once |
+| `11` | `0001 0001` | FIN, ACK | close, after everything sent |
+| `04` | `0000 0100` | RST | abort |
+| `14` | `0001 0100` | RST, ACK | abort; in answer to a SYN, "connection refused" |
+
+To test one flag in a program, mask it: `flags & 0x02 != 0` is "SYN is set". pingmock tells a connection attempt from everything else with `flags & 0x12 == 0x02`: SYN set and ACK not set ([Inside the packets](packets.md#121-how-pingmock-recognizes-tcp-parseprobe)).
+
+### 9.5 Sequence and acknowledgment numbers
+
+Each side numbers the bytes it sends, from its own starting point. Three rules give every number in the table of 9.2:
+
+1. **Data counts its length**: packet 4 carries 18 bytes from 1001, so they are bytes 1001 to 1018, and the next one is 1019.
+2. **SYN and FIN count one** each, though they carry no data: after the SYN at 1000, the next number is 1001; after the server's FIN at 5022, 5023.
+3. **The acknowledgment number is the next byte expected**, so it says "I have everything before this":
+
+```
+client   SYN 1000 ──► next 1001 ── data 1001..1018 ──► next 1019 ── FIN 1019 ──► next 1020
+server   SYN 5000 ──► next 5001 ── data 5001..5021 ──► next 5022 ── FIN 5022 ──► next 5023
+
+packet 2   ack 1001   "I got your SYN"
+packet 5   ack 1019   "I got your 18 bytes"
+packet 7   ack 5022   "I got your 21 bytes"
+packet 10  ack 1020   "I got your FIN"
+```
+
+A packet that only acknowledges (3, 5, 7, 10) carries no data and does not use up a number: packet 4 has the same sequence number, 1001, as packet 3.
+
+### 9.6 A packet with data
+
+Packet 4 is the request. Compared with the SYN, the total length grows by the data, the flags are PSH and ACK, both numbers are set, and the bytes after the TCP header are the text itself:
+
+```
+0000  45 00 00 3a 10 03 40 00 40 06 14 f7 0a 63 00 fe
+0010  0a 63 00 01 9c 40 00 50 00 00 03 e9 00 00 13 89
+0020  50 18 ff ff 07 54 00 00 47 45 54 20 2f 20 48 54
+0030  54 50 2f 31 2e 30 0d 0a 0d 0a
+```
+
+| Bytes | Hex | Value |
+|---|---|---|
+| 2-3 | `00 3a` | total length 58 = 20 (IP) + 20 (TCP) + 18 (data) |
+| 24-27 | `00 00 03 e9` | sequence number 1001 |
+| 28-31 | `00 00 13 89` | acknowledgment number 5001 |
+| 33 | `18` | PSH, ACK |
+| 40-57 | `47 45 54 20 2f ...` | the data, in ASCII: `G E T space / space H T T P / 1 . 0`, then `0d 0a 0d 0a`, two line ends (`\r\n\r\n`) that end an HTTP request |
+
+### 9.7 Where pingmock comes in
+
+With a TCP rule for 10.99.0.1:80, there is no server: pingmock writes the server's packets itself, and only a few of them.
+
+| The rule | What pingmock writes | Then |
+|---|---|---|
+| `10.99.0.1:80=5ms` | packet 2, the SYN-ACK, after 5 ms | the client sends 3 and 4, and gets nothing more: it waits for an answer that never comes |
+| `refuse` | instead of packet 2, an RST, ACK (flags `14`) with ack 1001 | `connect` fails: "connection refused" |
+| `timeout` | nothing | the client sends packet 1 again and again, then gives up |
+| `after=close` | packet 2, then on packet 3 a FIN, ACK, like packet 8 | the client reads end of file |
+| `after=reset` | packet 2, then on packet 4 an RST, ACK | the client gets "connection reset by peer" |
+
+pingmock's own sequence number is not 5000 but `70 69 6e 67`, the letters "ping" in ASCII, the same in every connection; only the client's numbers (the 1001 it acknowledges) come from the packet it answers. [Inside the packets](packets.md#12-tcp-a-connection-attempt-and-pingmocks-answers) shows these answers byte by byte.
+
+### 9.8 A ping, every byte
+
+An echo request with 8 bytes of data, the word `pingmock`, and its reply:
+
+```
+request   0000  45 00 00 24 30 01 40 00 40 01 f5 13 0a 63 00 fe
+          0010  0a 63 00 01 08 00 48 4c 00 07 00 01 70 69 6e 67
+          0020  6d 6f 63 6b
+
+reply     0000  45 00 00 24 30 01 40 00 40 01 f5 13 0a 63 00 01
+          0010  0a 63 00 fe 00 00 50 4c 00 07 00 01 70 69 6e 67
+          0020  6d 6f 63 6b
+```
+
+| Bytes | Request | Reply | Field |
+|---|---|---|---|
+| 2-3 | `00 24` | `00 24` | total length 36 = 20 (IP) + 8 (ICMP header) + 8 (data) |
+| 9 | `01` | `01` | protocol 1: ICMP |
+| 12-15 | `0a 63 00 fe` | `0a 63 00 01` | source: the addresses swap |
+| 16-19 | `0a 63 00 01` | `0a 63 00 fe` | destination |
+| 20 | `08` | `00` | ICMP type: 8 echo request, 0 echo reply |
+| 21 | `00` | `00` | code 0 |
+| 22-23 | `48 4c` | `50 4c` | checksum: the type went down by 8, so the checksum goes up by `0x0800` |
+| 24-25 | `00 07` | `00 07` | identifier 7: which ping program |
+| 26-27 | `00 01` | `00 01` | sequence number 1: which ping of that program |
+| 28-35 | `70 69 ... 6b` | the same | the data, `pingmock`, sent back unchanged |
+
+That is all pingmock changes to answer a ping: the addresses, the type and the checksum. The real `ping` puts a timestamp in the data, and since the reply carries it back unchanged, `ping` measures the delay pingmock waited.
+
+### 9.9 A DNS lookup, every byte
+
+DNS travels over UDP, whose header is only 8 bytes: two ports, a length and a checksum. The query for the IPv4 address of `api.example.com`, from port 50000 to port 53:
+
+```
+0000  45 00 00 3d 40 01 40 00 40 11 fc ac 7f 00 00 01
+0010  7f 00 00 01 c3 50 00 35 00 29 e8 a7 12 34 01 00
+0020  00 01 00 00 00 00 00 00 03 61 70 69 07 65 78 61
+0030  6d 70 6c 65 03 63 6f 6d 00 00 01 00 01
+```
+
+| Bytes | Hex | Field | Value |
+|---|---|---|---|
+| 9 | `11` | IP protocol | 17: UDP |
+| 20-21 | `c3 50` | UDP source port | 50000 |
+| 22-23 | `00 35` | UDP destination port | 53, DNS |
+| 24-25 | `00 29` | UDP length | 41 = 8 (UDP header) + 33 (DNS message) |
+| 26-27 | `e8 a7` | UDP checksum | |
+| 28-29 | `12 34` | DNS ID | `0x1234`, picked by the resolver; the answer repeats it |
+| 30-31 | `01 00` | DNS flags | see below |
+| 32-33 | `00 01` | questions | 1 |
+| 34-39 | `00 00 ...` | answers, authority, additional | 0, 0, 0 |
+| 40-56 | `03 61 70 69 07 ...` | the name | see below |
+| 57-58 | `00 01` | type | 1: A, an IPv4 address (28 would be AAAA) |
+| 59-60 | `00 01` | class | 1: Internet |
+
+**Names** are written as labels, each preceded by its length, and end with a zero byte:
+
+```
+03  61 70 69        07  65 78 61 6d 70 6c 65    03  63 6f 6d    00
+3   a  p  i         7   e  x  a  m  p  l  e     3   c  o  m     end
+```
+
+**The flags** are 16 bits. The query has `01 00`; an NXDOMAIN answer, as pingmock sends for `-dns api.example.com=nxdomain`, has `85 83`:
+
+```
+         QR  Opcode   AA  TC  RD    RA  Z    RCODE
+         1b  4 bits   1b  1b  1b    1b  3b   4 bits
+01 00    0   0000     0   0   1     0   000  0000     a query, "recursion desired"
+85 83    1   0000     1   0   1     1   000  0011     an answer (QR), authoritative (AA),
+                                                      RCODE 3: NXDOMAIN, no such name
+85 80    1   0000     1   0   1     1   000  0000     the same, RCODE 0: no error
+```
+
+The NXDOMAIN answer is the query sent back with these flags, from port 53 to port 50000. An answer with an address, `85 80`, adds one record after the question, 16 bytes:
+
+```
+c0 0c        the name: a pointer (top two bits set) to byte 12 of the DNS message,
+             where the question's name already is, so it is not written again
+00 01        type A
+00 01        class Internet
+00 00 00 00  TTL 0: do not keep this answer (pingmock's answers always say so)
+00 04        4 bytes of data follow
+0a 63 00 fd  10.99.0.253
+```
 
 ## Glossary
 
