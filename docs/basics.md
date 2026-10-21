@@ -543,6 +543,111 @@ c0 0c        the name: a pointer (top two bits set) to byte 12 of the DNS messag
 0a 63 00 fd  10.99.0.253
 ```
 
+### 9.10 Tricks with bits: reading fields with shifts and masks
+
+Code that reads packets uses the same handful of bit operations over and over. Each is shown on bytes from this section, in Go, as pingmock writes them; Python and C use the same operators, except that Go's `&^` is `& ~` there.
+
+| Operation | Go | What it does |
+|---|---|---|
+| shift right | `b >> 4` | moves the bits down, dropping the lowest ones |
+| shift left | `b << 8` | moves the bits up, filling with zeros |
+| and (mask) | `b & 0x0f` | keeps only the bits set in the mask |
+| or | `a \| b` | sets the bits of both |
+| and not | `a &^ b` | clears the bits of `b` from `a` |
+| xor, not | `^x` | flips every bit |
+
+**1. Two fields in one byte: shift for the high half, mask for the low half.** Byte 0 of an IPv4 packet holds the version and the header length, 4 bits each:
+
+```
+0x45 = 0100 0101
+0x45 >> 4   = 0000 0100 = 4          the version: IPv4 (0x60 >> 4 = 6, IPv6)
+0x45 & 0x0f = 0000 0101 = 5          the header length, in 4-byte words
+(0x45 & 0x0f) * 4 = 20               bytes, so the next layer starts at byte 20
+```
+
+The TCP data offset is the high half of byte 32: `(0x50 >> 4) * 4` = 20 bytes of TCP header. pingmock: `pkt[0] >> 4` picks IPv4 or IPv6, `int(pkt[0]&0x0f) * 4` finds where ICMP or TCP starts, `int(msg[12]>>4) * 4` finds where the data starts ([`probe.go`](../internal/icmp/probe.go)).
+
+**2. One flag: and with its bit.** The result is the bit itself if it is set, 0 if not:
+
+```
+flags = 0x18 = 0001 1000             packet 4, PSH and ACK
+flags & 0x10 = 0001 0000 ≠ 0         ACK is set
+flags & 0x02 = 0000 0000 = 0         SYN is not
+```
+
+**3. Several flags at once: mask, then compare.** "SYN set and ACK not set" is one test: keep the two bits, and require exactly SYN's:
+
+```
+mask = SYN | ACK = 0x02 | 0x10 = 0x12
+
+SYN      0x02 & 0x12 = 0x02 == 0x02   a connection attempt
+SYN-ACK  0x12 & 0x12 = 0x12 ≠  0x02   not one
+ACK      0x10 & 0x12 = 0x10 ≠  0x02   not one
+```
+
+pingmock: `flags&(FlagSYN|FlagACK) == FlagSYN` for an attempt, `flags&(FlagSYN|FlagRST) == 0` for a later segment.
+
+**4. Building flags: or them together; clear one with and not.**
+
+```
+FlagSYN | FlagACK = 0x02 | 0x10 = 0x12          SYN-ACK
+FlagRST | FlagACK = 0x04 | 0x10 = 0x14          the reset of refuse
+0x18 &^ FlagPSH   = 0001 1000 &^ 0000 1000 = 0x10   PSH cleared, ACK kept
+```
+
+**5. A field of several bits in the middle: shift it down, then mask its width.** The DNS flags of the NXDOMAIN answer, `85 83`:
+
+```
+0x85 = 1000 0101   QR | Opcode (4 bits) | AA | TC | RD
+0x83 = 1000 0011   RA | Z (3 bits)      | RCODE (4 bits)
+
+0x85 & 0x80        = 0x80 ≠ 0      QR: an answer, not a query
+(0x85 >> 3) & 0x0f = 0             Opcode 0: a standard query
+0x85 & 0x04        = 0x04 ≠ 0      AA: authoritative
+0x83 & 0x0f        = 3             RCODE 3: NXDOMAIN
+```
+
+The fragment test of IPv4 masks off one bit and keeps the other 14 of bytes 6-7: `0x4000 & 0x3fff` is 0, a whole packet with only "don't fragment" set; a fragment has "more fragments" (`0x2000`) or an offset, and the result is not 0. pingmock: `q[2]&0x80` (a response, ignored) and `(q[2] >> 3) & 0x0f` (the opcode) in [`dns.go`](../internal/dns/dns.go), `&0x3fff != 0` in [`probe.go`](../internal/icmp/probe.go); [Inside the packets](packets.md#6-flags-and-fragment-offset-where-0x4000-0x3fff-and-0x00b9-come-from) works the fragment test through on real fragments.
+
+**6. Copy some bits, change the others.** pingmock answers a DNS query with the query's opcode and RD bit, and its own QR and AA: mask what it keeps, or in what it sets.
+
+```
+query flags byte 2:  0x01 = 0000 0001                  RD
+0x80 | (0x01 & 0x79) = 1000 0000 | 0000 0001 = 0x81    QR set; opcode and RD kept
+0x81 | 0x04          = 0x85                            AA set: the 85 of 85 83
+```
+
+`0x79` is `0111 1001`: the opcode bits and RD, and nothing else ([`dns.go`](../internal/dns/dns.go), `respond`).
+
+**7. Numbers of two or four bytes: shift each byte to its place and or them.**
+
+```
+03 e8        (0x03 << 8) | 0xe8                                  = 1000
+00 00 13 88  (0x00 << 24) | (0x00 << 16) | (0x13 << 8) | 0x88    = 5000
+```
+
+Go's `binary.BigEndian.Uint16(b)` and `Uint32(b)` do exactly this, and `PutUint16` and `PutUint32` the reverse; in Python, `int.from_bytes(b, "big")`.
+
+**8. Two marks in the top bits: the DNS name pointer.** A length byte of a name is at most 63, `0011 1111`, so its top two bits are free. A byte with both set, `0xc0`, starts a pointer, and the other 14 bits are where the name is:
+
+```
+c0 0c
+0xc0 & 0xc0 == 0xc0                     a pointer, not a length
+((0xc0 & 0x3f) << 8) | 0x0c = 12        the name is at byte 12 of the message
+```
+
+pingmock writes this pointer in its answers (`0xc0, 12`), and rejects a query whose name has either bit set (`n&0xc0 != 0`), since a question has nothing earlier to point to.
+
+**9. Checksums: add in 16 bits, fold the carry back, flip.** The Internet checksum adds the data as 16-bit numbers; whatever overflows above 16 bits is added back in, and the result is inverted:
+
+```
+sum   = 0x1_2345                      more than 16 bits after adding
+fold:   0x2345 + 0x1 = 0x2346         (s & 0xffff) + (s >> 16), until nothing is left above
+check = ^0x2346 = 0xdcb9              every bit flipped
+```
+
+Because it is only a sum, a change to one field changes the checksum by the same amount the other way: in 9.8, the type went from `08 00` to `00 00`, 0x0800 less, so the checksum went from `48 4c` to `50 4c`, 0x0800 more. pingmock: `sum`, `fold` and `Checksum` in [`icmp.go`](../internal/icmp/icmp.go).
+
 ## Glossary
 
 | Word | Meaning |
