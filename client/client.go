@@ -301,7 +301,7 @@ type Event struct {
 	Rule   string    `json:"rule"`
 	Phase  int       `json:"phase"` // 1-based
 	// For targets with a path, and TCP probes.
-	Probe string `json:"probe"` // "udp" or "tcp"; empty for echo requests
+	Probe string `json:"probe"` // "udp", "tcp" or "dns"; empty for echo requests
 	TTL   uint8  `json:"ttl"`   // the probe's TTL
 	Hop   int    `json:"hop"`   // the hop that answered or lost it, from 1; 0 for the destination
 	From  string `json:"from"`  // the address the answer came from
@@ -314,8 +314,8 @@ type Event struct {
 }
 
 // History returns recent requests, oldest first. target, if not empty, is
-// an address or prefix to filter on; limit, if positive, keeps only the
-// most recent requests.
+// an address or prefix to filter on, or a name for the DNS queries for it;
+// limit, if positive, keeps only the most recent requests.
 func (c *Client) History(ctx context.Context, target string, limit int) ([]Event, error) {
 	q := url.Values{}
 	if target != "" {

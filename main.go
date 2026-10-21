@@ -1,6 +1,9 @@
-// Command pingmock answers ping (ICMP and ICMPv6 echo requests) with a
-// configurable delay, jitter, loss or unreachable error, so that software
-// which measures latency with ping can be tested deterministically.
+// Command pingmock mocks network answers for tests: it answers ping (ICMP
+// and ICMPv6 echo requests) and TCP connection attempts with a
+// configurable delay, jitter, loss, unreachable error or refusal, and,
+// under pingmock exec, makes DNS lookups fail or come late, so that
+// software that decides things from the network can be tested
+// deterministically.
 //
 //	sudo pingmock [flags]               mock pings for this machine
 //	pingmock exec [flags] -- CMD ...    run CMD in a private network, no root

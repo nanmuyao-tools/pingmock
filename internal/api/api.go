@@ -28,10 +28,10 @@ func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip
 	mux.HandleFunc("DELETE /rules/{target...}", h.deleteRule) // the default applies again
 	mux.HandleFunc("PUT /default", h.setDefault)              // body: the text form or JSON
 	mux.HandleFunc("DELETE /stats", h.resetStats)             // zero all counters
-	mux.HandleFunc("GET /history", h.getHistory)              // ?target=IP-or-CIDR&limit=N
+	mux.HandleFunc("GET /history", h.getHistory)              // ?target=IP, CIDR or, for DNS queries, a name&limit=N
 	mux.HandleFunc("DELETE /history", h.clearHistory)         // forget recorded requests
 	mux.HandleFunc("POST /reset", h.reset)                    // everything as at startup
-	mux.HandleFunc("GET /version", h.getVersion)              // {"version": "v0.6.0"}
+	mux.HandleFunc("GET /version", h.getVersion)              // {"version": "vX.Y.Z"}
 	mux.HandleFunc("PUT /paths/{target...}", h.setPath)       // body: hops such as "10.0.0.1@2ms > * > 10.0.0.3@20ms"
 	mux.HandleFunc("DELETE /paths/{target...}", h.deletePath) // the target has no route again
 	mux.HandleFunc("PUT /tcp/{target...}", h.setTCP)          // target ADDR[:PORT], PREFIX[:PORT], [IPv6]:PORT; body as for rules

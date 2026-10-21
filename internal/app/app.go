@@ -4,13 +4,14 @@
 //
 // The packages it puts together are, in the order a ping meets them:
 //
-//	tun        the virtual network device the pings arrive on
+//	tun        the virtual network device the pings and connections arrive on
 //	responder  reads each packet and answers it
-//	icmp       parses echo requests and builds replies
+//	icmp       parses pings, UDP and TCP probes and builds the answers
 //	engine     decides, per target, how to answer and keeps statistics
 //	rule       what a rule is and how it is written
 //	api        the HTTP API that changes rules while pingmock runs
 //	config     the YAML configuration file
+//	dns        the DNS server of pingmock exec, which applies DNS rules
 package app
 
 import (

@@ -25,7 +25,7 @@ class Pingmock:
         return json.loads(text) if text else None
 
     def version(self):
-        """The version of the running pingmock, such as "v0.6.0"."""
+        """The version of the running pingmock, such as "vX.Y.Z"."""
         return self._call("GET", "/version")["version"]
 
     def rules(self):

@@ -20,7 +20,7 @@ type Event struct {
 	Rule   string     `json:"rule"`
 	Phase  int        `json:"phase"` // 1-based
 	// For targets with a path.
-	Probe string `json:"probe,omitempty"` // "udp" or "tcp"; echo requests leave it out
+	Probe string `json:"probe,omitempty"` // "udp", "tcp" or "dns"; echo requests leave it out
 	TTL   uint8  `json:"ttl,omitempty"`   // the probe's TTL, as traceroute set it
 	Hop   int    `json:"hop,omitempty"`   // the hop that answered or lost it, from 1
 	From  string `json:"from,omitempty"`  // the address the answer came from; a string, so that omitempty leaves it out
