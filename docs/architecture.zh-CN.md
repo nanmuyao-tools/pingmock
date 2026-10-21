@@ -2,7 +2,7 @@
 
 [English](architecture.md) | 中文
 
-这份文档帮你读懂 pingmock 的代码：它由哪些模块组成、一个 ping 请求是怎样一步步被处理的，以及应该按什么顺序阅读。全部代码约 2800 行（不含测试），按下面的顺序读，一两个小时就能读完。
+这份文档帮你读懂 pingmock 的代码：它由哪些模块组成、一个 ping 请求是怎样一步步被处理的，以及应该按什么顺序阅读。全部代码约 6600 行（不含测试），核心是 ping；按下面的顺序读，ping 的处理路径一两个小时就能读完。TCP 连接和 DNS 查询沿用同样的模式，在它之后介绍。
 
 ## 一句话原理
 
@@ -59,6 +59,23 @@ ping 程序收到回复时计算往返时间，得到的就是设定的 50ms。
 
 这里讲的是 pingmock **内部**的处理。请求是怎样从 ping 经过内核到达 pingmock0、应答又是怎样回到 ping 的，参见[一个 ping 的往返之旅](packet-path.zh-CN.md)。
 
+## 连接和 DNS 查询
+
+TCP 和 DNS 规则沿用上面的一切：同样的 `Spec`、`Phase`、`Scenario`（按各自协议允许的设置解析），同样的 `advance`，以及由种子派生、每个目标各自的随机流。每种协议在 `RuleSet` 里有自己的规则表和目标状态，所以 ping 的种子序列不会变。
+
+**一次连接请求**（`-tcp 10.99.0.1:5432=...`）和 ping 一样到达网卡：
+
+1. [`ParseProbe`](../internal/icmp/probe.go) 识别出 TCP SYN（`Kind` 为 `TCP`），或者连接上的其他报文（`Kind` 为 `Segment`）。
+2. 对 SYN，[`RuleSet.DecideTCP`](../internal/engine/tcp.go) 找到这个地址和端口的规则（先比网段谁更精确，再比带端口的优先），像 ping 一样决定结果：`SynAck`、`Refused`、`Drop` 或 `Unreachable`。客户端内核为同一次连接重发的 SYN 得到同样的回应，靠的是按地址、端口和初始序号记下的缓存。
+3. [`BuildSynAck`](../internal/icmp/probe.go) 或 [`BuildRST`](../internal/icmp/probe.go) 构造回应，客户端内核完成握手。
+4. 在 `after=close` 或 `after=reset` 下，接受的连接会被记住，[`RuleSet.DecideSegment`](../internal/engine/tcp.go) 回应它之后的报文：在握手的最后一个 ACK 上发 FIN，或者在第一段数据上发 RST，每个连接最多一次。没有延迟的回应在读循环里按顺序写出，所以 RST 不会抢在它前面的 FIN 之前。
+
+**一次 DNS 查询**根本不经过网卡。在 `pingmock exec` 下，命令的 `resolv.conf` 指向 [`dns`](../internal/dns/dns.go) 包里的一个小 DNS 服务，由子进程在 [`serveDNS`](../internal/app/names_linux.go) 中启动：
+
+1. `Server.Serve`（UDP）和 `Server.ServeTCP` 为每个查询单独起一个 goroutine 回答。
+2. 域名有 DNS 规则时，`Server.Rule` 询问 [`RuleSet.DecideDNS`](../internal/engine/dns.go)，它按（域名, 查询类型）记录阶段：回错误（`NXDomain`、`ServFail`）、不回应（`Drop`），或者延迟之后给出通常的回复。
+3. 通常的回复来自模拟域名的表，或者经过一对套接字交给仍在宿主机网络里的父进程，由它询问宿主机的解析器（[`StreamForwarder`](../internal/dns/dns.go) 和 `ServeRelay`）。
+
 ## 核心概念
 
 这几个类型是理解代码的关键，都在 `rule` 和 `engine` 两个包里：
@@ -69,7 +86,7 @@ ping 程序收到回复时计算往返时间，得到的就是设定的 50ms。
 | **阶段** | [`rule.Phase`](../internal/rule/scenario.go) | 一个 Spec 加上持续多久（`for 10s`）或持续几个请求（`for 5 pings`） |
 | **场景** | [`rule.Scenario`](../internal/rule/scenario.go) | 若干阶段组成的序列，比如 `30ms for 10 pings; timeout`。普通规则就是只有一个阶段、永不结束的场景 |
 | **结果** | [`rule.Outcome`](../internal/rule/outcome.go) | 一个请求的结局：`Reply`（回复）、`Drop`（丢弃）、`Unreachable`（不可达）；路径还有 `TimeExceeded`、`PortUnreachable`、`SynAck`，TCP 规则还有 `Refused`（拒绝），以及用 `after=` 关闭或重置已接受连接时的 `Closed`、`Reset`；DNS 规则还有 `NXDomain`、`ServFail` |
-| **规则集** | [`engine.RuleSet`](../internal/engine/ruleset.go) | 所有已安装的规则，以及**每个目标地址各自的状态**：处在哪个阶段、阶段里已经收到几个请求、自己的随机数生成器 |
+| **规则集** | [`engine.RuleSet`](../internal/engine/ruleset.go) | 所有已安装的规则，以及**每个目标地址各自的状态**：处在哪个阶段、阶段里已经收到几个请求、自己的随机数生成器；TCP 规则的每个地址和端口（[`tcp.go`](../internal/engine/tcp.go)）、DNS 规则的每个域名和查询类型（[`dns.go`](../internal/engine/dns.go)）也一样 |
 | **决策** | [`engine.Decision`](../internal/engine/ruleset.go) | `RuleSet.Decide` 的返回值：结果、延迟、匹配的规则和阶段 |
 | **历史** | [`engine.History`](../internal/engine/history.go) | 最近请求的记录，固定大小的环形缓冲区 |
 
@@ -130,17 +147,19 @@ main.go: main
 4. **[`responder/responder.go`](../internal/responder/responder.go)**：主循环，把上面几步串起来，不到 100 行
 5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**：数据包的格式细节。如果不关心网络协议，可以先跳过；想深入了解的话，[数据包详解](packets.zh-CN.md)逐字节讲解了它处理的每个字段
 6. **[`app/`](../internal/app/)**：参数解析、启动和 exec 模式
+7. **[`engine/tcp.go`](../internal/engine/tcp.go)**，然后是 **[`engine/dns.go`](../internal/engine/dns.go)** 和 **[`dns/dns.go`](../internal/dns/dns.go)**：理解了 ping 的路径之后，再看其他协议
 
 ## 测试在哪里
 
 - **单元测试**：每个包旁边的 `*_test.go`，不需要 root，运行 `make test`。responder 的测试用一个假的网卡喂数据包，engine 的测试用一个可以手动拨动的假时钟
-- **端到端测试**：[`test/`](../test/) 目录下，用真实的 `ping` 命令验证，运行 `make e2e`、`make e2e-exec`、`make e2e-docker`
+- **端到端测试**：[`test/`](../test/) 目录下，用真实的 `ping`、curl、bash 的 `/dev/tcp`、getent 和 Python 验证，运行 `make e2e`、`make e2e-exec`、`make e2e-compat`、`make e2e-docker`
 
 ## 常见的修改改哪里
 
 | 想做的事 | 要改的地方 |
 |---|---|
-| 规则新增一个设置 | `rule/spec.go` 的 `Spec`、`ParseSpec`、`String`、`Decide`，以及 `rule/json.go` 的 JSON 写法 |
+| 规则新增一个设置 | `rule/spec.go` 的 `Spec`、`ParseSpec`、`String`、`Decide`，以及 `rule/json.go` 的 JSON 写法；`validateFor` 决定哪些协议可以用它 |
+| 新增一种协议 | `rule/spec.go` 加一个 `proto` 和对应的场景类型，`engine/` 里仿照 `tcp.go` 加状态文件，在 `Snapshot`、`SaveBaseline`、`Reset`、`ResetStats` 里加上它，再仿照 TCP 加参数、配置段和 API 路径 |
 | 新增一种结果（比如重复回复） | `rule/outcome.go`，`rule/spec.go` 的 `Decide`，`icmp/` 构造对应的包，`responder` 的 `handle` |
 | HTTP API 新增接口 | `api/api.go`：`NewHandler` 的路由表加一行，再加一个方法；`client/` 加对应的方法 |
 | 配置文件新增字段 | `config/config.go` 的 `Config`，`config/yaml.go` 的 `knownFields`，`app/settings.go` 的 `applyConfig` |

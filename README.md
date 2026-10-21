@@ -257,7 +257,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections) and, for `pingmock exec`, [`hosts`](#names); under `pingmock exec`, a rule's key may be a name.
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`. The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse` and `after` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`).
 
 Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 
@@ -412,6 +412,8 @@ As with ping rules, a TCP rule for a real address in root mode routes **all** tr
 
 An accepted connection is held open, but nothing is ever sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. pingmock mocks no service. Ports without a TCP rule are not answered, as before.
 
+The same rule tests a **TLS handshake timeout**: the connection opens, the client sends its ClientHello and never gets an answer. `pingmock exec -tcp api.example.com:443=5ms -- ./my-app` makes every HTTPS request to that name hang in the handshake: Python's `ssl` reports "The handshake operation timed out", curl gives up with exit 28, and Go's `http.Transport` fails after its `TLSHandshakeTimeout`.
+
 `after=` says what happens next instead, to test how a program handles a server that drops it: `-tcp '10.99.0.1:5432=after=reset'` makes every query to that database fail with "connection reset by peer", and `-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` gives two empty replies before the server works (accepts, then holds the connection). `after=reset` waits for the program to send: a reset sent as soon as the connection opens would sometimes arrive while `connect` is still returning, and fail it instead. A program that waits for the server to speak first, as SSH, SMTP and MySQL clients do, therefore gets a read timeout under `after=reset`, and end of file under `after=close`. Data the program writes after the close gets a reset, as from a real server that closed its socket; a write after that fails with `EPIPE`. The action is decided when the connection is accepted, so it does not change if a phase ends before the program sends. A connection that stays idle for 10 minutes is forgotten, and gets nothing after that.
 
 In a configuration file (quote a key with brackets) and through the API:
@@ -513,7 +515,8 @@ Without arguments, the image listens on all addresses so the API can be publishe
 Rules can be changed over HTTP at any time during a test, and changes take effect immediately. The request body may use the same text format as `-rule`, or JSON.
 
 ```bash
-# Show the seed, the rules and per-target statistics (requests, replies, drops, unreachable answers, current phase)
+# Show the seed, the rules and per-target statistics (requests, replies, drops, unreachable answers, current phase),
+# and the same for TCP rules (tcp, tcp_stats) and DNS rules (dns, dns_stats)
 curl localhost:9100/rules
 
 # Create or change a rule
@@ -525,9 +528,14 @@ curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5m
 # Delete a rule (the default applies again)
 curl -X DELETE localhost:9100/rules/10.99.0.1
 
-# TCP rules: refuse connections to a port, then remove the rule
+# TCP rules: refuse connections to a port, reset accepted ones, then remove a rule
 curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
+curl -X PUT localhost:9100/tcp/10.99.0.2:443 -d 5ms,after=reset
 curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
+
+# DNS rules, under pingmock exec: a name stops resolving, then resolves again
+curl -X PUT localhost:9100/dns/api.example.com -d nxdomain
+curl -X DELETE localhost:9100/dns/api.example.com
 
 # Change the default rule
 curl -X PUT localhost:9100/default -d timeout
@@ -535,7 +543,8 @@ curl -X PUT localhost:9100/default -d timeout
 # Reset the statistics
 curl -X DELETE localhost:9100/stats
 
-# Recent requests, oldest first; filter by address or prefix, keep the last N
+# Recent requests, oldest first; filter by address or prefix (or, for DNS
+# queries, a name), keep the last N
 curl 'localhost:9100/history?target=10.99.0.1&limit=20'
 
 # Clear the history
@@ -545,13 +554,13 @@ curl -X DELETE localhost:9100/history
 # no statistics, no history. Targets restart their scenarios and random sequences.
 curl -X POST localhost:9100/reset
 
-# Which pingmock this is: {"version": "v0.6.0"}
+# Which pingmock this is: {"version": "v0.11.0"}
 curl localhost:9100/version
 ```
 
 `POST /reset` at the start of each test gives it the same state on every run, whatever the tests before it changed.
 
-Each history event looks like this. `result` is `reply`, `drop` or `unreachable`, `code` is present for unreachable answers, `delay` for anything that was answered, and `phase` counts from 1. Connection attempts and the probes of traceroute and mtr add fields, described in [TCP connections](#tcp-connections) and [Paths](#paths-traceroute-and-mtr):
+Each history event looks like this. `result` is `reply`, `drop` or `unreachable`, `code` is present for unreachable answers, `delay` for anything that was answered, and `phase` counts from 1. Connection attempts, DNS queries and the probes of traceroute and mtr add fields, described in [TCP connections](#tcp-connections), [DNS faults](#dns-faults) and [Paths](#paths-traceroute-and-mtr):
 
 ```json
 {"time": "2026-10-17T11:16:10.113Z", "src": "10.99.0.254", "dst": "10.99.0.1",
@@ -619,7 +628,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-The client also reads statistics (`Stats`), deletes rules, changes the default and puts everything back as at startup (`Reset`, for the beginning of each test); see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
+The client also reads statistics (`Stats`), deletes rules, changes the default, sets TCP and DNS rules (`SetTCP`, `SetDNS`, with `TCPStats` and `DNSStats`) and puts everything back as at startup (`Reset`, for the beginning of each test); see its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
 
 ### Other languages
 

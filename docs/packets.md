@@ -2,7 +2,7 @@
 
 English | [中文](packets.zh-CN.md)
 
-This document takes a ping request apart: what each byte means, how pingmock decides that a packet is a ping request, how checksums are computed, and a few details worth knowing, such as where the `0x4000` and `0x3fff` in the flags and fragment field come from. Every byte shown comes from a **real, captured** ping request, and every conclusion was checked by experiment.
+This document takes a ping request apart, and in section 12 a TCP connection attempt: what each byte means, how pingmock decides that a packet is a ping request, how checksums are computed, and a few details worth knowing, such as where the `0x4000` and `0x3fff` in the flags and fragment field come from. Every byte shown comes from a **real, captured** ping request, and every conclusion was checked by experiment.
 
 For how the request gets from `ping` to pingmock, see [The round trip of one ping](packet-path.md); for how pingmock handles it inside, see the [code tour](architecture.md).
 
@@ -304,6 +304,46 @@ IPv6 pings are built the same way; the differences show in `parse6`, `reply6` an
 | Fragmentation | flags and offset in the IP header | a separate fragment extension header, which pingmock does not handle either |
 
 The pseudo-header's addresses are also added up, so swapping them leaves the ICMP checksum unchanged, for the same reason the IPv4 header checksum does not change in section 7.
+
+## 12. TCP: a connection attempt and pingmock's answers
+
+TCP rules answer connection attempts, so the packets are TCP segments instead of ICMP. This SYN was captured from `curl http://10.96.0.1/` with the script in the appendix, changed to keep TCP (protocol 6); the answers after it are what [`BuildSynAck`](../internal/icmp/probe.go), [`BuildRST`](../internal/icmp/probe.go) and [`BuildSegment`](../internal/icmp/probe.go) build for it.
+
+```
+45 00 00 3c 06 d9 40 00 40 06 1e 25 0a 60 00 fe 0a 60 00 01   IP header, 20 bytes; protocol 6
+81 50 00 50 f2 d6 87 35 00 00 00 00 a0 02 fa f0 de 12 00 00   TCP header, 20 bytes
+02 04 05 b4 04 02 08 0a 85 10 d8 80 00 00 00 00 01 03 03 07   TCP options, 20 bytes
+```
+
+| Bytes (from the TCP header) | Value | Field | Meaning |
+|---|---|---|---|
+| 0-1 | `81 50` | source port | 33104, chosen by the client's kernel |
+| 2-3 | `00 50` | destination port | 80, what the TCP rule matches on |
+| 4-7 | `f2 d6 87 35` | sequence number | 4074145589, the **initial sequence number** (ISN), random per connection |
+| 8-11 | `00 00 00 00` | acknowledgment number | nothing to acknowledge yet |
+| 12 | `a0` | data offset | high 4 bits: 10 words of 4 bytes, so the header with its options is 40 bytes |
+| 13 | `02` | flags | SYN only; the bits are FIN 0x01, SYN 0x02, RST 0x04, PSH 0x08, ACK 0x10 |
+| 14-15 | `fa f0` | window | 64240 bytes the client can receive |
+| 16-17 | `de 12` | checksum | over a pseudo-header and the segment, as for ICMPv6 in section 11 |
+| 20-39 | | options | MSS 1460, SACK permitted, timestamps, window scale 7 |
+
+[`ParseProbe`](../internal/icmp/probe.go) sorts TCP segments by their flags: SYN without ACK is a connection attempt (`Kind` `TCP`); a segment with neither SYN nor RST is a later segment of a connection (`Kind` `Segment`), whose data length is what follows the header: the IP total length, minus the IP header, minus the data offset. SYN-ACKs and resets are never answered, so pingmock's own answers, and the client's reset to a SYN-ACK it did not expect, end there.
+
+The answers carry no options, so they are 40 bytes. Only the TCP header is shown below; their IP headers are the same (`45 00 00 28 00 00 00 00 40 06 65 12`, then the addresses swapped):
+
+```
+SYN-ACK  00 50 81 50  70 69 6e 67  f2 d6 87 36  50 12  ff ff  bf 95 00 00
+RST      00 50 81 50  00 00 00 00  f2 d6 87 36  50 14  00 00  9e 64 00 00
+FIN-ACK  00 50 81 50  70 69 6e 68  f2 d6 87 36  50 11  ff ff  bf 95 00 00
+```
+
+- **The ports are swapped**, as the addresses are: the answer comes from port 80.
+- **The acknowledgment number is the ISN plus one** (`...35` becomes `...36`): a SYN counts as one byte of sequence space, and acknowledging it is what makes the client's kernel accept the answer.
+- **The SYN-ACK's own sequence number is `70 69 6e 67`, "ping" in ASCII**, the same for every connection. A real server picks it at random; nothing in the client depends on it, and a fixed number is easier to recognize in a capture.
+- **The reset** (`refuse`) has flags RST and ACK, sequence 0 and window 0, as a host with the port closed sends: `connect` fails with "connection refused".
+- **The FIN** of `after=close` answers the client's last ACK of the handshake, which acknowledged `70 69 6e 68`; the FIN takes that number, since the SYN-ACK used up "ping" itself. Its checksum is the same as the SYN-ACK's: the sequence number went up by one and the flags down by one (0x12 to 0x11), and the one's complement sum only sees the total.
+
+IPv6 answers are built the same way, with the 40-byte IPv6 header of section 11 and the IPv6 pseudo-header in the checksum.
 
 ## Appendix: capture packets yourself
 

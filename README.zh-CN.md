@@ -257,7 +257,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`、[`paths`](#路径traceroute-和-mtr)、[`tcp`](#tcp-连接)，以及供 `pingmock exec` 使用的 [`hosts`](#域名)；在 `pingmock exec` 下，规则的键也可以是域名。
+每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`、[`paths`](#路径traceroute-和-mtr)、[`tcp`](#tcp-连接)，以及供 `pingmock exec` 使用的 [`hosts`](#域名) 和 [`dns`](#dns-故障)；在 `pingmock exec` 下，规则的键也可以是域名。映射写法里，TCP 规则还可以用 `refuse` 和 `after`，DNS 规则可以用 `nxdomain` 和 `servfail`（`{delay: 5ms, after: reset}`、`{servfail: true}`）。
 
 出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。早期版本使用的 JSON 配置文件无需修改即可继续使用，因为 JSON 本身就是合法的 YAML。
 
@@ -412,6 +412,8 @@ pingmock exec \
 
 接受的连接会保持打开，但不会发送任何数据：程序读取时会遇到读取超时，可以和连接超时区分开。pingmock 不模拟任何服务。没有 TCP 规则的端口和以前一样不回应。
 
+同样的规则可以测试 **TLS 握手超时**：连接建立了，客户端发出 ClientHello，却一直等不到回应。`pingmock exec -tcp api.example.com:443=5ms -- ./my-app` 让发往这个域名的每个 HTTPS 请求都卡在握手：Python 的 `ssl` 报 "The handshake operation timed out"，curl 以退出码 28 放弃，Go 的 `http.Transport` 在 `TLSHandshakeTimeout` 之后失败。
+
 用 `after=` 可以改为别的做法，测试程序怎样应对服务器断开它：`-tcp '10.99.0.1:5432=after=reset'` 让发往这个数据库的每次查询都失败于 "connection reset by peer"；`-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` 先给两次空回复，之后服务器恢复（接受连接并保持）。`after=reset` 会等程序发送数据：如果连接一建立就重置，重置有时会在 `connect` 还没返回时到达，让 `connect` 本身失败。因此先等服务器说话的程序（SSH、SMTP、MySQL 客户端）在 `after=reset` 下会遇到读取超时，在 `after=close` 下读到文件结束。关闭之后程序再写入的数据会得到重置，和关闭了 socket 的真实服务器一样；之后再写会以 `EPIPE` 失败。动作在接受连接时就决定了，所以即使程序发送数据之前阶段已经结束，动作也不会变。空闲 10 分钟的连接会被忘掉，之后不再回应。
 
 配置文件（带方括号的键要加引号）和 API 中的写法：
@@ -514,6 +516,7 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 ```bash
 # 查看种子、规则和每个目标的统计（请求数、回复数、丢弃数、不可达数、当前阶段）
+# 以及 TCP 规则（tcp、tcp_stats）和 DNS 规则（dns、dns_stats）的同类信息
 curl localhost:9100/rules
 
 # 设置或修改规则
@@ -525,9 +528,14 @@ curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5m
 # 删除规则（回到默认值）
 curl -X DELETE localhost:9100/rules/10.99.0.1
 
-# TCP 规则：拒绝发往某个端口的连接，然后删除这条规则
+# TCP 规则：拒绝发往某个端口的连接、重置已接受的连接，然后删除一条规则
 curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
+curl -X PUT localhost:9100/tcp/10.99.0.2:443 -d 5ms,after=reset
 curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
+
+# DNS 规则（pingmock exec 下）：域名解析不了，然后恢复
+curl -X PUT localhost:9100/dns/api.example.com -d nxdomain
+curl -X DELETE localhost:9100/dns/api.example.com
 
 # 修改默认规则
 curl -X PUT localhost:9100/default -d timeout
@@ -535,7 +543,7 @@ curl -X PUT localhost:9100/default -d timeout
 # 清零统计
 curl -X DELETE localhost:9100/stats
 
-# 最近的请求，按时间从早到晚排列；可以按地址或网段过滤，只保留最后 N 条
+# 最近的请求，按时间从早到晚排列；可以按地址或网段（DNS 查询按域名）过滤，只保留最后 N 条
 curl 'localhost:9100/history?target=10.99.0.1&limit=20'
 
 # 清空历史
@@ -545,13 +553,13 @@ curl -X DELETE localhost:9100/history
 # 每个目标的场景和随机序列重新开始
 curl -X POST localhost:9100/reset
 
-# 这是哪个版本的 pingmock：{"version": "v0.6.0"}
+# 这是哪个版本的 pingmock：{"version": "v0.11.0"}
 curl localhost:9100/version
 ```
 
 每个测试开始时先 `POST /reset`，不管前面的测试改过什么，它每次都从同样的状态出发。
 
-每条历史记录的格式如下。`result` 是 `reply`、`drop` 或 `unreachable`；`code` 只在不可达时出现；`delay` 在有响应时出现；`phase` 从 1 开始计数。连接请求和 traceroute、mtr 的探测还有其他字段，见 [TCP 连接](#tcp-连接)和[路径](#路径traceroute-和-mtr)：
+每条历史记录的格式如下。`result` 是 `reply`、`drop` 或 `unreachable`；`code` 只在不可达时出现；`delay` 在有响应时出现；`phase` 从 1 开始计数。连接请求、DNS 查询和 traceroute、mtr 的探测还有其他字段，见 [TCP 连接](#tcp-连接)、[DNS 故障](#dns-故障)和[路径](#路径traceroute-和-mtr)：
 
 ```json
 {"time": "2026-10-17T11:16:10.113Z", "src": "10.99.0.254", "dst": "10.99.0.1",
@@ -619,7 +627,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则、把一切恢复成启动时的样子（`Reset`，适合放在每个测试的开头），详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
+客户端还可以读取统计数据（`Stats`）、删除规则、修改默认规则、设置 TCP 和 DNS 规则（`SetTCP`、`SetDNS`，以及 `TCPStats`、`DNSStats`）、把一切恢复成启动时的样子（`Reset`，适合放在每个测试的开头），详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
 
 ### 其他语言
 

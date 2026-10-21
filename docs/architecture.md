@@ -2,7 +2,7 @@
 
 English | [中文](architecture.zh-CN.md)
 
-This document helps you read the pingmock code: what it is made of, how a ping is handled step by step, and in which order to read it. The code is about 2,800 lines without tests; read in the order below, it takes an hour or two.
+This document helps you read the pingmock code: what it is made of, how a ping is handled step by step, and in which order to read it. The code is about 6,600 lines without tests; ping is the heart of it, and read in the order below, the ping path takes an hour or two. TCP connections and DNS queries follow the same pattern and are described after it.
 
 ## The idea in one paragraph
 
@@ -59,6 +59,23 @@ The ping program measures the round trip and finds the configured 50ms.
 
 This is what happens **inside** pingmock. For how the request travels from ping through the kernel to pingmock0, and the reply back, see [The round trip of one ping](packet-path.md).
 
+## Connections and DNS queries
+
+TCP and DNS rules reuse everything above: the same `Spec`, `Phase` and `Scenario`, parsed with the settings of their protocol, the same `advance`, and a random stream per target derived from the seed. Each protocol keeps its own rules and per-target state in the `RuleSet`, so the seeded sequences of pings never move.
+
+**A connection attempt** (`-tcp 10.99.0.1:5432=...`) arrives on the device like a ping:
+
+1. [`ParseProbe`](../internal/icmp/probe.go) recognizes a TCP SYN (`Kind` `TCP`), or another segment of a connection (`Kind` `Segment`).
+2. For a SYN, [`RuleSet.DecideTCP`](../internal/engine/tcp.go) finds the rule for the address and port (the most specific prefix, then a rule for the port over one for every port) and decides as for a ping: `SynAck`, `Refused`, `Drop` or `Unreachable`. A SYN the client's kernel sends again for the same attempt gets the same answer, from a cache keyed by addresses, ports and initial sequence number.
+3. [`BuildSynAck`](../internal/icmp/probe.go) or [`BuildRST`](../internal/icmp/probe.go) builds the answer; the client's kernel completes the handshake.
+4. Under `after=close` or `after=reset`, the accepted connection is remembered, and [`RuleSet.DecideSegment`](../internal/engine/tcp.go) answers its later segments: a FIN on the handshake's last ACK, or a reset on the first data, at most once per connection. Answers without a delay are written in order from the read loop, so a reset never overtakes the FIN before it.
+
+**A DNS query** never reaches the device. Under `pingmock exec`, the command's `resolv.conf` points at a small DNS server in the [`dns`](../internal/dns/dns.go) package, which the child starts in [`serveDNS`](../internal/app/names_linux.go):
+
+1. `Server.Serve` (UDP) and `Server.ServeTCP` answer each query on its own goroutine.
+2. If the name has a DNS rule, `Server.Rule` asks [`RuleSet.DecideDNS`](../internal/engine/dns.go), which keeps phases per name and query type: an error (`NXDomain`, `ServFail`), no answer (`Drop`), or the usual answer after a delay.
+3. The usual answer comes from the table of mocked names, or from the host's resolver, through a socket pair to the parent process, which kept the host's network ([`StreamForwarder`](../internal/dns/dns.go) and `ServeRelay`).
+
 ## Core concepts
 
 These types are the key to the code. They live in `rule` and `engine`:
@@ -69,7 +86,7 @@ These types are the key to the code. They live in `rule` and `engine`:
 | **Phase** | [`rule.Phase`](../internal/rule/scenario.go) | A Spec with a length: a duration (`for 10s`) or a number of requests (`for 5 pings`) |
 | **Scenario** | [`rule.Scenario`](../internal/rule/scenario.go) | A sequence of phases, such as `30ms for 10 pings; timeout`. A plain rule is a scenario with one endless phase |
 | **Outcome** | [`rule.Outcome`](../internal/rule/outcome.go) | What happens to a request: `Reply`, `Drop` or `Unreachable`; for paths also `TimeExceeded`, `PortUnreachable` and `SynAck`, and for TCP rules `Refused`, and `Closed` and `Reset` for connections they accepted with `after=`; for DNS rules `NXDomain` and `ServFail` |
-| **RuleSet** | [`engine.RuleSet`](../internal/engine/ruleset.go) | The installed rules, and **the state of each target address**: its phase, how many requests it got in that phase, and its own random source |
+| **RuleSet** | [`engine.RuleSet`](../internal/engine/ruleset.go) | The installed rules, and **the state of each target address**: its phase, how many requests it got in that phase, and its own random source; likewise for each address and port of TCP rules ([`tcp.go`](../internal/engine/tcp.go)) and each name and query type of DNS rules ([`dns.go`](../internal/engine/dns.go)) |
 | **Decision** | [`engine.Decision`](../internal/engine/ruleset.go) | What `RuleSet.Decide` returns: the outcome, the delay, and the rule and phase that applied |
 | **History** | [`engine.History`](../internal/engine/history.go) | Recent requests, in a fixed-size ring buffer |
 
@@ -130,17 +147,19 @@ The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../
 4. **[`responder/responder.go`](../internal/responder/responder.go)**: the main loop that ties these together, under 100 lines
 5. **[`icmp/icmp.go`](../internal/icmp/icmp.go)**: the packet formats; skip it at first if network protocols do not interest you, or read [Inside the packets](packets.md), which goes through every field it handles, byte by byte
 6. **[`app/`](../internal/app/)**: flags, starting up and exec
+7. **[`engine/tcp.go`](../internal/engine/tcp.go)**, then **[`engine/dns.go`](../internal/engine/dns.go)** and **[`dns/dns.go`](../internal/dns/dns.go)**: the other protocols, once the ping path is clear
 
 ## Where the tests are
 
 - **Unit tests**: the `*_test.go` files next to each package; no root needed, run `make test`. The responder tests feed packets to a fake device, and the engine tests use a fake clock moved by hand.
-- **End-to-end checks**: in [`test/`](../test/), with the real `ping` command; run `make e2e`, `make e2e-exec` and `make e2e-docker`.
+- **End-to-end checks**: in [`test/`](../test/), with the real `ping`, curl, bash's `/dev/tcp`, getent and Python; run `make e2e`, `make e2e-exec`, `make e2e-compat` and `make e2e-docker`.
 
 ## Where to make common changes
 
 | To do this | Change |
 |---|---|
-| Add a setting to rules | `Spec`, `ParseSpec`, `String` and `Decide` in `rule/spec.go`, and the JSON form in `rule/json.go` |
+| Add a setting to rules | `Spec`, `ParseSpec`, `String` and `Decide` in `rule/spec.go`, and the JSON form in `rule/json.go`; `validateFor` says which protocols may use it |
+| Add a protocol | a `proto` in `rule/spec.go` with its scenario type, a state file in `engine/` like `tcp.go`, its key in `Snapshot`, `SaveBaseline`, `Reset` and `ResetStats`, a flag, a configuration section and API paths as for TCP |
 | Add an outcome (duplicate replies, say) | `rule/outcome.go`, `Decide` in `rule/spec.go`, a builder in `icmp/`, and `handle` in `responder` |
 | Add an HTTP API endpoint | `api/api.go`: a line in the routing table in `NewHandler` and a method; the matching method in `client/` |
 | Add a configuration field | `Config` in `config/config.go`, `knownFields` in `config/yaml.go`, and `applyConfig` in `app/settings.go` |

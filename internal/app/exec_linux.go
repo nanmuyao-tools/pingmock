@@ -42,6 +42,8 @@ network access other than the mocked targets. A rule may be written for a
 name: CMD then resolves it to a mocked address, through a private
 /etc/hosts and a DNS server that forwards other names to the host's
 resolver; the system's files are not touched. -host picks the address.
+-dns makes the queries for a name fail or come late, for mocked and real
+names alike.
 
 Examples:
   pingmock exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
@@ -49,6 +51,7 @@ Examples:
   pingmock exec -rule api.example.com=80ms -rule db.example.com=timeout -- ./my-app
   pingmock exec -host api.example.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./my-app
   pingmock exec -tcp db.example.com:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app
+  pingmock exec -tcp 10.99.0.3:443=after=reset -dns api.example.com=nxdomain -- ./my-app
   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 
 Flags:

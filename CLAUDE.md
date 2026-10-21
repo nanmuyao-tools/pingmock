@@ -4,7 +4,7 @@ How to work in this repository. The documents named here are the source of truth
 
 ## What this is
 
-pingmock mocks ping (ICMP and ICMPv6 echo) on Linux, per target address, for testing software that decides things from ping. [README.md](README.md) says what it does, [docs/architecture.md](docs/architecture.md) is the tour of the code, [docs/planning.md](docs/planning.md) is how the roadmap is worked out, and [TODO.md](TODO.md) (in Chinese) is the roadmap itself, with what was verified at each step. [CONTRIBUTING.md](CONTRIBUTING.md) has the design principles and the release procedure.
+pingmock mocks network answers on Linux, per target, for testing software that decides things from them: ping (ICMP and ICMPv6 echo), with paths for traceroute and mtr, TCP connections (accepted, refused, unanswered, then closed or reset), and DNS failures under `pingmock exec`. [README.md](README.md) says what it does, [docs/architecture.md](docs/architecture.md) is the tour of the code, [docs/planning.md](docs/planning.md) is how the roadmap is worked out, and [TODO.md](TODO.md) (in Chinese) is the roadmap itself, with what was verified at each step. [CONTRIBUTING.md](CONTRIBUTING.md) has the design principles and the release procedure.
 
 ## Principles that decide what gets built
 
