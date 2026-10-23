@@ -1,6 +1,6 @@
 # TODO
 
-已发布 v0.12.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
+已发布 v0.13.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
 接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
 
@@ -289,7 +289,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
   - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39897333613) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 send=、reply=、limit=、wait= 和「等待期间不重传」的检查都跑了；[v0.12.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.12.0)，下载的 arm64 二进制在开发容器里读到欢迎语、拿到 503 和响应体
 - [x] **3. v0.13：`-udp`**（2026-10-23 实现，未发布）。维护者确认语法：目标和 `-tcp` 一样，`udp:`、`PUT/DELETE /udp/{目标}`、`SetUDP`/`DeleteUDP`/`UDPStats`；`refuse`（ICMP 端口不可达）、`unreachable[=net|admin]`、`timeout`/`loss=`、pattern 的 `x`、`u`、`r`、错误的 `delay` 和 `ttl`；每个数据报计一次；只写延迟、没有失败方式的规则报错；有路径时各跳先回应，终点由 UDP 规则决定；exec 的 DNS 服务不受影响
   - 验证（开发容器）：Python 已连接的 UDP socket：`refuse` 得到 `ECONNREFUSED`，`unreachable=admin` 得到 `EHOSTUNREACH`（IPv6 是 `EACCES`），`timeout for 1 request; refuse` 先超时再拒绝，没有规则的端口超时，IPv6 的 refuse，exec 里按域名的规则；统计按数据报计数。**发现**：普通的 `unreachable`（主机不可达）Linux 不报告给没有 `IP_RECVERR` 的 UDP socket，程序只看到超时，README 写明了
-  - [ ] 推送后看 CI；发布
+  - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39913858988) 在 Ubuntu 24.04 和 26.04 上全部通过，9 项 UDP 检查在 4 个任务里都跑了；[v0.13.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.13.0)，下载的 arm64 二进制在开发容器里 refuse 得到 `ECONNREFUSED`，`unreachable=admin` 得到 `EHOSTUNREACH`
 - [ ] **4. v0.14：冻结前的整理**（1～2 天）：修正下面列出的不一致（旧写法保留为弃用的别名）；用 Go 自带的 fuzz 测各个解析器；在 musl/Alpine 上验证一次 DNS 按（域名, 类型）计数
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文
 
