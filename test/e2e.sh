@@ -37,7 +37,7 @@ near "static 50ms" "$(avg 10.99.0.1 3)" 50 5
 curl -sf -X PUT localhost:9100/rules/10.99.0.1 -d 250ms >/dev/null
 near "changed at runtime to 250ms" "$(avg 10.99.0.1 3)" 250 10
 
-if ping -c 2 -W 1 10.99.0.2 >/dev/null 2>&1; then fail "timeout target answered"; fi
+if ping -c 2 -i 0.2 -W 1 10.99.0.2 >/dev/null 2>&1; then fail "timeout target answered"; fi
 pass "timeout target gives no reply"
 
 same "pattern ..x drops every third request" "$(received 10.99.0.3 9)" "1 2 4 5 7 8 "
@@ -163,19 +163,21 @@ ip link del pmhost0
 # a timeout, and the time the connection took.
 # A connection that was never made has a time_connect of 0; the exit status
 # alone cannot tell, since a connection that is made but never answered
-# also ends in a timeout (28).
-connect() { # url, connect timeout: prints "exit time_connect"
+# also ends in a timeout (28). The time limit, in seconds, is for the
+# whole transfer, so an accepted connection that is never answered costs
+# only that: the checks give a few times the expected delay.
+connect() { # url, time limit: prints "exit time_connect"
   local out status=0
-  out=$(curl -s -o /dev/null --connect-timeout "$2" -m "$(( $2 + 1 ))" -w '%{time_connect}' "$1" 2>/dev/null) || status=$?
+  out=$(curl -s -o /dev/null --connect-timeout "$2" -m "$2" -w '%{time_connect}' "$1" 2>/dev/null) || status=$?
   echo "$status ${out:-0}"
 }
 ms() { awk -v s="$1" 'BEGIN { printf "%.1f", s * 1000 }'; }
 start -seed 1 -tcp 10.99.0.21:80=200ms -tcp 10.99.0.22:80=refuse -tcp 10.99.0.23:80=timeout \
   -tcp 10.99.0.24:80=unreachable -tcp '10.99.0.25:80=timeout for 1 requests; 10ms' \
   -tcp '10.99.0.26:80=refuse for 1 requests; 10ms'
-read -r status took <<<"$(connect http://10.99.0.21/ 2)"
+read -r status took <<<"$(connect http://10.99.0.21/ 0.5)"
 near "TCP: the connection is accepted after the rule's delay" "$(ms "$took")" 200 10
-read -r _ took <<<"$(connect http://10.99.0.21:81/ 1)"
+read -r _ took <<<"$(connect http://10.99.0.21:81/ 0.5)"
 same "TCP: a port without a rule is not answered (no connection)" "$(ms "$took")" 0.0
 read -r status _ <<<"$(connect http://10.99.0.22/ 2)"
 same "TCP: refuse refuses the connection (curl exit 7)" "$status" 7
@@ -183,20 +185,20 @@ same "TCP: refuse refuses the connection (curl exit 7)" "$status" 7
 tcperr() { timeout 3 bash -c ": <>/dev/tcp/$1/$2" 2>&1 | sed -n 's/.*connect: //p'; }
 same "TCP: refuse gives connection refused" "$(tcperr 10.99.0.22 80)" "Connection refused"
 same "TCP: unreachable gives no route to host" "$(tcperr 10.99.0.24 80)" "No route to host"
-read -r _ took <<<"$(connect http://10.99.0.23/ 1)"
+read -r _ took <<<"$(connect http://10.99.0.23/ 0.5)"
 same "TCP: timeout leaves the connection unanswered (no connection)" "$(ms "$took")" 0.0
 read -r status _ <<<"$(connect http://10.99.0.24/ 2)"
 same "TCP: unreachable fails the connection (curl exit 7)" "$status" 7
 # The first attempt times out although the kernel sends its SYN again after
 # about a second: a retransmitted SYN is the same request. The second
 # attempt is the next phase and connects.
-read -r _ took <<<"$(connect http://10.99.0.25/ 3)"
+read -r _ took <<<"$(connect http://10.99.0.25/ 1.5)"
 same "TCP: a retransmitted SYN is not a new request (the first attempt never connects)" "$(ms "$took")" 0.0
-read -r status took <<<"$(connect http://10.99.0.25/ 2)"
+read -r status took <<<"$(connect http://10.99.0.25/ 0.5)"
 near "TCP: the second attempt gets the next phase" "$(ms "$took")" 10 5
 read -r status _ <<<"$(connect http://10.99.0.26/ 2)"
 same "TCP: refuse for 1 requests refuses the first attempt" "$status" 7
-read -r _ took <<<"$(connect http://10.99.0.26/ 2)"
+read -r _ took <<<"$(connect http://10.99.0.26/ 0.5)"
 near "TCP: then the next phase accepts" "$(ms "$took")" 10 5
 stats=$(curl -sf localhost:9100/rules | tr -d ' \n' | grep -o '"10.99.0.25:80":{[^}]*}')
 echo "$stats" | grep -q '"requests":2,"accepted":1,"refused":0,"dropped":1' || fail "TCP: stats count attempts, not SYNs: $stats"
@@ -255,11 +257,19 @@ try:
     s.recv(1); print("no error")
 except OSError as e:
     print(type(e).__name__)')" ConnectionResetError
-retrans() { awk '/^Tcp:/ {n++} n == 2 && /^Tcp:/ {print $13}' /proc/net/snmp; }
-before=$(retrans)
-read -r status took <<<"$(curl -s -o /dev/null -m 3 -w '%{http_code} %{time_total}' http://10.99.0.32/)"
+# The connection's own count of retransmitted segments (tcpi_total_retrans,
+# at byte 100 of struct tcp_info): the system-wide count also has the
+# retransmissions of earlier connections that pingmock left hanging.
+read -r took retrans <<<"$(python3 -c '
+import socket, struct, time
+start = time.monotonic()
+s = socket.create_connection(("10.99.0.32", 80), timeout=3)
+s.sendall(b"GET / HTTP/1.0\r\n\r\n")
+s.recv(100)
+info = s.getsockopt(socket.IPPROTO_TCP, socket.TCP_INFO, 104)
+print(time.monotonic() - start, struct.unpack_from("I", info, 100)[0])')"
 near "TCP: wait= delays the reply" "$(ms "$took")" 500 60
-same "TCP: and the client does not send its request again while waiting" "$(( $(retrans) - before ))" 0
+same "TCP: and the client does not send its request again while waiting" "$retrans" 0
 # UDP rules: a connected UDP socket learns of the ICMP error on its next
 # receive, so the program sees "connection refused", "no route to host" or
 # nothing at all.
@@ -292,7 +302,7 @@ read -r status _ <<<"$(connect http://10.99.0.21/ 2)"
 same "TCP: a rule set through the API takes effect" "$status" 7
 if [ -e /proc/net/if_inet6 ]; then
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::21%5D:80' -d 30ms >/dev/null
-  read -r status took <<<"$(connect 'http://[fd99::21]/' 2)"
+  read -r status took <<<"$(connect 'http://[fd99::21]/' 0.5)"
   near "TCP over IPv6: accepted after the delay" "$(ms "$took")" 30 5
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::22%5D:80' -d refuse >/dev/null
   read -r status _ <<<"$(connect 'http://[fd99::22]/' 2)"
@@ -310,16 +320,16 @@ stop
 
 if command -v traceroute >/dev/null; then
   start -seed 1 -rule 10.99.0.80=30ms -path '10.99.0.80=192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms'
-  hops() { traceroute "$@" -n -q 1 -w 1 -m 8 10.99.0.80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' '; }
+  hops() { traceroute "$@" -n -q 1 -w 0.5 -m 8 10.99.0.80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' '; }
   want="192.168.1.1 10.0.0.1 * 72.14.0.1 10.99.0.80 "
   same "traceroute (UDP) shows the path" "$(hops)" "$want"
   same "traceroute -I shows the path" "$(hops -I)" "$want"
   same "traceroute -T shows the path" "$(hops -T)" "$want"
-  hop2=$(traceroute -n -q 1 -w 1 -m 8 10.99.0.80 2>/dev/null | awk 'NR==3 {print $3}')
+  hop2=$(traceroute -n -q 1 -w 0.5 -m 8 10.99.0.80 2>/dev/null | awk 'NR==3 {print $3}')
   near "the second hop answers after its own delay" "$hop2" 15 5
   near "ping still gets the target's rule" "$(avg 10.99.0.80 2)" 30 5
   if command -v mtr >/dev/null; then
-    same "mtr shows the path" "$(mtr -n -r -c 1 10.99.0.80 | tail -n +3 | awk '{print $2}' | tr '\n' ' ')" "192.168.1.1 10.0.0.1 ??? 72.14.0.1 10.99.0.80 "
+    same "mtr shows the path" "$(mtr -n -r -c 1 -G 0.5 10.99.0.80 | tail -n +3 | awk '{print $2}' | tr '\n' ' ')" "192.168.1.1 10.0.0.1 ??? 72.14.0.1 10.99.0.80 "
   fi
   # cut= loses everything beyond the hop: the target becomes unreachable.
   curl -sf -X PUT localhost:9100/paths/10.99.0.80 -d '192.168.1.1@2ms,cut=100% > 10.0.0.1@15ms' >/dev/null
@@ -331,8 +341,8 @@ if command -v traceroute >/dev/null; then
   stop
   if [ -e /proc/net/if_inet6 ]; then
     start -seed 1 -rule fd99::80=30ms -path 'fd99::80=fd99::1:1@2ms > * > fd99::1:3@25ms'
-    same "IPv6: traceroute shows the path" "$(traceroute -6 -n -q 1 -w 1 -m 6 fd99::80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' ')" "fd99::1:1 * fd99::1:3 fd99::80 "
-    same "IPv6: traceroute -I shows the path" "$(traceroute -6 -I -n -q 1 -w 1 -m 6 fd99::80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' ')" "fd99::1:1 * fd99::1:3 fd99::80 "
+    same "IPv6: traceroute shows the path" "$(traceroute -6 -n -q 1 -w 0.5 -m 6 fd99::80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' ')" "fd99::1:1 * fd99::1:3 fd99::80 "
+    same "IPv6: traceroute -I shows the path" "$(traceroute -6 -I -n -q 1 -w 0.5 -m 6 fd99::80 2>/dev/null | tail -n +2 | awk '{print $2}' | tr '\n' ' ')" "fd99::1:1 * fd99::1:3 fd99::80 "
     stop
   fi
 else

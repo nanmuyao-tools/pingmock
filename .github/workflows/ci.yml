@@ -49,15 +49,16 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Build
         run: go build -o pingmock .
-      # traceroute and mtr, for the path checks of the end-to-end tests, and
-      # nscd for a check of pingmock exec; the check starts nscd itself, so
-      # it is stopped for everything else.
-      - name: Install traceroute, mtr and nscd
+      # traceroute and mtr, for the path checks of the end-to-end tests,
+      # nscd for a check of pingmock exec, and fping for the compatibility
+      # checks, in one apt-get run; the check starts nscd itself, so it is
+      # stopped for everything else.
+      - name: Install traceroute, mtr, nscd and fping
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q traceroute mtr-tiny nscd
+          sudo apt-get install -y -q traceroute mtr-tiny nscd fping
           sudo systemctl stop nscd
-          traceroute --version 2>&1 | head -n 1; mtr --version
+          traceroute --version 2>&1 | head -n 1; mtr --version; fping --version
       - name: End-to-end test
         run: sudo REQUIRE_IPV6=1 test/e2e.sh
       # Ubuntu 24.04 and later restrict unprivileged user namespaces with
@@ -117,9 +118,6 @@ jobs:
       # libraries, unprivileged ping sockets too.
       - name: Compatibility with ping tools and libraries
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q fping
-          fping --version
           pip install -r test/compat/requirements.txt
           sudo env "PATH=$PATH" test/e2e-compat.sh
       - name: pingmock exec, as root

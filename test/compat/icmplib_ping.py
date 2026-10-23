@@ -7,9 +7,11 @@ line per host and mode for test/e2e-compat.sh to check:
 
 import sys
 
-from icmplib import ping
+from icmplib import multiping
 
+# multiping pings the hosts at the same time, so that the lost replies are
+# waited for once; it returns one result per host, in order.
 for mode in ("raw", "dgram"):
-    for host in sys.argv[1:]:
-        h = ping(host, count=4, interval=0.2, timeout=1, privileged=(mode == "raw"))
-        print(f"icmplib {mode} {host} sent={h.packets_sent} recv={h.packets_received} avg={h.avg_rtt:.1f}")
+    hosts = multiping(sys.argv[1:], count=4, interval=0.2, timeout=0.5, privileged=(mode == "raw"))
+    for h in hosts:
+        print(f"icmplib {mode} {h.address} sent={h.packets_sent} recv={h.packets_received} avg={h.avg_rtt:.1f}")
