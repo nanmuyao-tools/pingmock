@@ -546,7 +546,7 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 - **不需要 root。** 普通用户运行时，pingmock 还会创建一个用户命名空间，在其中设置网络；以 root 运行时，只创建网络命名空间。
 - **不影响宿主机网络。** 模拟 `8.8.8.8` 只对这个命令生效；多次运行可以同时进行，各自拥有独立的规则、网卡和 API 端口。
 - **准备就绪后才启动命令。** 命令开始运行时，ping 已经可以被回复，API 也已经在监听。命令可以从环境变量 `$PINGMOCK_API` 获取 API 地址。
-- **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
+- **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`，无法执行时返回 `126`。pingmock exec 自己失败时（参数或规则写错、网络建不起来），和 `docker run` 一样返回 `125`，以免和命令自己的退出码混淆。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
 - **不留残留进程。** 命令退出时，它在后台启动的进程也会被一并停止。
 
 在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问。所以要先编译好程序再放进去运行：需要下载依赖的 `go run`（或 `npm install`、`pip install` 等）会因为 `network is unreachable` 而失败。
@@ -604,7 +604,7 @@ pingmock exec \
 
 规则对模拟的域名（用 `-host` 或为域名写的规则）和真实的域名都有效，真实域名的故障直接由 pingmock 回答，不去问宿主机。有规则的域名不写进命令的 `/etc/hosts`，因为程序会先读 hosts 文件、不问 DNS。
 
-场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 只让一次解析失败，因为 C 库默认问两次（`resolv.conf` 里的 `attempts:2`）。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。
+场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 在 glibc 下让一次解析失败，因为它默认问两次（`resolv.conf` 里的 `attempts:2`）；在 musl（Alpine）下一次都不会失败，因为它收到 SERVFAIL 会立即重问，我们实测每种类型问了 6 次。要让解析不管用哪个解析器都失败，就在需要失败的这段时间里一直用 `servfail`，或者用每个解析器都会立即相信的 `nxdomain`。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。
 
 解析器加上 `resolv.conf` 的 search 域去试的名字（`api.example.com.corp.example`）是别的域名，照常转发。C 库在一个域名失败后会去试这些名字，并报告最后一个回复：宿主机有 `search` 行时，`api.example.com` 的 SERVFAIL 或超时可能最终变成"找不到"，甚至变成 search 域给出的地址。要看到规则本身的故障，请在域名末尾加点（`api.example.com.`），或者在没有 search 域的机器上测试。
 
@@ -731,8 +731,8 @@ curl localhost:9100/version
 
 | 字段 | 什么时候有 | 取值 |
 |---|---|---|
-| `time`、`src`、`dst`、`rule`、`phase`、`reply` | 总是有 | `reply` 只在回显应答时为 true；DNS 查询的 `src` 和 `dst` 是 127.0.0.1，即命令的 DNS 服务 |
-| `id`、`seq` | ping | 回显请求的标识和序号 |
+| `time`、`src`、`dst`、`rule`、`phase`、`reply` | 总是有 | `reply` 只在回显应答时为 true；DNS 查询的 `src` 和 `dst` 为空，因为它们不经过虚拟网卡；路径上某一跳的回应没有阶段，`phase` 为 0 |
+| `id`、`seq` | ping、DNS | 回显请求的标识和序号；DNS 查询的 `id` 是查询报文的 ID |
 | `result` | 总是有 | ping：`reply`、`drop`、`unreachable`；路径：`time-exceeded`、`port-unreachable`、`syn-ack`；TCP 规则：`syn-ack`、`refused`、`drop`、`unreachable`、`sent`、`closed`、`reset`；UDP 规则：`refused`、`unreachable`、`drop`；DNS 规则：`answer`、`nxdomain`、`servfail`、`drop` |
 | `code` | 不可达的回应 | `host`、`net` 或 `admin` |
 | `delay` | 有回应时 | 比如 `40ms` |

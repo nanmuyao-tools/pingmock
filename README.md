@@ -546,7 +546,7 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 - **No root needed.** As an unprivileged user, pingmock also creates a user namespace in which it may set up the network. As root, it creates only the network namespace.
 - **The host network is not touched.** Mocking `8.8.8.8` affects only `CMD`, and several runs can happen at once, each with its own rules, device and API port.
 - **Ready before CMD starts.** Pings are answered and the API listens as soon as `CMD` runs. `CMD` finds the API address in `$PINGMOCK_API`.
-- **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, or `127` if it was not found. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
+- **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, `127` if it was not found and `126` if it could not be run. When pingmock exec itself fails, with a bad flag or rule or a network it cannot set up, it exits with `125`, as `docker run` does, so that it is not taken for the command's own status. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
 - **Nothing is left behind.** When `CMD` exits, processes it started in the background are stopped too.
 
 Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access. So build programs before running them there: a `go run` (or `npm install`, `pip install`...) that needs to download dependencies fails with `network is unreachable`.
@@ -604,7 +604,7 @@ The rule is written as for `-rule`, and means:
 
 A rule works for mocked names (with `-host` or a rule for the name) and for real ones, which are then failed without asking the host. Its name is left out of the command's `/etc/hosts`, which programs read before asking DNS.
 
-Phases count **queries**, for each name and query type apart. A lookup usually asks for A and AAAA at once, and a resolver asks again after a SERVFAIL or a timeout, so how many lookups a phase covers depends on what they get: `nxdomain for 2 requests` fails two lookups, since NXDOMAIN is believed at once; `servfail for 2 requests` fails one, since the C library asks twice by default (`attempts:2` in `resolv.conf`). The statistics, keyed as `api.example.com/A` and `api.example.com/AAAA`, show what happened.
+Phases count **queries**, for each name and query type apart. A lookup usually asks for A and AAAA at once, and a resolver asks again after a SERVFAIL or a timeout, so how many lookups a phase covers depends on what they get: `nxdomain for 2 requests` fails two lookups, since NXDOMAIN is believed at once; `servfail for 2 requests` fails one with glibc, which asks twice by default (`attempts:2` in `resolv.conf`), and none with musl (Alpine), which asks again at once after a SERVFAIL, six times per type in our runs. To fail a lookup whatever the resolver, use `servfail` for as long as it should fail, or `nxdomain`, which every resolver believes at once. The statistics, keyed as `api.example.com/A` and `api.example.com/AAAA`, show what happened.
 
 Names a resolver tries with the search domains of `resolv.conf` (`api.example.com.corp.example`) are other names, forwarded as usual. The C library tries them after a name fails, and reports the last answer: where the host has a `search` line, a SERVFAIL or a timeout for `api.example.com` can end as "not found", or even as an address, from the search domain. To see the rule's failure itself, ask for the name with a final dot (`api.example.com.`), or test on a host without search domains.
 
@@ -732,8 +732,8 @@ All the fields an event can have:
 
 | Field | Present | Values |
 |---|---|---|
-| `time`, `src`, `dst`, `rule`, `phase`, `reply` | always | `reply` is true for echo replies only; DNS queries have `src` and `dst` 127.0.0.1, the command's DNS server |
-| `id`, `seq` | pings | the identifier and sequence number of the echo request |
+| `time`, `src`, `dst`, `rule`, `phase`, `reply` | always | `reply` is true for echo replies only; DNS queries have empty `src` and `dst`, since they never reach the virtual device; `phase` is 0 for an answer from a path's hop, which has no phases |
+| `id`, `seq` | pings, DNS | the identifier and sequence number of the echo request; for a DNS query, `id` is the query's ID |
 | `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `sent`, `closed`, `reset`; UDP rules: `refused`, `unreachable`, `drop`; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
 | `code` | unreachable answers | `host`, `net` or `admin` |
 | `delay` | anything answered | such as `40ms` |
