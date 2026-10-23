@@ -1,6 +1,6 @@
 # TODO
 
-已发布 v0.11.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
+已发布 v0.12.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
 接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
 
@@ -286,7 +286,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 - [ ] **1. 文档**（半天，不打 tag）：README 写 TLS 握手超时的做法（已完成，2026-10-21）、UDP 现在得到什么，「什么时候用别的」里加上 QUIC 回退；「不做」加上带内容的 UDP 回复和 QUIC 回退
 - [x] **2. v0.12：TCP 握手后的数据**（2026-10-23 实现，未发布）。维护者确认按推荐的语法：`send="..."` 握手后立即发，`reply="..."` 收到第一段数据后发，`limit=N` 收满 N 字节后按 `after=` 结束（必须配 `after=close` 或 `after=reset`，advisor 指出「收满后不再确认」没有被批准过），`wait=` 推迟数据；字节是 Go 的双引号字符串，最多 16 KiB；`after=hang` 保持沉默（维护者决定）。实现：`rule`（引号里的 `,` `;` ` for ` 不再被当成分隔符）、`icmp`（带数据的报文，每段最多 536 字节）、`engine`（`talk`：确认客户端数据，重传的数据再确认一次，关闭之后的新数据回 RST；握手后第一个报文就带数据时先当握手完成、再当数据）、`responder`（每个连接一条队列：确认立即写出，数据、FIN、RST 按顺序，`wait=` 期间的确认从未发出的数据开始编号）；历史新增 `sent` 事件和 `bytes`
   - 验证（开发容器）：Python 读到 SSH 欢迎语；curl 和 Go `net/http` 拿到 503 和响应体；`limit=1000,after=reset` 让 Python 得到 `ConnectionResetError`；3000 字节分 6 段送达，校验和一致；`wait=1s` 实测 1001ms，期间客户端重传 0 个报文；IPv6 也拿到 503；兼容性测试中 Go 和 Python 都读到 `reply=` 的数据。变异：去掉每个连接的队列，`wait=` 之后的 RST 抢在回复之前（5 次都失败）；`wait=` 期间不立即确认，客户端重传 1 次，e2e 失败。同一 seed 下和 v0.11.0 发布版结果一致
-  - [ ] 推送后看 CI；发布
+  - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39897333613) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 send=、reply=、limit=、wait= 和「等待期间不重传」的检查都跑了；[v0.12.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.12.0)，下载的 arm64 二进制在开发容器里读到欢迎语、拿到 503 和响应体
 - [ ] **3. v0.13：`-udp`**（可选，1～2 天）：refuse、timeout、unreachable；有路径时路径只管中间的跳，目的地由 UDP 规则决定
 - [ ] **4. v0.14：冻结前的整理**（1～2 天）：修正下面列出的不一致（旧写法保留为弃用的别名）；用 Go 自带的 fuzz 测各个解析器；在 musl/Alpine 上验证一次 DNS 按（域名, 类型）计数
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文
