@@ -2,7 +2,7 @@
 
 [English](planning.md) | 中文
 
-这份文档记录 pingmock 规划技术路线的方法，以及 2026 年 10 月各轮规划用到的证据和来源。目的是让下一次规划可以照着同样的步骤重做，并且每个方向都能追溯到它的依据。规划的结果见 [TODO.md](../TODO.md#技术路线)。
+这份文档记录 pingmock 规划技术路线的方法，以及 2026 年 10 月各轮规划用到的证据和来源。目的是让下一次规划可以照着同样的步骤重做，并且每个方向都能追溯到它的依据。规划的结果概括在[技术路线图](roadmap.zh-CN.md)里，逐步的进度见 [TODO.md](../TODO.md#技术路线)。
 
 ## 原则
 
@@ -196,11 +196,89 @@ pingmock 自己还没有 issue 或 pull request。Discussions 没有查（需要
 
 随后维护者定下了通往 v1.0 的顺序：先把常用协议做完整，兼容性承诺放在最后。计划见 [TODO.md](../TODO.md)。
 
+## 第七轮：竞品和 v1.0 之后的方向，2026 年 10 月 23 日
+
+[`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent 把 pingmock 和 34 个竞品按技术路线分组比较，并实验了绑定网卡的探测能否到达 pingmock。得出的路线见[技术路线图](roadmap.zh-CN.md)。标了*已核对*的行是人工打开来源或重新运行过的，其余是 agent 报告的。星数和日期来自 2026-10-23 的 GitHub API。
+
+### 新的证据
+
+| 证据 | 来源 | 意义 |
+|---|---|---|
+| "Without the DROP rule, Docker Desktop answers "host unreachable" for that IP right away, which hides the bug, so a firewall rule is the reliable way to reproduce it."*（已核对）* | [asyncpg #1155](https://github.com/MagicStack/asyncpg/issues/1155)，2026-10-15 的评论 | 模拟连接超时的土办法因机器而异；这正是 pingmock 的 `timeout` 和 `unreachable` |
+| Toxiproxy v2.13.0（2026-10-14）包含了 `packet_loss`，API 加了 bearer token，没有认证且监听非本机地址时会警告*（已核对）* | 发布说明；compare API 显示这个 tag 在 [#739](https://github.com/Shopify/toxiproxy/pull/739) 的合并提交之后（`ahead`） | pingmock 的镜像在 `0.0.0.0:9100` 上监听，没有认证，而默认值到 v1.0 就冻结 |
+| Toxiproxy 的 seed 和在配置文件里写故障仍未完成*（已核对）* | [#610](https://github.com/Shopify/toxiproxy/pull/610)、[#447](https://github.com/Shopify/toxiproxy/issues/447)（18 👍） | pingmock 的差异（可复现、写在文件里）仍然成立 |
+| Toxiproxy 的作者 2015 年提过 DNS 故障，后来关掉了 | [Toxiproxy #17](https://github.com/Shopify/toxiproxy/issues/17)："A lot of software assumes fast DNS lookups. Let's challenge assumptions!" | 一个没有人在代理之外做出来的需求 |
+| Trippy 的 TUN 模拟器从 2026-02-08 起支持 IPv6 | [Trippy #1741](https://github.com/fujiapple852/trippy/issues/1741) | 独立工具仍是草稿（[#1551](https://github.com/fujiapple852/trippy/pull/1551)） |
+| 基于 tc 的工具没满足的需求是：每个目标或端口有多条独立的规则 | [comcast #42](https://github.com/tylertreat/comcast/issues/42)、Pumba #115 和 #130、[Chaos Mesh #2295](https://github.com/chaos-mesh/chaos-mesh/issues/2295) | pingmock 在 Linux 上已经有了 |
+| macOS 上按目标过滤会失效 | [comcast #82](https://github.com/tylertreat/comcast/issues/82)、[#44](https://github.com/tylertreat/comcast/issues/44)、[#45](https://github.com/tylertreat/comcast/issues/45) | 反对移植到 macOS 的证据 |
+| pingmock 自己：0 星，0 个 issue，0 个 pull request | `GET /repos/nanmuyao/pingmock` | 仍然没有用户反馈 |
+
+### 按技术路线分的竞品
+
+代理，程序要改成连接它：
+
+| 项目 | 星数 | 说明 |
+|---|---|---|
+| [Shopify/toxiproxy](https://github.com/Shopify/toxiproxy) | 12,451 | TCP 代理；没有 seed；10 种语言的客户端；有 Testcontainers 模块；有 Windows 版 |
+| [kffl/speedbump](https://github.com/kffl/speedbump) | 1,557 | TCP 延迟代理；2024 年起不活跃 |
+| [brk0v/trixter](https://github.com/brk0v/trixter) | 128 | TCP 代理，2025 年新出；唯一有 seed 的代理（`--random-seed`） |
+| [mefellows/muxy](https://github.com/mefellows/muxy) | 827 | L4–L7 代理；整形部分封装了 Comcast，需要 root；不活跃 |
+| [h2non/toxy](https://github.com/h2non/toxy) | 2,712 | HTTP 代理；已归档 |
+| [fetch-kit/chaos-proxy](https://github.com/fetch-kit/chaos-proxy) | 27 | HTTP 代理，2025–26 年新出 |
+| [wiremock/wiremock](https://github.com/wiremock/wiremock) | 7,405 | 带故障和延迟的 HTTP mock；HTTP 的标准 |
+| [SpectoLabs/hoverfly](https://github.com/SpectoLabs/hoverfly) | 2,527 | HTTP 模拟 |
+| [mock-server/mockserver-monorepo](https://github.com/mock-server/mockserver-monorepo) | 4,996 | HTTP mock 和代理 |
+| [mitmproxy/mitmproxy](https://github.com/mitmproxy/mitmproxy) | 46,206 | HTTP(S) 代理；透明模式没有查 |
+
+封装 tc、netem 和 iptables 的工具，作用在真实网络上，需要 root：
+
+| 项目 | 星数 | 说明 |
+|---|---|---|
+| [tylertreat/comcast](https://github.com/tylertreat/comcast) | 10,516 | 按地址、协议和端口；最后一个版本在 2015 年 |
+| [thombashi/tcconfig](https://github.com/thombashi/tcconfig) | 854 | tc，可选 iptables |
+| [sitespeedio/throttle](https://github.com/sitespeedio/throttle) | 385 | macOS 上用 pfctl，Linux 上用 tc；整张网卡 |
+| [alexei-led/pumba](https://github.com/alexei-led/pumba) | 3,180 | 按容器用 netem 和 iptables；macOS 上在 Linux 虚拟机里运行 |
+| [worstcase/blockade](https://github.com/worstcase/blockade) | 911 | 按容器；不活跃 |
+| [jagt/clumsy](https://github.com/jagt/clumsy) | 6,274 | Windows，用 WinDivert |
+| [Ednk-1312/Chaos](https://github.com/Ednk-1312/Chaos) | 5 | macOS，pf 和 dummynet，需要特权；有 seed |
+
+Kubernetes 混沌平台：[Chaos Mesh](https://github.com/chaos-mesh/chaos-mesh)（7,948）、[Litmus](https://github.com/litmuschaos/litmus)（5,731）、[ChaosBlade](https://github.com/chaosblade-io/chaosblade)（6,469）、[krkn](https://github.com/krkn-chaos/krkn)（511）、[obzev0](https://github.com/lumbrjx/obzev0)（53，找到的唯一一个 eBPF 工具，故障仍经过代理）和 [Chaos Toolkit](https://github.com/chaostoolkit/chaostoolkit)（2,033，只做编排）。文档里都没有 seed。
+
+带故障的 DNS 服务：[CoreDNS `erratic`](https://github.com/coredns/coredns/tree/master/plugin/erratic)，客户端要改成用它；[Pakomo](https://github.com/AlfWorks/Pakomo)（1），一个不需要 root、基于 TUN 的 Android 应用，在另一个系统上走了和 pingmock 相同的路线。
+
+用 TUN 或原始套接字回 ICMP：[m-ou-se/pong](https://github.com/m-ou-se/pong)（150，找到的唯一一个伪造 ping 的工具，是个玩笑项目，不按目标）、[Trippy](https://github.com/fujiapple852/trippy) 的内部模拟器（8,073）、[fakert](https://github.com/sehaas/fakert)（3）、[traceroute-haiku](https://github.com/benjojo/traceroute-haiku)（47，已归档）、[cmd-nse-icmp-responder](https://github.com/networkservicemesh/cmd-nse-icmp-responder)（2，Network Service Mesh 内部用）和 [Mock-Net-Ping](https://github.com/mrmuskrat/Mock-Net-Ping)（1，Perl 库的 mock）。
+
+进程内模拟网络，2025–26 年新出，有 seed，但被测代码要接入 `Dial`，只支持 Go：[netchaos](https://github.com/jpgomesr/netchaos)、[gosimnet](https://github.com/glycerine/gosimnet)、[godst](https://github.com/greatliontech/godst)。
+
+参考项目，不是竞品：[slirp4netns](https://github.com/rootless-containers/slirp4netns) 和 [gvisor-tap-vsock](https://github.com/containers/gvisor-tap-vsock)，可以为 `exec` 提供外网；[Mahimahi](https://github.com/ravinet/mahimahi) 和 [netem-trace](https://github.com/stack-rs/netem-trace)，回放录下的延迟的先例。
+
+各类用户最接近的竞品：应用开发者有 Toxiproxy、Go 的 netchaos，或者一条 iptables 规则；ping 库的开发者没有在维护的工具；运维人员有 Comcast、tcconfig 和 netem，Kubernetes 里有 Chaos Mesh；网络诊断工具的开发者有 Trippy 的模拟器，但它还不是独立的工具。
+
+### 实验：绑定网卡的探测
+
+第二轮留下一个前提待验证：绑定到真实网卡的探测会绕过 pingmock 的路由，mwan3 的封装就是用 `SO_BINDTODEVICE` 绑定的。iputils 的 `ping -I <网卡>` 用的是同一个调用（[`ping.c`](https://github.com/iputils/iputils/blob/master/ping/ping.c) 第 772 行）。开发容器，内核 6.12.76-linuxkit，规则 `-rule 10.99.0.1=100ms -seed 1`：
+
+| 探测 | 结果 |
+|---|---|
+| `ping 10.99.0.1`、`ping -I pingmock0`、`ping -I <eth0 的地址>` | 约 101 ms 收到回应 |
+| `ping -I eth0` | 100% 丢包；pingmock 没有记到请求*（已核对）* |
+| 用 fwmark 选一张默认路由走 eth0 的路由表（mwan3 的路由方式） | 100% 丢包 |
+| 同上，在那张表里加上 pingmock 的网段 | 收到回应 |
+| `ping -I eth0`，用 `tc` mirred 把 eth0 发出的包重定向到 `pingmock0`（`u32`），回程同样重定向 | 3 个都收到回应，记到 3 个请求*（已核对）* |
+| 两块 dummy 网卡 `wan1`、`wan2`，同样重定向 | 各自按规则回应；历史里能看到各自的源地址 |
+| 同上，以普通用户在 `pingmock exec` 里做 | 可行 |
+
+第一次用的是 `flower` 分类器，linuxkit 内核里没有，这是搭建失败，不算结果；上面的结果用的是 `u32`。pingmock 缺的是按网卡或源地址区分的规则：mwan3 经每条 WAN ping 同一个地址，「经 wan1 不通、经 wan2 通」现在写不出来。用 `LD_PRELOAD` 去掉绑定的做法被否决，因为它改变了程序的行为，而且是 C 库。没有验证：真实的 mwan3 封装、IPv6、经过重定向的 TCP 和 UDP、`rp_filter=1`。
+
+### 没有覆盖到的
+
+dnsmasq 的技巧、基于 pasta 的测试框架、在命名空间里运行 tc 和 netem 的测试辅助工具，以及 Discussions。issue 只看了每个项目按反应数排序的前 10 个，不是完整列表。
+
 ## 下一次规划时
 
 1. **先看用户的反馈**：[Discussions](https://github.com/nanmuyao/pingmock/discussions) 和 issue 中的真实需求，优先于任何调研
 2. 用新版本的工具和库重新运行兼容性测试，并加入新出现的常用工具
-3. 回头看这几轮引用的 issue 有没有进展：Trippy #1551、#1552、#1554；pro-bing #70、#195；Toxiproxy #447、#610、#739；slirp4netns #361；asyncpg #1155
+3. 回头看这几轮引用的 issue 有没有进展：Trippy #1551、#1552、#1554；pro-bing #70、#195；Toxiproxy #447、#610、#17；Trippy #1741；comcast #42、#82；Chaos Mesh #2295；slirp4netns #361；asyncpg #1155
 4. 重复上面的七步，把新的证据补充到这份文档中
 
 Claude Code 的 agent [`pingmock-planning`](../.claude/agents/pingmock-planning.md) 可以承担这套方法中的三类工作：市场调研（第 2、3、5 步，以及引用过的 issue 的进展和用户反馈）、技术选型（针对一个问题比较各个方案，逐一检查四个核心价值，在[开发容器](../.devcontainer/README.zh-CN.md)里做实验验证）和项目设计（为路线中的一项写设计方案，包括用户要写的语法和待确认的问题）。它的每条结论都有来源、实验或代码行作为依据。它只写报告和方案，不改动任何东西；结论写进这份文档之前要核对，设计由维护者决定。

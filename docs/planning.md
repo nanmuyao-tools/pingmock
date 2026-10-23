@@ -2,7 +2,7 @@
 
 English | [中文](planning.zh-CN.md)
 
-This document records how pingmock's technical roadmap is planned, and the evidence and sources each round of October 2026 used. The aim is that the next round can follow the same steps, and that every direction can be traced back to what it rests on. The roadmap itself is in [TODO.md](../TODO.md#技术路线) (in Chinese).
+This document records how pingmock's technical roadmap is planned, and the evidence and sources each round of October 2026 used. The aim is that the next round can follow the same steps, and that every direction can be traced back to what it rests on. The roadmap is summarized in [roadmap.md](roadmap.md), and tracked step by step in [TODO.md](../TODO.md#技术路线) (in Chinese).
 
 ## Principles
 
@@ -196,11 +196,89 @@ Three more rounds by the same agent. The rows marked *checked* were opened or re
 
 The maintainer then set the order to v1.0: complete the common protocols first, and write the compatibility promise last. The plan is in [TODO.md](../TODO.md).
 
+## A seventh round: competitors and direction after v1.0, 23 October 2026
+
+The [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent compared pingmock with 34 competitors, grouped by technical route, and tested whether probes bound to an interface can reach pingmock. The roadmap that came out of it is in [roadmap.md](roadmap.md). The rows marked *checked* were opened or rerun by hand; the others are agent-reported. Stars and dates come from the GitHub API on 2026-10-23.
+
+### New evidence
+
+| Evidence | Source | Meaning |
+|---|---|---|
+| "Without the DROP rule, Docker Desktop answers "host unreachable" for that IP right away, which hides the bug, so a firewall rule is the reliable way to reproduce it." *(checked)* | [asyncpg #1155](https://github.com/MagicStack/asyncpg/issues/1155), comment of 2026-10-15 | The workaround for a connect timeout depends on the machine; this is pingmock's `timeout` versus `unreachable` |
+| Toxiproxy v2.13.0 (2026-10-14) contains the `packet_loss` toxic, and its API gained a bearer token and a warning when it is unauthenticated on a non-loopback address *(checked)* | release notes; the compare API shows the tag `ahead` of [#739](https://github.com/Shopify/toxiproxy/pull/739)'s merge commit | pingmock's image listens on `0.0.0.0:9100` without authentication, a default frozen at v1.0 |
+| Toxiproxy's seed and toxics in the config file are still open *(checked)* | [#610](https://github.com/Shopify/toxiproxy/pull/610), [#447](https://github.com/Shopify/toxiproxy/issues/447) (18 👍) | pingmock's difference, seeded and declared in a file, still holds |
+| Toxiproxy's author asked for DNS faults in 2015 and closed it | [Toxiproxy #17](https://github.com/Shopify/toxiproxy/issues/17): "A lot of software assumes fast DNS lookups. Let's challenge assumptions!" | A need nobody built without a proxy |
+| Trippy's TUN simulator covers IPv6 since 2026-02-08 | [Trippy #1741](https://github.com/fujiapple852/trippy/issues/1741) | Its standalone tool is still a draft ([#1551](https://github.com/fujiapple852/trippy/pull/1551)) |
+| The unmet needs of tc-based tools are several independent rules per target or port | [comcast #42](https://github.com/tylertreat/comcast/issues/42), Pumba #115 and #130, [Chaos Mesh #2295](https://github.com/chaos-mesh/chaos-mesh/issues/2295) | pingmock already has them on Linux |
+| Per-target filtering fails on macOS | [comcast #82](https://github.com/tylertreat/comcast/issues/82), [#44](https://github.com/tylertreat/comcast/issues/44), [#45](https://github.com/tylertreat/comcast/issues/45) | Evidence against a macOS port |
+| pingmock itself: 0 stars, 0 issues, 0 pull requests | `GET /repos/nanmuyao/pingmock` | Still no user feedback |
+
+### Competitors by technical route
+
+Proxies, which the program must be pointed at:
+
+| Project | Stars | Notes |
+|---|---|---|
+| [Shopify/toxiproxy](https://github.com/Shopify/toxiproxy) | 12,451 | TCP proxy; no seed; clients in 10 languages; a Testcontainers module; Windows binaries |
+| [kffl/speedbump](https://github.com/kffl/speedbump) | 1,557 | TCP latency proxy; dormant since 2024 |
+| [brk0v/trixter](https://github.com/brk0v/trixter) | 128 | TCP proxy, new in 2025; the only proxy with a seed (`--random-seed`) |
+| [mefellows/muxy](https://github.com/mefellows/muxy) | 827 | L4–L7 proxy; its shaper wraps Comcast and needs root; dormant |
+| [h2non/toxy](https://github.com/h2non/toxy) | 2,712 | HTTP proxy; archived |
+| [fetch-kit/chaos-proxy](https://github.com/fetch-kit/chaos-proxy) | 27 | HTTP proxy, new in 2025–26 |
+| [wiremock/wiremock](https://github.com/wiremock/wiremock) | 7,405 | HTTP mock with faults and delays; the standard for HTTP |
+| [SpectoLabs/hoverfly](https://github.com/SpectoLabs/hoverfly) | 2,527 | HTTP simulation |
+| [mock-server/mockserver-monorepo](https://github.com/mock-server/mockserver-monorepo) | 4,996 | HTTP mock and proxy |
+| [mitmproxy/mitmproxy](https://github.com/mitmproxy/mitmproxy) | 46,206 | HTTP(S) proxy; its transparent mode was not checked |
+
+tc, netem and iptables wrappers, on the real network, with root:
+
+| Project | Stars | Notes |
+|---|---|---|
+| [tylertreat/comcast](https://github.com/tylertreat/comcast) | 10,516 | per address, protocol and port; last release 2015 |
+| [thombashi/tcconfig](https://github.com/thombashi/tcconfig) | 854 | tc with optional iptables |
+| [sitespeedio/throttle](https://github.com/sitespeedio/throttle) | 385 | pfctl on macOS, tc on Linux; whole interface |
+| [alexei-led/pumba](https://github.com/alexei-led/pumba) | 3,180 | netem and iptables per container; on macOS inside the Linux VM |
+| [worstcase/blockade](https://github.com/worstcase/blockade) | 911 | per container; dormant |
+| [jagt/clumsy](https://github.com/jagt/clumsy) | 6,274 | Windows, through WinDivert |
+| [Ednk-1312/Chaos](https://github.com/Ednk-1312/Chaos) | 5 | macOS, pf and dummynet, privileged; seeded |
+
+Kubernetes chaos platforms: [Chaos Mesh](https://github.com/chaos-mesh/chaos-mesh) (7,948), [Litmus](https://github.com/litmuschaos/litmus) (5,731), [ChaosBlade](https://github.com/chaosblade-io/chaosblade) (6,469), [krkn](https://github.com/krkn-chaos/krkn) (511), [obzev0](https://github.com/lumbrjx/obzev0) (53, the only eBPF tool found, whose faults go through a proxy) and [Chaos Toolkit](https://github.com/chaostoolkit/chaostoolkit) (2,033, orchestration only). None documents a seed.
+
+DNS servers with faults: [CoreDNS `erratic`](https://github.com/coredns/coredns/tree/master/plugin/erratic), which clients must be pointed at, and [Pakomo](https://github.com/AlfWorks/Pakomo) (1), an Android app on a TUN without root, the same route as pingmock on another system.
+
+TUN devices or raw sockets answering ICMP: [m-ou-se/pong](https://github.com/m-ou-se/pong) (150, the only fake ping found, a joke tool, not per target), [Trippy](https://github.com/fujiapple852/trippy)'s internal simulator (8,073), [fakert](https://github.com/sehaas/fakert) (3), [traceroute-haiku](https://github.com/benjojo/traceroute-haiku) (47, archived), [cmd-nse-icmp-responder](https://github.com/networkservicemesh/cmd-nse-icmp-responder) (2, internal to Network Service Mesh) and [Mock-Net-Ping](https://github.com/mrmuskrat/Mock-Net-Ping) (1, a Perl library mock).
+
+In-process simulated networks, new in 2025–26, seeded but needing a `Dial` hook in the code under test and Go only: [netchaos](https://github.com/jpgomesr/netchaos), [gosimnet](https://github.com/glycerine/gosimnet), [godst](https://github.com/greatliontech/godst).
+
+References, not competitors: [slirp4netns](https://github.com/rootless-containers/slirp4netns) and [gvisor-tap-vsock](https://github.com/containers/gvisor-tap-vsock), for outside access under `exec`; [Mahimahi](https://github.com/ravinet/mahimahi) and [netem-trace](https://github.com/stack-rs/netem-trace), precedents for replaying recorded latency.
+
+The closest competitor for each user group: application developers have Toxiproxy, netchaos for Go, or an iptables rule; ping library developers have nothing maintained; operations staff have Comcast, tcconfig and netem, or Chaos Mesh in Kubernetes; network diagnostic tool developers have Trippy's simulator, which is not yet a standalone tool.
+
+### Experiment: probes bound to an interface
+
+The second round left a premise open: probes bound to a real device, as mwan3's wrapper binds them with `SO_BINDTODEVICE`, bypass pingmock's routes. iputils binds the same way for `ping -I <device>` ([`ping.c`](https://github.com/iputils/iputils/blob/master/ping/ping.c), line 772). The development container, kernel 6.12.76-linuxkit, with `-rule 10.99.0.1=100ms -seed 1`:
+
+| Probe | Result |
+|---|---|
+| `ping 10.99.0.1`, `ping -I pingmock0`, `ping -I <eth0's address>` | answered in about 101 ms |
+| `ping -I eth0` | 100% loss; pingmock counted no request *(checked)* |
+| a fwmark into a table whose default route goes out eth0 (mwan3's routing) | 100% loss |
+| the same, with pingmock's prefix added to that table | answered |
+| `ping -I eth0` with a `tc` mirred redirect from eth0's egress to `pingmock0` (`u32`) and one back | 3 of 3 answered, 3 requests counted *(checked)* |
+| two dummy devices `wan1` and `wan2`, redirected the same way | each answered by its rule; the history shows each one's source address |
+| as above, inside `pingmock exec` as an unprivileged user | works |
+
+The first try used the `flower` classifier, which the linuxkit kernel lacks; that was a setup failure, and the runs above use `u32`. What pingmock lacks is a rule keyed by interface or source: mwan3 pings the same address through each WAN, and "down through wan1, up through wan2" cannot be written today. An `LD_PRELOAD` shim that drops the bind was rejected, since it changes the program and is a C library. Not verified: the real mwan3 wrapper, IPv6, TCP and UDP through the redirect, `rp_filter=1`.
+
+### Not covered
+
+dnsmasq tricks, test harnesses built on pasta, test helpers that run tc and netem in a namespace, and Discussions. Issue mining used the ten issues with the most reactions per project, not the full lists.
+
 ## Next time
 
 1. **Start from users' feedback**: real needs in [Discussions](https://github.com/nanmuyao/pingmock/discussions) and issues come before any research
 2. Rerun the compatibility tests with new versions of the tools and libraries, adding new common tools
-3. Check the issues cited in these rounds for progress: Trippy #1551, #1552, #1554; pro-bing #70, #195; Toxiproxy #447, #610, #739; slirp4netns #361; asyncpg #1155
+3. Check the issues cited in these rounds for progress: Trippy #1551, #1552, #1554; pro-bing #70, #195; Toxiproxy #447, #610, #17; Trippy #1741; comcast #42, #82; Chaos Mesh #2295; slirp4netns #361; asyncpg #1155
 4. Repeat the seven steps above and add the new evidence to this document
 
 The Claude Code agent [`pingmock-planning`](../.claude/agents/pingmock-planning.md) can take on three kinds of work in this method: market research (steps 2, 3 and 5, the progress of cited issues and users' feedback), technical selection (comparing the options for a question against the four core values, with experiments in the [development container](../.devcontainer/README.md)), and project design (a written proposal for a roadmap item, with the syntax users would write and the open questions). Every claim it makes cites a source, an experiment or a line of code. It writes reports and proposals without changing anything; its findings are checked before they go into this document, and its designs are decided by the maintainer.

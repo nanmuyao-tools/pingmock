@@ -35,7 +35,7 @@ CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks 
 
 ## How the code is organized
 
-[docs/basics.md](docs/basics.md) ([中文](docs/basics.zh-CN.md)) explains the networking pingmock relies on, for newcomers; [docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on. In short:
+[docs/basics.md](docs/basics.md) ([中文](docs/basics.zh-CN.md)) explains the networking pingmock relies on, for newcomers; [docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. [docs/roadmap.md](docs/roadmap.md) ([中文](docs/roadmap.zh-CN.md)) is the roadmap at a glance, with how pingmock compares with its competitors, and [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on. In short:
 
 ```
 main.go                  entry point; calls internal/app
@@ -53,7 +53,7 @@ internal/
 client/                  public Go client for the control API
 contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
 docs/                    network basics, the code tour, the packet path, the packet anatomy,
-                         and how the roadmap is planned
+                         the roadmap, and how it is planned
 examples/                example configuration, Compose file, complete examples in Go, Python
                          and shell, a ping library's tests, and a GitHub Actions workflow
 test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-compat.sh, e2e-docker.sh;
