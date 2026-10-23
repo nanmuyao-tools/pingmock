@@ -46,7 +46,7 @@ func newAPIFixture(t *testing.T) *apiFixture {
 		}
 		return strings.ToLower(name), nil
 	}
-	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure, "v0.0.0-test", dnsTarget))
+	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure, "v0.0.0-test", dnsTarget, nil))
 	t.Cleanup(f.srv.Close)
 	return f
 }

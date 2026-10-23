@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 
@@ -45,6 +47,8 @@ type settings struct {
 	tcp           []targetTCP
 	udp           []targetTCP      // UDP rules, written as TCP rules are
 	dns           []config.DNSRule // exec only
+	outside       bool             // exec only: the command gets the host's network through pasta
+	outsidePorts  []string         // host loopback ports it reaches, such as "5432/tcp"
 	exec          bool             // running under pingmock exec
 }
 
@@ -99,13 +103,14 @@ type flagValues struct {
 	dev, addr, addr6, defRule, api, config *string
 	seed                                   *uint64
 	history                                *int
-	verbose                                *bool
+	verbose, outside                       *bool
 	rules                                  ruleFlags
 	hosts                                  ruleFlags
 	paths                                  ruleFlags
 	tcp                                    ruleFlags
 	udp                                    ruleFlags
 	dns                                    ruleFlags
+	outsidePorts                           ruleFlags
 
 	given map[string]bool // flags given on the command line
 
@@ -119,6 +124,7 @@ type flagValues struct {
 	cfgTCP          []config.TCPRule
 	cfgUDP          []config.TCPRule
 	cfgDNS          []config.DNSRule
+	cfgOutside      *config.Outside
 }
 
 func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Writer) (*flagValues, *flag.FlagSet) {
@@ -139,6 +145,8 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	fs.Var(&f.paths, "path", "TARGET=PATH, repeatable: the route traceroute and mtr see to TARGET, hops separated by \">\", each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for one that never answers, e.g. '8.8.8.8=192.168.1.1@2ms > * > 72.14.0.1@25ms'")
 	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443), or under pingmock exec NAME[:PORT]; no port means every port. RULE is as for -rule, plus refuse (answer with a reset), r in a pattern, after=close|reset|hang (what happens once a connection is accepted), send=\"...\" and reply=\"...\" (bytes to send at once or on the first data), limit=N and wait=, e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
 	fs.Var(&f.udp, "udp", "TARGET=RULE, repeatable: how UDP datagrams to TARGET fail, written as for -tcp. RULE is refuse (ICMP port unreachable), unreachable[=net|admin], timeout or loss=, x, u and r in a pattern, and the delay and ttl of the error; pingmock sends no UDP answers, e.g. 10.99.0.1:514=refuse or '10.99.0.2:123=timeout for 2 requests; refuse'")
+	f.outside = fs.Bool("outside", false, "pingmock exec only: give CMD the host's network through pasta (package passt), for real addresses and names; mocked targets keep their rules")
+	fs.Var(&f.outsidePorts, "outside-port", "PORT[/tcp|/udp], repeatable, pingmock exec only: CMD's connections to 127.0.0.1:PORT reach the host's, e.g. a database published there; implies -outside")
 	fs.Var(&f.dns, "dns", "NAME=RULE, repeatable, pingmock exec only: how CMD's DNS queries for NAME are answered. RULE is as for -rule, without unreachable and ttl, plus nxdomain (the name does not exist), servfail (the server failed) and n and s in a pattern; other settings apply to the usual answer, e.g. api.example.com=nxdomain or 'db.example.com=servfail for 2 requests; 10ms'")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
@@ -180,6 +188,7 @@ func (f *flagValues) applyConfig(path string) error {
 	if f.cfgUDP, err = cfg.SortedUDP(path); err != nil {
 		return err
 	}
+	f.cfgOutside = cfg.Outside
 	f.cfgDNS, err = cfg.SortedDNS(path)
 	return err
 }
@@ -313,6 +322,29 @@ func (f *flagValues) resolve() (*settings, error) {
 		s.addDNS(config.DNSRule{Name: n, Scenario: sc.Scenario})
 	}
 	if err := s.allocateNames(); err != nil {
+		return nil, err
+	}
+
+	if f.cfgOutside != nil {
+		s.outside, s.outsidePorts = f.cfgOutside.On, f.cfgOutside.Ports
+	}
+	if f.given["outside"] {
+		s.outside = *f.outside
+	}
+	for _, text := range f.outsidePorts {
+		p, err := config.ParseOutsidePort(text)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -outside-port: %w", err)
+		}
+		if f.given["outside"] && !*f.outside {
+			return nil, fmt.Errorf("-outside-port %s needs outside access, which -outside=false turns off", text)
+		}
+		if !slices.Contains(s.outsidePorts, p) {
+			s.outsidePorts = append(s.outsidePorts, p)
+		}
+		s.outside = true
+	}
+	if err := s.checkOutsidePorts(); err != nil {
 		return nil, err
 	}
 
@@ -547,6 +579,26 @@ func parseRuleFlag(s string) (rule.Target, rule.Scenario, error) {
 
 // names reports whether the command needs name resolution: hosts given,
 // rules written for names, or DNS rules.
-func (s *settings) names() bool { return len(s.hosts) > 0 || len(s.dns) > 0 }
+// checkOutsidePorts refuses host ports that pingmock itself listens on in
+// the command's network: pasta binds them there first, so the command's
+// DNS server or API could not start.
+func (s *settings) checkOutsidePorts() error {
+	_, api, _ := net.SplitHostPort(s.api)
+	for _, p := range s.outsidePorts {
+		switch {
+		case p == "53/udp" || p == "53/tcp":
+			return fmt.Errorf("-outside-port %s: the command's own DNS server listens on port 53, which outside access always starts", p)
+		case s.api != "" && p == api+"/tcp":
+			return fmt.Errorf("-outside-port %s: the command's control API listens on port %s; move it with -api", p, api)
+		}
+	}
+	return nil
+}
+
+// names reports whether the command gets its own /etc/hosts and DNS
+// server. With outside access it always does: the host's resolver may
+// listen on the host's loopback, as systemd-resolved's 127.0.0.53 does,
+// which the command's network cannot reach.
+func (s *settings) names() bool { return len(s.hosts) > 0 || len(s.dns) > 0 || s.outside }
 
 func isHelp(err error) bool { return errors.Is(err, errHelp) }

@@ -296,6 +296,10 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
   - Go 自带的 fuzz：`FuzzParseScenario`（ping、TCP、UDP、DNS 四种规则，解析成功的必须原样往返）、`FuzzParsePathAndTargets`、`FuzzParseProbe`（报文解析和据此构造的所有回应）、`FuzzAnswer`（DNS 服务），各跑 2 分钟，没有发现问题
   - musl（Alpine 3.20，下载的 v0.13.0 二进制）：按（域名, 类型）计数成立，`nxdomain for 2 requests` 让两次解析失败、第三次解析出地址，和 glibc 一样；**但 musl 收到 SERVFAIL 会立即重问**，一次解析每种类型问了 6 次，所以 `servfail for 2 requests` 在 musl 下一次都不失败。README 写明了
   - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39917348427) 在 Ubuntu 24.04 和 26.04 上全部通过，退出码 125 和 DNS 事件字段的检查在 4 个任务里都跑了；[v0.14.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.14.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在开发容器里：规则写错时退出码是 125，命令自己的退出码 3 原样返回，DNS 事件的 `src`、`dst` 为空，`id` 是 DNS ID
+- [x] **6. `exec` 访问外网**（2026-10-23 实现，未发布）。维护者选定 `-outside` 显式开启、可重复的 `-outside-port PORT[/udp]`（隐含 `-outside`）、YAML `outside: {ports: [...]}` 或 `outside: true`、`GET /rules` 的 `outside` 字段和客户端的 `State.Outside`；找不到 pasta 时退出码 125；root 运行时接受把所有 uid/gid 映射成自身的用户命名空间。依据：planning agent 的选型（pasta、slirp4netns、gvisor-tap-vsock、veth+NAT、pingmock 内的中继，15 个实验；报告不在仓库里），关键结论人工重跑过：Ubuntu 24.04 容器里普通用户，挂上 pasta 后 100ms 的规则测得 100.4–101.4ms、github 返回 200，`-T 5432` 后宿主机 127.0.0.1:5432 返回 200，不挂 pasta 时域名解析不了、宿主机端口连不上。实现：父进程在子进程启动后、建网卡之前接上 pasta（子进程在管道上等），参数 `-t none -u none -T 端口 -U 端口 --no-map-gw -a 10.0.2.15 -n 24 -g 10.0.2.2 --ipv4-only`，root 时加 `--runas 0`；有外网时总是启动命令自己的 DNS 服务；用 `-P` 的 pid 文件在命令退出后停掉 pasta（Debian 12 的 pasta 在命名空间消失后不退出，实测）
+  - 验证（开发容器装上 passt、关掉 seccomp，普通用户和 root 各一遍）：`-outside-port` 访问宿主机端口返回 200、不加时 000，模拟的目标 100.4/100.7ms，子网里没有规则的端口不回应，`GET /rules` 列出端口，命令退出后 1.5 秒内 pasta 已停，没有 pasta 时退出码 125。变异：`-T` 总是 none 时访问宿主机端口的检查失败；去掉 `-t none -u none` 时，Ubuntu 24.04 的 pasta 把 API 暴露在宿主机 9100 端口（检查失败），Debian 12 的 pasta 不会。**发现**：容器里 Docker 默认的 seccomp 配置挡住 pasta 沙箱用的 `pivot_root`，开发容器里这些检查跳过，由 CI 的 test 任务运行。没有验证：真实 runner 上的 AppArmor、amd64、root 下全映射用户命名空间对程序的影响、杀掉 pingmock exec 父进程后旧版 pasta 是否残留。CI 的 Ubuntu 上 pasta 自己会退出，所以「pasta 随命令停止」在那里抓不到 pingmock 停 pasta 的逻辑坏掉，只有 Debian 12 的 pasta 能抓到（本地实测过）
+  - 复查（advisor）：`-outside-port 53/udp`、`53`、`9100` 和命令自己的 DNS 服务、API 冲突，实测都以 125 失败、没有说明原因，改为解析参数时就拒绝并说明（单元测试加变异检查）；默认开着 IPv6 时也试过：curl 和 Python urllib 访问 github 返回 200（域名有 IPv6 地址），`ping -6` 模拟的 fd99::1 得到 60.2ms；CI 加 `REQUIRE_OUTSIDE=1`，没装上 pasta 时检查失败而不是跳过
+  - [ ] 推送后看 CI；发布
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文。**暂缓**（维护者，2026-10-23）：「不用考虑兼容性，项目还是内部开发阶段」。在那之前改动不必保持兼容，也不用为冻结做决定；镜像 API 的默认地址因此不再是 v1.0 前必须定的事，只在文档里提醒
 
 **维护者的决定**（括号里是当时 agent 的推荐；结果写在每项后面）：
@@ -314,7 +318,6 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 
 | 方向 | 说明 |
 |---|---|
-| `exec` 的外网访问 | 检测到系统装有 pasta 或 slirp4netns 时，借助它们为 `exec` 提供外网，解决不能下载依赖、不能访问真实服务的问题 |
 | 更多异常行为 | 重复回复（`DUP!`）、损坏的回复：没有找到明确的需求 |
 | Testcontainers 模块 | 只适用于被测代码运行在容器里的情况：pingmock 的容器影响不了宿主机上的测试进程 |
 | 用 netlink 替代 `ip` 命令 | 去掉运行时对 iproute2 的依赖；fakert 用的 vishvananda/netlink 可以参考 |

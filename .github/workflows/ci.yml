@@ -49,15 +49,18 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Build
         run: go build -o pingmock .
-      # traceroute and mtr, for the path checks of the end-to-end tests, and
-      # nscd for a check of pingmock exec; the check starts nscd itself, so
-      # it is stopped for everything else.
-      - name: Install traceroute, mtr and nscd
+      # traceroute and mtr, for the path checks of the end-to-end tests,
+      # nscd for a check of pingmock exec, and passt for its pasta, which
+      # -outside needs; the check starts nscd itself, so it is stopped for
+      # everything else. Whether pasta came with the image is printed, since
+      # users of -outside may rely on it.
+      - name: Install traceroute, mtr, nscd and passt
         run: |
+          echo "pasta before installing: $(command -v pasta || echo none)"
           sudo apt-get update -q
-          sudo apt-get install -y -q traceroute mtr-tiny nscd
+          sudo apt-get install -y -q traceroute mtr-tiny nscd passt
           sudo systemctl stop nscd
-          traceroute --version 2>&1 | head -n 1; mtr --version
+          traceroute --version 2>&1 | head -n 1; mtr --version; dpkg-query -W passt
       - name: End-to-end test
         run: sudo REQUIRE_IPV6=1 test/e2e.sh
       # Ubuntu 24.04 and later restrict unprivileged user namespaces with
@@ -69,8 +72,9 @@ jobs:
           sed "s|profile pingmock /usr/local/bin/pingmock|profile pingmock $PWD/pingmock|" \
             contrib/apparmor/pingmock | sudo tee /etc/apparmor.d/pingmock
           sudo apparmor_parser -r /etc/apparmor.d/pingmock
+      # REQUIRE_OUTSIDE=1: the checks of -outside must run, not be skipped.
       - name: pingmock exec, rootless
-        run: test/e2e-exec.sh
+        run: REQUIRE_OUTSIDE=1 test/e2e-exec.sh
       # The way users test Go code: the whole test binary runs inside
       # pingmock exec. Require a PASS, since outside exec the test skips.
       - name: go test -exec 'pingmock exec', rootless
@@ -78,7 +82,7 @@ jobs:
           go test -count=1 -v -exec "$PWD/pingmock exec -addr6= --" -run TestUnderPingmockExec ./client | tee test.out
           grep -q -- '--- PASS: TestUnderPingmockExec' test.out
       - name: pingmock exec, as root
-        run: sudo test/e2e-exec.sh
+        run: sudo REQUIRE_OUTSIDE=1 test/e2e-exec.sh
 
   # The checks that matter less often: the examples users copy from and
   # the common ping tools and libraries. They run beside the test job, so

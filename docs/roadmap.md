@@ -26,6 +26,10 @@ flowchart LR
     N["Not planned"]
 ```
 
+### Done: outside access for `exec`
+
+The maintainer chose it first among the items below, since it serves the largest group, application developers. `pingmock exec -outside` gives the command the host's network through pasta, and `-outside-port 5432` its host's loopback port, while mocked targets keep their rules ([README](../README.md#outside-access)). Implemented on 23 October 2026, not released yet.
+
 ### Done: documentation, no release
 
 Done on 23 October 2026, in both languages.
@@ -42,7 +46,6 @@ These are ordered by the number of users they would serve, but none starts witho
 | Direction | For | State |
 |---|---|---|
 | Rules per interface or source address (multi-WAN, mwan3) | operations staff | Designed. The experiment works, also without root inside `exec`. Medium cost: `rule`, `engine`, `tun`, `app`, `api`, `client` |
-| Outside access for `exec`, through pasta or slirp4netns | application developers | Lets the command download dependencies and reach real services |
 | Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages. Lowest priority: the API may still change |
 | Testcontainers module | application developers | Useful only when the code under test runs in a container |
 | Replace the `ip` command with netlink | everyone | Removes the runtime dependency on iproute2 |

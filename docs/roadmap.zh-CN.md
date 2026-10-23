@@ -26,6 +26,10 @@ flowchart LR
     N["不做"]
 ```
 
+### 已完成：`exec` 访问外网
+
+维护者在下面几项里先选了它，因为它服务的应用开发者人数最多。`pingmock exec -outside` 通过 pasta 让命令使用宿主机的网络，`-outside-port 5432` 让它访问宿主机本机的端口，模拟的目标仍然按规则回应（[README](../README.zh-CN.md#访问外网)）。2026 年 10 月 23 日实现，还没有发布。
+
 ### 已完成：补文档，不发版
 
 2026 年 10 月 23 日完成，中英文。
@@ -42,7 +46,6 @@ flowchart LR
 | 方向 | 用户 | 状况 |
 |---|---|---|
 | 按网卡或源地址区分的规则（多 WAN、mwan3） | 运维人员 | 设计已有。实验可行，在 `exec` 里不需要 root 也行。工作量中等：`rule`、`engine`、`tun`、`app`、`api`、`client` |
-| `exec` 访问外网，借助 pasta 或 slirp4netns | 应用开发者 | 让被测命令能下载依赖、访问真实服务 |
 | Python 客户端，只用标准库，附带 pytest fixture | 应用开发者 | Toxiproxy 有 10 种语言的客户端。优先级最低：API 还可能改 |
 | Testcontainers 模块 | 应用开发者 | 只在被测代码运行在容器里时有用 |
 | 用 netlink 替代 `ip` 命令 | 所有人 | 去掉运行时对 iproute2 的依赖 |

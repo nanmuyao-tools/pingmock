@@ -145,6 +145,7 @@ main.go: main
 - **用户命名空间**让普通用户在里面拥有 root 权限，但只对这个命名空间有效，所以可以创建网卡。
 - **网络命名空间**是一套独立的网卡和路由，所以不影响宿主机。
 - **PID 命名空间**让子进程成为 1 号进程。它退出时，内核会结束命名空间里的所有进程，所以不会有残留。
+- 加了 **`-outside`** 时，父进程在子进程建网卡之前把 pasta 接到子进程的命名空间上（[`outside_linux.go`](../internal/app/outside_linux.go)）：子进程在一个管道上等 pasta 完成，这样 pingmock 为模拟目标加的路由排在 pasta 的默认路由之后，而且更精确，所以优先。
 
 代码在 [`exec_linux.go`](../internal/app/exec_linux.go)：[`runExec`](../internal/app/exec_linux.go) 是父进程，[`runExecChild`](../internal/app/exec_linux.go) 是子进程。子进程通过一个特殊的第一个参数 `__pingmock-exec-child` 识别自己。
 

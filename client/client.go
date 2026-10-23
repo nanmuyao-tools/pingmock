@@ -139,6 +139,18 @@ type State struct {
 	// datagram, keyed as TCP's are.
 	UDP      []Rule              `json:"udp"`
 	UDPStats map[string]UDPStats `json:"udp_stats"`
+	// Outside is the host's network that pingmock exec -outside gives the
+	// command; nil without it.
+	Outside *Outside `json:"outside,omitempty"`
+}
+
+// Outside describes the outside access of pingmock exec -outside: the
+// command's address and gateway in it, and the host loopback ports the
+// command reaches, such as "5432/tcp".
+type Outside struct {
+	Address string   `json:"address"`
+	Gateway string   `json:"gateway"`
+	Ports   []string `json:"ports"`
 }
 
 // UDPStats counts the datagrams sent to one address and port.

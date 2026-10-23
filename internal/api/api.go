@@ -19,9 +19,11 @@ import (
 // rule is installed, so that pings to its target reach pingmock. version is
 // what GET /version reports. dnsTarget checks the name of a DNS rule and
 // whether such a rule can take effect, and returns it as rules are keyed.
+// facts are added to GET /rules as they are: what was set up at startup
+// and cannot change, such as pingmock exec's outside access.
 func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error, version string,
-	dnsTarget func(name string) (string, error)) http.Handler {
-	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute, version: version, dnsTarget: dnsTarget}
+	dnsTarget func(name string) (string, error), facts map[string]any) http.Handler {
+	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute, version: version, dnsTarget: dnsTarget, facts: facts}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rules", h.getRules)                  // default, rules and per-target stats
 	mux.HandleFunc("PUT /rules/{target...}", h.setRule)       // body: the text form or JSON
@@ -234,10 +236,15 @@ type handler struct {
 	ensureRoute func(netip.Prefix) error
 	version     string
 	dnsTarget   func(string) (string, error)
+	facts       map[string]any
 }
 
 func (h *handler) getRules(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, h.rules.Snapshot())
+	snap := h.rules.Snapshot()
+	for k, v := range h.facts {
+		snap[k] = v
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func (h *handler) setRule(w http.ResponseWriter, r *http.Request) {

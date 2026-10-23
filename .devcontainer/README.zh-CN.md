@@ -54,6 +54,7 @@ docker run --rm -it --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tu
 | `make e2e-compat` | 能 | |
 | `make e2e-all` | 能 | |
 | `make e2e-docker` | 不能 | 需要 Docker，由 CI 运行 |
+| `make e2e-exec` 里 `-outside` 的检查 | 不能 | 镜像里没有 passt，Docker 默认的 seccomp 配置也会挡住 pasta 的沙箱；这些检查会跳过并给出提示。CI 的 `test` 任务会运行它们 |
 | Ubuntu 的 AppArmor 对用户命名空间的限制 | 不能 | 容器里没有 AppArmor，CI 的 `test` 任务覆盖 [`contrib/apparmor`](../contrib/apparmor/) 里的配置 |
 
 CI 每次推送都会构建这个容器，并在里面运行前四项，保证它一直可用。

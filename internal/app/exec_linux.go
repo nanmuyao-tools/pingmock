@@ -40,7 +40,10 @@ at once, and pingmock exits with CMD's exit status, or 125 if it fails
 itself. When CMD exits, any processes it left running are stopped.
 
 CMD can reach the control API at the address in $PINGMOCK_API. It has no
-network access other than the mocked targets. A rule may be written for a
+network access other than the mocked targets, unless -outside gives it the
+host's network through pasta (package passt): real addresses and names then
+work, mocked ones keep their rules, and -outside-port makes 127.0.0.1:PORT
+reach the host's, for a database published there. A rule may be written for a
 name: CMD then resolves it to a mocked address, through a private
 /etc/hosts and a DNS server that forwards other names to the host's
 resolver; the system's files are not touched. -host picks the address.
@@ -54,6 +57,7 @@ Examples:
   pingmock exec -host api.example.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./my-app
   pingmock exec -tcp db.example.com:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app
   pingmock exec -tcp 10.99.0.3:443=after=reset -dns api.example.com=nxdomain -- ./my-app
+  pingmock exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 
 Flags:
@@ -88,6 +92,13 @@ func runExec(args []string) int {
 		log.Printf("pingmock exec: %v", err)
 		return execFailed
 	}
+	var pasta string
+	if s.outside {
+		if pasta, err = exec.LookPath("pasta"); err != nil {
+			log.Print("pingmock exec: -outside needs pasta, from the package passt, which is not in $PATH")
+			return execFailed
+		}
+	}
 	child := exec.Command(self, append([]string{execChildArg}, args...)...)
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 	child.Env = os.Environ()
@@ -119,18 +130,37 @@ func runExec(args []string) int {
 			dns.ServeRelay(parentEnd, forward)
 		}()
 	}
+	// With outside access, the child waits on a pipe until pasta is
+	// attached (outsideFD), so that its routes come after pasta's.
+	var outsideRead, outsideWrite *os.File
+	if s.outside {
+		if outsideRead, outsideWrite, err = os.Pipe(); err != nil {
+			log.Printf("pingmock exec: %v", err)
+			return execFailed
+		}
+		defer outsideWrite.Close()
+		child.ExtraFiles = append(child.ExtraFiles, outsideRead)
+	}
 	rootless := os.Geteuid() != 0
-	if rootless {
+	switch {
+	case rootless:
 		attr.Cloneflags |= syscall.CLONE_NEWUSER
 		attr.UidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Geteuid(), Size: 1}}
 		attr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getegid(), Size: 1}}
 		attr.GidMappingsEnableSetgroups = false
 		child.Env = append(child.Env, envRootless+"=1")
+	case s.outside:
+		attr.Cloneflags |= syscall.CLONE_NEWUSER
+		attr.UidMappings, attr.GidMappings = allIDs(), allIDs()
+		attr.GidMappingsEnableSetgroups = true
 	}
 	child.SysProcAttr = attr
 	err = child.Start()
 	if childEnd != nil {
 		childEnd.Close() // the child has its own copy now
+	}
+	if outsideRead != nil {
+		outsideRead.Close()
 	}
 	if err != nil {
 		if rootless {
@@ -141,6 +171,17 @@ func runExec(args []string) int {
 			log.Printf("pingmock exec: cannot create a network namespace: %v", err)
 		}
 		return execFailed
+	}
+	if s.outside {
+		stopPasta, err := attachPasta(pasta, s.outsidePorts, !rootless, child.Process.Pid)
+		if err != nil {
+			log.Printf("pingmock exec: %v", err)
+			child.Process.Kill()
+			child.Wait()
+			return execFailed
+		}
+		defer stopPasta()
+		outsideWrite.Write([]byte{1})
 	}
 	stop := forwardSignals(child.Process)
 	defer stop()
@@ -170,6 +211,12 @@ func runExecChild(args []string) int {
 	if err := tun.IP("link", "set", "lo", "up"); err != nil {
 		log.Print(explain(err, rootless))
 		return execFailed
+	}
+	if s.outside {
+		if err := waitOutside(s.outsidePorts); err != nil {
+			log.Print(err)
+			return execFailed
+		}
 	}
 	in, err := start(s)
 	if err != nil {

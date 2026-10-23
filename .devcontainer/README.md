@@ -54,6 +54,7 @@ Measured on a Mac with Docker Desktop. The end-to-end checks spend their time wa
 | `make e2e-compat` | yes | |
 | `make e2e-all` | yes | |
 | `make e2e-docker` | no | Needs Docker. CI runs it |
+| The `-outside` checks of `make e2e-exec` | no | The image has no passt, and Docker's default seccomp profile stops pasta's sandbox; they are skipped with a message. CI's `test` job runs them |
 | Ubuntu's AppArmor restriction on user namespaces | no | The container has no AppArmor. CI's `test` job covers the profile in [`contrib/apparmor`](../contrib/apparmor/) |
 
 CI builds this container and runs the first four inside it on every push, so that it stays usable.

@@ -143,6 +143,7 @@ your terminal
 - The **user namespace** gives an unprivileged user root inside it, and only there, so it can create the device.
 - The **network namespace** is a separate set of devices and routes, so the host is not affected.
 - The **PID namespace** makes the child process 1. When it exits, the kernel ends every process in the namespace, so nothing is left behind.
+- With **`-outside`**, the parent attaches pasta to the child's namespaces ([`outside_linux.go`](../internal/app/outside_linux.go)) before the child sets up its device: the child waits on a pipe until pasta is done, so that pingmock's routes for mocked targets come after pasta's default route and, being more specific, win.
 
 The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../internal/app/exec_linux.go) is the parent and [`runExecChild`](../internal/app/exec_linux.go) the child, which recognizes itself by the special first argument `__pingmock-exec-child`.
 

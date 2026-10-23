@@ -23,7 +23,7 @@ func serve(t *testing.T) (*Client, *engine.RuleSet, *engine.History) {
 	rs := engine.NewRuleSet(def, 42)
 	hist := engine.NewHistory(100)
 	dnsTarget := func(name string) (string, error) { return strings.ToLower(name), rule.ValidName(name) }
-	srv := httptest.NewServer(api.NewHandler(rs, hist, func(netip.Prefix) error { return nil }, "v0.0.0-test", dnsTarget))
+	srv := httptest.NewServer(api.NewHandler(rs, hist, func(netip.Prefix) error { return nil }, "v0.0.0-test", dnsTarget, nil))
 	t.Cleanup(srv.Close)
 	return New(srv.URL), rs, hist
 }
@@ -314,5 +314,22 @@ func TestUDPRules(t *testing.T) {
 	}
 	if err := c.DeleteUDP(ctx, "10.99.0.1:514"); !IsNotFound(err) {
 		t.Errorf("deleting again: %v", err)
+	}
+}
+
+// The facts pingmock exec sets up at startup, such as its outside access,
+// come with the state; without them, Outside is nil.
+func TestStateOutside(t *testing.T) {
+	c, _, _ := serve(t)
+	if st, err := c.State(context.Background()); err != nil || st.Outside != nil {
+		t.Fatalf("without outside access: %+v, %v", st, err)
+	}
+	def, _ := rule.ParseScenario("0ms")
+	facts := map[string]any{"outside": map[string]any{"address": "10.0.2.15/24", "gateway": "10.0.2.2", "ports": []string{"5432/tcp"}}}
+	srv := httptest.NewServer(api.NewHandler(engine.NewRuleSet(def, 1), engine.NewHistory(1), func(netip.Prefix) error { return nil }, "v0.0.0-test", nil, facts))
+	t.Cleanup(srv.Close)
+	st, err := New(srv.URL).State(context.Background())
+	if err != nil || st.Outside == nil || st.Outside.Address != "10.0.2.15/24" || st.Outside.Gateway != "10.0.2.2" || strings.Join(st.Outside.Ports, ",") != "5432/tcp" {
+		t.Errorf("outside = %+v, %v", st.Outside, err)
 	}
 }

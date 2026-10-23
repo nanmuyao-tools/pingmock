@@ -377,6 +377,8 @@ Flags given on the command line override the file, so one file can serve many te
 | `-tcp` | | `TARGET=RULE`, repeatable: how TCP connections to `TARGET` (`ADDR[:PORT]`, `PREFIX[:PORT]`, `[IPv6]:PORT`) are answered, see [TCP connections](#tcp-connections) |
 | `-udp` | | `TARGET=RULE`, repeatable: how UDP datagrams to `TARGET` fail, see [UDP datagrams](#udp-datagrams) |
 | `-dns` | | `NAME=RULE`, repeatable, `pingmock exec` only: how the command's DNS queries for `NAME` are answered, see [DNS faults](#dns-faults) |
+| `-outside` | `false` | `pingmock exec` only: give the command the host's network through pasta, see [Outside access](#outside-access) |
+| `-outside-port` | | `PORT[/udp]`, repeatable, `pingmock exec` only: the command's `127.0.0.1:PORT` reaches the host's; implies `-outside` |
 | `-v` | `false` | Log every request |
 
 `pingmock version` (or `-version`), as the only argument, prints the version and exits.
@@ -573,7 +575,27 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 - **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, `127` if it was not found and `126` if it could not be run. When pingmock exec itself fails, with a bad flag or rule or a network it cannot set up, it exits with `125`, as `docker run` does, so that it is not taken for the command's own status. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
 - **Nothing is left behind.** When `CMD` exits, processes it started in the background are stopped too.
 
-Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access. So build programs before running them there: a `go run` (or `npm install`, `pip install`...) that needs to download dependencies fails with `network is unreachable`.
+Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access, unless [`-outside`](#outside-access) gives it the host's. Without that, build programs before running them there: a `go run` (or `npm install`, `pip install`...) that needs to download dependencies fails with `network is unreachable`.
+
+### Outside access
+
+```bash
+pingmock exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
+```
+
+With `-outside`, the command gets the host's network through [pasta](https://passt.top), from the package `passt`. Real addresses and names work, so a test can download dependencies or reach a real service, while every mocked address, prefix and name still gets its rule. `-outside-port PORT` (repeatable; `PORT/udp` for UDP; it implies `-outside`) makes the command's `127.0.0.1:PORT` reach the host's, for example a database container published on the host's `127.0.0.1:5432`; the command then cannot listen on that port itself. In a configuration file:
+
+```yaml
+outside:
+  ports: [5432, 6379]     # or outside: true, for no ports
+```
+
+- **Off by default**, so that without it nothing about the command's network depends on the machine.
+- **pasta must be installed**: `sudo apt-get install passt` on Ubuntu and Debian, `apk add passt` on Alpine. Without it, pingmock exec fails with `125`. pingmock starts pasta with no forwarding but the ports asked for, so the command's API and DNS server are not published on the host, and stops it when the command exits.
+- **The same on every host**: the command's address in that network is `10.0.2.15/24`, with the gateway `10.0.2.2`, rather than a copy of the host's, and outside access is IPv4 only. `GET /rules` reports it under `outside`, the Go client in `State.Outside`.
+- **Not observed**: outside traffic is not mocked, so it is in neither the history nor the statistics, and it is as reproducible as the real network is.
+- **As root**, the command runs in a user namespace that maps every user and group to itself, so that pasta can join its network. Its processes keep their users, with privileges over their own namespaces only.
+- **In a container**, pasta's own sandbox needs `pivot_root`, which Docker's default seccomp profile refused in our runs on Docker Desktop, even with `SYS_ADMIN`: run the container with `--security-opt seccomp=unconfined` to use `-outside` there.
 
 ### Names
 
@@ -662,6 +684,8 @@ DNS rules are for `pingmock exec` only: for the whole machine, pingmock cannot g
 sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
 sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```
+
+[`-outside`](#outside-access) needs pasta, from the package `passt`.
 
 On GitHub Actions' Ubuntu runners, do the same in a step before running tests; [`examples/github-actions`](examples/github-actions/) is a workflow ready to copy that installs pingmock and the profile.
 

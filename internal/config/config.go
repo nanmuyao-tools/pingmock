@@ -61,6 +61,9 @@ type Config struct {
 	//	  api.example.com: nxdomain
 	//	  backup.example.com: servfail for 2 requests; 10ms
 	DNS map[string]rule.DNSScenario `json:"dns"`
+	// Outside gives the command of pingmock exec the host's network; see
+	// Outside.
+	Outside *Outside `json:"outside"`
 }
 
 // DNSRule is a parsed entry of Config.DNS.

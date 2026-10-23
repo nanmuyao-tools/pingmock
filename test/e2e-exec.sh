@@ -228,5 +228,45 @@ sleep 0.5
 after=$(pgrep -c -x -u "$(id -u)" sleep || true)
 same "background processes are stopped" "$after" "$before"
 
+# Outside access, through pasta: the command reaches a service on the
+# host's loopback with -outside-port, and only with it, while mocked
+# targets keep their rules and the subnet's unmocked ports stay silent.
+# None of it needs the internet. Without pasta, exec fails as itself, and
+# the checks are skipped, unless REQUIRE_OUTSIDE=1 (as in CI) makes that a
+# failure.
+same "-outside without pasta fails as pingmock exec itself (125)" \
+  "$(PATH=/nonexistent "$PM" exec -addr6 "" -outside -- true 2>>"$LOG"; echo $?)" 125
+if command -v pasta >/dev/null; then
+  python3 -m http.server 18765 --bind 127.0.0.1 -d /tmp >/dev/null 2>&1 &
+  srv=$!
+  for _ in $(seq 50); do curl -s -o /dev/null http://127.0.0.1:18765/ && break; sleep 0.1; done
+  inside=$(run -outside-port 18765 -rule 10.99.0.1=100ms -- bash -c "
+    curl -s -o /dev/null -m 2 -w '%{http_code}\n' http://127.0.0.1:18765/ || true
+    ping -c 3 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'
+    curl -s -o /dev/null --connect-timeout 0.5 -m 0.5 -w '%{time_connect}\n' http://10.99.0.9/ || true
+    curl -s \"\$PINGMOCK_API/rules\" | python3 -c 'import json, sys; print(json.load(sys.stdin)[\"outside\"][\"ports\"])'")
+  same "-outside-port reaches a service on the host's loopback" "$(sed -n 1p <<<"$inside")" 200
+  near "a mocked target keeps its rule with outside access" "$(sed -n 2p <<<"$inside")" 100 5
+  same "an unmocked port of the subnet is not answered with outside access" "$(sed -n 3p <<<"$inside")" "0.000000"
+  same "GET /rules shows the outside access" "$(sed -n 4p <<<"$inside")" "['18765/tcp']"
+  same "without -outside-port, the host's loopback is out of reach" \
+    "$(run -outside -- curl -s -o /dev/null -m 2 -w '%{http_code}' http://127.0.0.1:18765/ || true)" 000
+  kill "$srv" 2>/dev/null || true
+  # Pasta forwards nothing to the host: the command's API stays its own.
+  # With its defaults, pasta would publish the ports the command listens
+  # on, which it scans for again every second or so.
+  run -outside -- sleep 3 &
+  bg=$!
+  sleep 2.5
+  same "the command's API is not published on the host" "$(ss -Hltn 'sport = :9100' | wc -l)" 0
+  wait "$bg"
+  sleep 1.5
+  same "pasta stops with the command" "$(pgrep -c -x pasta || true)" 0
+elif [ "${REQUIRE_OUTSIDE:-0}" = 1 ]; then
+  fail "pasta (package passt) is not installed, but REQUIRE_OUTSIDE=1"
+else
+  echo "SKIP outside access: pasta (package passt) is not installed"
+fi
+
 rm -f "$LOG"
 echo "all exec checks passed"

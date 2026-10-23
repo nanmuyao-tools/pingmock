@@ -377,6 +377,8 @@ sudo ./pingmock -config examples/pingmock.yaml
 | `-tcp` | | `目标=规则`，可重复：发往目标（`地址[:端口]`、`网段[:端口]`、`[IPv6]:端口`）的 TCP 连接怎样回应，见 [TCP 连接](#tcp-连接) |
 | `-udp` | | `目标=规则`，可重复：发往目标的 UDP 数据报怎样失败，见 [UDP 数据报](#udp-数据报) |
 | `-dns` | | `域名=规则`，可重复，只用于 `pingmock exec`：命令对该域名的 DNS 查询怎样回应，见 [DNS 故障](#dns-故障) |
+| `-outside` | `false` | 只用于 `pingmock exec`：通过 pasta 让命令使用宿主机的网络，见[访问外网](#访问外网) |
+| `-outside-port` | | `PORT[/udp]`，可重复，只用于 `pingmock exec`：命令访问的 `127.0.0.1:PORT` 通到宿主机的同一端口；隐含 `-outside` |
 | `-v` | `false` | 打印每个请求的处理日志 |
 
 `pingmock version`（或 `-version`）作为唯一的参数时，打印版本号并退出。
@@ -573,7 +575,27 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 - **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`，无法执行时返回 `126`。pingmock exec 自己失败时（参数或规则写错、网络建不起来），和 `docker run` 一样返回 `125`，以免和命令自己的退出码混淆。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
 - **不留残留进程。** 命令退出时，它在后台启动的进程也会被一并停止。
 
-在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问。所以要先编译好程序再放进去运行：需要下载依赖的 `go run`（或 `npm install`、`pip install` 等）会因为 `network is unreachable` 而失败。
+在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问，除非用 [`-outside`](#访问外网) 让它使用宿主机的网络。不用它的话，要先编译好程序再放进去运行：需要下载依赖的 `go run`（或 `npm install`、`pip install` 等）会因为 `network is unreachable` 而失败。
+
+### 访问外网
+
+```bash
+pingmock exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
+```
+
+加上 `-outside`，命令就能通过 [pasta](https://passt.top)（软件包 `passt`）使用宿主机的网络：真实的地址和域名都能访问，测试可以下载依赖、连接真实的服务，而每个模拟的地址、网段和域名仍然按规则回应。`-outside-port PORT`（可重复；UDP 写 `PORT/udp`；隐含 `-outside`）让命令访问的 `127.0.0.1:PORT` 通到宿主机的同一端口，比如映射到宿主机 `127.0.0.1:5432` 的数据库容器；这样命令自己就不能再监听这个端口。配置文件里这样写：
+
+```yaml
+outside:
+  ports: [5432, 6379]     # 不要端口的话写 outside: true
+```
+
+- **默认关闭**：不加时，命令的网络不受所在机器影响。
+- **需要安装 pasta**：Ubuntu 和 Debian 上 `sudo apt-get install passt`，Alpine 上 `apk add passt`。没有安装时 pingmock exec 以 `125` 退出。pingmock 启动 pasta 时，除了指定的端口不做任何转发，所以命令的 API 和 DNS 服务不会暴露到宿主机上；命令退出时 pingmock 会停掉 pasta。
+- **每台机器都一样**：命令在这个网络里的地址是 `10.0.2.15/24`，网关 `10.0.2.2`，不照抄宿主机的地址；外网访问只支持 IPv4。`GET /rules` 在 `outside` 下列出这些信息，Go 客户端在 `State.Outside` 里。
+- **不记录**：外网流量不经过模拟，所以不会出现在历史和统计里，它能否复现取决于真实的网络。
+- **以 root 运行时**，命令处在一个把所有用户和组都映射成自身的用户命名空间里，这样 pasta 才能接入它的网络。命令的进程仍然是原来的用户，只是特权只限于自己的命名空间。
+- **在容器里**，pasta 给自己做沙箱时要用 `pivot_root`，我们在 Docker Desktop 上实测，即使给了 `SYS_ADMIN`，Docker 默认的 seccomp 配置也不允许；要在容器里用 `-outside`，运行容器时加上 `--security-opt seccomp=unconfined`。
 
 ### 域名
 
@@ -662,6 +684,8 @@ DNS 规则只用于 `pingmock exec`：为整台机器模拟时，pingmock 无法
 sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
 sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```
+
+[`-outside`](#访问外网) 需要 pasta，来自软件包 `passt`。
 
 在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事。[`examples/github-actions`](examples/github-actions/README.zh-CN.md) 是一份可以直接复制的配置，包括安装 pingmock 和这份 AppArmor 配置。
 
