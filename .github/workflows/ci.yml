@@ -49,16 +49,15 @@ jobs:
         run: go test -race -count=1 ./...
       - name: Build
         run: go build -o pingmock .
-      # traceroute and mtr, for the path checks of the end-to-end tests,
-      # nscd for a check of pingmock exec, and fping for the compatibility
-      # checks, in one apt-get run; the check starts nscd itself, so it is
-      # stopped for everything else.
-      - name: Install traceroute, mtr, nscd and fping
+      # traceroute and mtr, for the path checks of the end-to-end tests, and
+      # nscd for a check of pingmock exec; the check starts nscd itself, so
+      # it is stopped for everything else.
+      - name: Install traceroute, mtr and nscd
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q traceroute mtr-tiny nscd fping
+          sudo apt-get install -y -q traceroute mtr-tiny nscd
           sudo systemctl stop nscd
-          traceroute --version 2>&1 | head -n 1; mtr --version; fping --version
+          traceroute --version 2>&1 | head -n 1; mtr --version
       - name: End-to-end test
         run: sudo REQUIRE_IPV6=1 test/e2e.sh
       # Ubuntu 24.04 and later restrict unprivileged user namespaces with
@@ -78,6 +77,36 @@ jobs:
         run: |
           go test -count=1 -v -exec "$PWD/pingmock exec -addr6= --" -run TestUnderPingmockExec ./client | tee test.out
           grep -q -- '--- PASS: TestUnderPingmockExec' test.out
+      - name: pingmock exec, as root
+        run: sudo test/e2e-exec.sh
+
+  # The checks that matter less often: the examples users copy from and
+  # the common ping tools and libraries. They run beside the test job, so
+  # that its result, the one every change needs, does not wait for them.
+  compat-and-examples:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-26.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: Build
+        run: go build -o pingmock .
+      - name: Install fping
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fping
+          fping --version
+      # As in the test job.
+      - name: Install the AppArmor profile
+        run: |
+          sed "s|profile pingmock /usr/local/bin/pingmock|profile pingmock $PWD/pingmock|" \
+            contrib/apparmor/pingmock | sudo tee /etc/apparmor.d/pingmock
+          sudo apparmor_parser -r /etc/apparmor.d/pingmock
       # The example users copy from, run against the code in this commit
       # rather than the release its go.mod names. A skipped test means it
       # did not run under pingmock, so that fails too.
@@ -120,8 +149,6 @@ jobs:
         run: |
           pip install -r test/compat/requirements.txt
           sudo env "PATH=$PATH" test/e2e-compat.sh
-      - name: pingmock exec, as root
-        run: sudo test/e2e-exec.sh
 
   docker:
     strategy:
