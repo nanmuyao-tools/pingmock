@@ -81,6 +81,13 @@ func start(s *settings) (*instance, error) {
 		}
 		rs.SetTCP(r.prefix, r.port, r.sc)
 	}
+	for _, r := range s.udp {
+		if err := router.Ensure(r.prefix); err != nil {
+			dev.Close()
+			return nil, err
+		}
+		rs.SetUDP(r.prefix, r.port, r.sc)
+	}
 	for _, r := range s.dns {
 		rs.SetDNS(r.Name, r.Scenario)
 	}
@@ -174,6 +181,14 @@ func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
 			log.Printf("tcp %s: %s", t, rule.TCPScenario{Scenario: r.sc})
 		}
 	}
+	for _, r := range s.udp {
+		t := rule.TCPTarget{Prefix: r.prefix, Port: r.port}
+		if r.name != "" {
+			log.Printf("udp %s (%s): %s", rule.TCPTarget{Name: r.name, Port: r.port}, t, rule.UDPScenario{Scenario: r.sc})
+		} else {
+			log.Printf("udp %s: %s", t, rule.UDPScenario{Scenario: r.sc})
+		}
+	}
 	for _, h := range s.hosts {
 		log.Printf("name %s resolves to %s (for the command only)", h.Name, h.Addr)
 	}
@@ -185,7 +200,7 @@ func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
 		if s.exec && s.names() {
 			dnsAPI = ", PUT /dns/{name}"
 		}
-		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /tcp/{target}%s, PUT /default, GET /history, POST /reset)", apiURL, dnsAPI)
+		log.Printf("control API on %s (GET /rules, PUT /rules/{target}, PUT /tcp/{target}, PUT /udp/{target}%s, PUT /default, GET /history, POST /reset)", apiURL, dnsAPI)
 	}
 }
 

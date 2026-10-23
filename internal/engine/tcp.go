@@ -142,9 +142,14 @@ func (rs *RuleSet) DeleteTCP(p netip.Prefix, port uint16) bool {
 // wins, then a rule for the port over one for every port. Callers hold
 // rs.mu.
 func (rs *RuleSet) matchTCP(a netip.Addr, port uint16) (*entry, tcpRuleKey, bool) {
+	return matchPort(rs.tcp.rules, a, port)
+}
+
+// matchPort returns the rule of rules for a and port, as matchTCP says.
+func matchPort(rules map[tcpRuleKey]*entry, a netip.Addr, port uint16) (*entry, tcpRuleKey, bool) {
 	var best *entry
 	var bestKey tcpRuleKey
-	for k, e := range rs.tcp.rules {
+	for k, e := range rules {
 		if !k.prefix.Contains(a) || (k.port != 0 && k.port != port) {
 			continue
 		}

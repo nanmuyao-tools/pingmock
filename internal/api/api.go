@@ -36,6 +36,8 @@ func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip
 	mux.HandleFunc("DELETE /paths/{target...}", h.deletePath) // the target has no route again
 	mux.HandleFunc("PUT /tcp/{target...}", h.setTCP)          // target ADDR[:PORT], PREFIX[:PORT], [IPv6]:PORT; body as for rules
 	mux.HandleFunc("DELETE /tcp/{target...}", h.deleteTCP)    // connections to it are ignored again
+	mux.HandleFunc("PUT /udp/{target...}", h.setUDP)          // target as for /tcp/; body as for rules
+	mux.HandleFunc("DELETE /udp/{target...}", h.deleteUDP)    // datagrams to it are ignored again
 	mux.HandleFunc("PUT /dns/{name}", h.setDNS)               // pingmock exec only; body as for rules
 	mux.HandleFunc("DELETE /dns/{name}", h.deleteDNS)         // queries for it are answered as without a rule
 	return mux
@@ -77,7 +79,7 @@ func (h *handler) deleteDNS(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// tcpTarget parses the target of a TCP rule in the URL. Names are only
+// tcpTarget parses the target of a TCP or UDP rule in the URL. Names are only
 // resolved at startup, so the API takes addresses and prefixes.
 func tcpTarget(r *http.Request) (rule.TCPTarget, error) {
 	t, err := rule.ParseTCPTarget(r.PathValue("target"))
@@ -120,6 +122,50 @@ func (h *handler) setTCP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.rules.SetTCP(t.Prefix, t.Port, sc.Scenario)
 	writeJSON(w, http.StatusOK, map[string]any{"target": t.String(), "rule": sc})
+}
+
+// setUDP installs a UDP rule, as setTCP does a TCP rule.
+func (h *handler) setUDP(w http.ResponseWriter, r *http.Request) {
+	t, err := tcpTarget(r)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	text := strings.TrimSpace(string(body))
+	var sc rule.UDPScenario
+	if strings.HasPrefix(text, "{") {
+		if err := json.Unmarshal([]byte(text), &sc); err != nil {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("invalid JSON rule: %w", err))
+			return
+		}
+	} else if sc, err = rule.ParseUDPScenario(text); err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := h.ensureRoute(t.Prefix); err != nil {
+		httpError(w, http.StatusInternalServerError, err)
+		return
+	}
+	h.rules.SetUDP(t.Prefix, t.Port, sc.Scenario)
+	writeJSON(w, http.StatusOK, map[string]any{"target": t.String(), "rule": sc})
+}
+
+func (h *handler) deleteUDP(w http.ResponseWriter, r *http.Request) {
+	t, err := tcpTarget(r)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !h.rules.DeleteUDP(t.Prefix, t.Port) {
+		httpError(w, http.StatusNotFound, fmt.Errorf("no UDP rule for %s", t))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *handler) deleteTCP(w http.ResponseWriter, r *http.Request) {

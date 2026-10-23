@@ -31,8 +31,9 @@ const envAPI = "PINGMOCK_API"
 func execUsage(w io.Writer, fs *flag.FlagSet) {
 	fmt.Fprint(w, `Usage: pingmock exec [flags] -- CMD [ARGS...]
 
-Runs CMD in a private network namespace with pingmock answering pings
-and TCP connections there, and DNS queries for names with a -dns rule.
+Runs CMD in a private network namespace with pingmock answering pings,
+TCP connections and UDP datagrams there, and DNS queries for names with
+a -dns rule.
 Root is not needed: as an unprivileged user, pingmock creates a user
 namespace too. The host network is not touched, several runs can happen
 at once, and pingmock exits with CMD's exit status. When CMD exits, any

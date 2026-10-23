@@ -225,6 +225,13 @@ func (sc *DNSScenario) UnmarshalJSON(b []byte) error { return sc.Scenario.unmars
 // MarshalJSON writes the text form, with phases counting requests.
 func (sc DNSScenario) MarshalJSON() ([]byte, error) { return json.Marshal(sc.String()) }
 
+// UnmarshalJSON accepts what Scenario's does, with the settings of UDP
+// rules.
+func (sc *UDPScenario) UnmarshalJSON(b []byte) error { return sc.Scenario.unmarshal(b, protoUDP) }
+
+// MarshalJSON writes the text form, with phases counting requests.
+func (sc UDPScenario) MarshalJSON() ([]byte, error) { return json.Marshal(sc.String()) }
+
 // unmarshal decodes a scenario; tcp allows the settings of TCP rules.
 func (sc *Scenario) unmarshal(b []byte, kind proto) error {
 	b = bytes.TrimSpace(b)

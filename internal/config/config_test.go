@@ -275,9 +275,9 @@ func TestLoadTCP(t *testing.T) {
 		"tcp:\n  10.99.0.1:443: pattern=.q\n":                    "t.yaml:2: tcp \"10.99.0.1:443\"", // not a rule
 		"tcp:\n  10.99.0.1:443: 10ms\n  10.99.0.1/32:443: 5ms\n": "same target",                     // duplicates
 		"tcp:\n  - 10.99.0.1:443\n":                              "tcp must be a mapping",
-		"rules:\n  10.99.0.1: refuse\n":                          "TCP rules", // ping rules do not refuse
-		"default: delay=1ms,pattern=.r\n":                        "TCP rules",
-		"rules:\n  10.99.0.1: {refuse: true}\n":                  "TCP rules",
+		"rules:\n  10.99.0.1: refuse\n":                          "TCP and UDP rules", // ping rules do not refuse
+		"default: delay=1ms,pattern=.r\n":                        "TCP and UDP rules",
+		"rules:\n  10.99.0.1: {refuse: true}\n":                  "TCP and UDP rules",
 		"rules:\n  10.99.0.1: {after: close}\n":                  "TCP rules",
 		"tcp:\n  10.99.0.1:80: refuse,after=close\n":             "accepts none",
 	} {
@@ -318,7 +318,7 @@ func TestLoadDNS(t *testing.T) {
 	}
 	for in, want := range map[string]string{
 		"dns:\n  bad..name: nxdomain\n":                         "dns \"bad..name\"",
-		"dns:\n  a.example: refuse\n":                           "TCP rules",
+		"dns:\n  a.example: refuse\n":                           "TCP and UDP rules",
 		"dns:\n  a.example: nxdomain\n  A.example.: servfail\n": "same name",
 		"rules:\n  10.99.0.1: nxdomain\n":                       "DNS rules",
 		"dns:\n  - a.example\n":                                 "dns",
@@ -361,5 +361,32 @@ func TestLoadTCPData(t *testing.T) {
 	}
 	if sp := got["10.99.0.3/32:80"]; string(sp.Send) != "a,b;c" || sp.Wait != time.Second {
 		t.Errorf("flow mapping: %+v", sp)
+	}
+}
+
+func TestLoadUDP(t *testing.T) {
+	cfg, _, err := Load(writeFile(t, "u.yaml", "udp:\n  10.99.0.1:514: refuse\n  10.99.0.2:123: {refuse: true, delay: 5ms}\n  \"[fd99::1]:8125\": timeout for 2 requests; unreachable\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	udp, err := cfg.SortedUDP("u.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range udp {
+		got = append(got, r.Target.String()+"="+(rule.UDPScenario{Scenario: r.Scenario}).String())
+	}
+	if want := "10.99.0.1/32:514=delay=0s,refuse 10.99.0.2/32:123=delay=5ms,refuse [fd99::1/128]:8125=timeout for 2 requests; delay=0s,unreachable"; strings.Join(got, " ") != want {
+		t.Errorf("udp = %v\n want %s", got, want)
+	}
+	for in, want := range map[string]string{
+		"udp:\n  10.99.0.1:514: 20ms\n":        "t.yaml:2: udp",
+		"udp:\n  - 10.99.0.1:514\n":            "udp must be a mapping",
+		"udp:\n  10.99.0.1:514: after=close\n": "TCP rules",
+	} {
+		if _, _, err := Load(writeFile(t, "t.yaml", in)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v, want %q", in, err, want)
+		}
 	}
 }

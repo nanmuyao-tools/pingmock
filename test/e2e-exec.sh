@@ -172,6 +172,16 @@ same "DNS: a rule set through the API takes effect" "$(echo "$changed" | awk 'NR
 same "DNS: a rule changed to answer gives the mocked address again" "$(echo "$changed" | awk 'NR == 2 {print $2}')" 10.99.0.8
 same "DNS: DELETE /dns removes a rule" "$(echo "$changed" | sed -n 3p)" 204
 
+# A UDP rule for a name inside exec.
+same "UDP inside exec: a rule for a name refuses" "$(run -udp syslog.example:514=refuse -- python3 -c '
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(0.5)
+s.connect((socket.gethostbyname("syslog.example."), 514)); s.send(b"x")
+try:
+    s.recv(10)
+except OSError as e:
+    print(type(e).__name__)')" ConnectionRefusedError
+
 # A path inside exec: traceroute, which opens raw sockets, works there
 # without root, and sees the hops.
 if command -v traceroute >/dev/null; then

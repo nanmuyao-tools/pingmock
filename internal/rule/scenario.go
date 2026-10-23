@@ -184,3 +184,18 @@ func ParseDNSScenario(s string) (DNSScenario, error) {
 }
 
 func (sc DNSScenario) String() string { return sc.format("request") }
+
+// UDPScenario is the scenario of a UDP rule: how datagrams to an address
+// and port fail, as refuse (ICMP port unreachable), unreachable, timeout
+// and 'x', 'u' and 'r' in a pattern say. Its phases count datagrams,
+// printed as requests.
+type UDPScenario struct{ Scenario }
+
+// ParseUDPScenario parses the scenario of a UDP rule, such as
+// "timeout for 2 requests; refuse".
+func ParseUDPScenario(s string) (UDPScenario, error) {
+	sc, err := parseScenario(s, protoUDP)
+	return UDPScenario{sc}, err
+}
+
+func (sc UDPScenario) String() string { return sc.format("request") }

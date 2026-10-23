@@ -135,6 +135,20 @@ type State struct {
 	// query type that got a query, keyed as "api.example.com/AAAA".
 	DNS      []Rule              `json:"dns"`
 	DNSStats map[string]DNSStats `json:"dns_stats"`
+	// UDP rules, and the statistics of each address and port that got a
+	// datagram, keyed as TCP's are.
+	UDP      []Rule              `json:"udp"`
+	UDPStats map[string]UDPStats `json:"udp_stats"`
+}
+
+// UDPStats counts the datagrams sent to one address and port.
+type UDPStats struct {
+	Requests    uint64 `json:"requests"`
+	Refused     uint64 `json:"refused"`
+	Dropped     uint64 `json:"dropped"`
+	Unreachable uint64 `json:"unreachable"`
+	Rule        string `json:"rule"`  // e.g. "udp 10.99.0.1/32:514"
+	Phase       int    `json:"phase"` // current phase, 1-based
 }
 
 // DNSStats counts the queries for one name and type. Every query counts,
@@ -230,6 +244,31 @@ func (c *Client) TCPStats(ctx context.Context, addrPort string) (TCPStats, error
 	return s.TCPStats[addrPort], nil
 }
 
+// SetUDP sets how UDP datagrams to target fail, replacing any UDP rule
+// for the same target, written as for SetTCP. rule says how they fail:
+// "refuse" (ICMP port unreachable), "unreachable", "timeout" or a
+// pattern of 'x', 'u' and 'r', such as "timeout for 2 requests; refuse";
+// pingmock sends no UDP answers.
+func (c *Client) SetUDP(ctx context.Context, target, rule string) error {
+	return c.do(ctx, http.MethodPut, "/udp/"+escapeTarget(target), rule, nil)
+}
+
+// DeleteUDP removes the UDP rule for target. It fails with an error for
+// which IsNotFound is true if there is none.
+func (c *Client) DeleteUDP(ctx context.Context, target string) error {
+	return c.do(ctx, http.MethodDelete, "/udp/"+escapeTarget(target), "", nil)
+}
+
+// UDPStats returns the statistics of one address and port, written as
+// "10.99.0.1:514"; all counters are zero if it has had no datagram.
+func (c *Client) UDPStats(ctx context.Context, addrPort string) (UDPStats, error) {
+	s, err := c.State(ctx)
+	if err != nil {
+		return UDPStats{}, err
+	}
+	return s.UDPStats[addrPort], nil
+}
+
 // SetDNS sets how the command's DNS queries for name are answered, under
 // pingmock exec, replacing any DNS rule for the name. rule is written as
 // for SetRule, without unreachable and ttl, plus "nxdomain", "servfail"
@@ -305,7 +344,7 @@ type Event struct {
 	TTL   uint8  `json:"ttl"`   // the probe's TTL
 	Hop   int    `json:"hop"`   // the hop that answered or lost it, from 1; 0 for the destination
 	From  string `json:"from"`  // the address the answer came from
-	// For TCP probes.
+	// For TCP and UDP probes.
 	Port   uint16 `json:"port"`   // the destination port
 	Repeat bool   `json:"repeat"` // a SYN sent again for an attempt already answered, not counted again
 	// For DNS queries for names with a DNS rule (Probe "dns").

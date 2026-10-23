@@ -43,6 +43,7 @@ type settings struct {
 	hosts         []config.Host // names the command resolves; exec only
 	paths         []targetPath
 	tcp           []targetTCP
+	udp           []targetTCP      // UDP rules, written as TCP rules are
 	dns           []config.DNSRule // exec only
 	exec          bool             // running under pingmock exec
 }
@@ -103,6 +104,7 @@ type flagValues struct {
 	hosts                                  ruleFlags
 	paths                                  ruleFlags
 	tcp                                    ruleFlags
+	udp                                    ruleFlags
 	dns                                    ruleFlags
 
 	given map[string]bool // flags given on the command line
@@ -115,6 +117,7 @@ type flagValues struct {
 	cfgHosts        []config.Host
 	cfgPaths        []config.PathRule
 	cfgTCP          []config.TCPRule
+	cfgUDP          []config.TCPRule
 	cfgDNS          []config.DNSRule
 }
 
@@ -135,6 +138,7 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, pingmock exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
 	fs.Var(&f.paths, "path", "TARGET=PATH, repeatable: the route traceroute and mtr see to TARGET, hops separated by \">\", each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for one that never answers, e.g. '8.8.8.8=192.168.1.1@2ms > * > 72.14.0.1@25ms'")
 	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443), or under pingmock exec NAME[:PORT]; no port means every port. RULE is as for -rule, plus refuse (answer with a reset), r in a pattern, after=close|reset|hang (what happens once a connection is accepted), send=\"...\" and reply=\"...\" (bytes to send at once or on the first data), limit=N and wait=, e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
+	fs.Var(&f.udp, "udp", "TARGET=RULE, repeatable: how UDP datagrams to TARGET fail, written as for -tcp. RULE is refuse (ICMP port unreachable), unreachable[=net|admin], timeout or loss=, x, u and r in a pattern, and the delay and ttl of the error; pingmock sends no UDP answers, e.g. 10.99.0.1:514=refuse or '10.99.0.2:123=timeout for 2 requests; refuse'")
 	fs.Var(&f.dns, "dns", "NAME=RULE, repeatable, pingmock exec only: how CMD's DNS queries for NAME are answered. RULE is as for -rule, without unreachable and ttl, plus nxdomain (the name does not exist), servfail (the server failed) and n and s in a pattern; other settings apply to the usual answer, e.g. api.example.com=nxdomain or 'db.example.com=servfail for 2 requests; 10ms'")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
@@ -171,6 +175,9 @@ func (f *flagValues) applyConfig(path string) error {
 		return err
 	}
 	if f.cfgTCP, err = cfg.SortedTCP(path); err != nil {
+		return err
+	}
+	if f.cfgUDP, err = cfg.SortedUDP(path); err != nil {
 		return err
 	}
 	f.cfgDNS, err = cfg.SortedDNS(path)
@@ -269,6 +276,24 @@ func (f *flagValues) resolve() (*settings, error) {
 		}
 		s.addTCP(t, sc.Scenario)
 	}
+	for _, r := range f.cfgUDP {
+		s.udp = addPortRule(s.udp, r.Target, r.Scenario)
+	}
+	for _, text := range f.udp {
+		target, ruleText, ok := strings.Cut(text, "=")
+		if !ok {
+			return nil, fmt.Errorf("invalid -udp %q: want TARGET=RULE", text)
+		}
+		t, err := rule.ParseTCPTarget(target)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -udp %q: %w", text, err)
+		}
+		sc, err := rule.ParseUDPScenario(ruleText)
+		if err != nil {
+			return nil, fmt.Errorf("invalid -udp %q: %w", text, err)
+		}
+		s.udp = addPortRule(s.udp, t, sc.Scenario)
+	}
 	for _, r := range f.cfgDNS {
 		s.addDNS(r)
 	}
@@ -358,7 +383,7 @@ func (s *settings) allocateNames() error {
 			names = append(names, p.name)
 		}
 	}
-	for _, r := range s.tcp {
+	for _, r := range append(s.tcp, s.udp...) {
 		if r.name != "" && !seen[r.name] {
 			seen[r.name] = true
 			names = append(names, r.name)
@@ -391,9 +416,11 @@ func (s *settings) allocateNames() error {
 				s.paths[i].addr = a
 			}
 		}
-		for i := range s.tcp {
-			if s.tcp[i].name == name {
-				s.tcp[i].prefix = netip.PrefixFrom(a, a.BitLen())
+		for _, rules := range [][]targetTCP{s.tcp, s.udp} {
+			for i := range rules {
+				if rules[i].name == name {
+					rules[i].prefix = netip.PrefixFrom(a, a.BitLen())
+				}
 			}
 		}
 	}
@@ -413,15 +440,19 @@ func (s *settings) addPath(t rule.Target, p rule.Path) {
 }
 
 // addTCP adds a TCP rule, or replaces the one for the same target and port.
-func (s *settings) addTCP(t rule.TCPTarget, sc rule.Scenario) {
-	for i := range s.tcp {
-		r := &s.tcp[i]
+func (s *settings) addTCP(t rule.TCPTarget, sc rule.Scenario) { s.tcp = addPortRule(s.tcp, t, sc) }
+
+// addPortRule adds a TCP or UDP rule to rules, or replaces the one for the
+// same target and port.
+func addPortRule(rules []targetTCP, t rule.TCPTarget, sc rule.Scenario) []targetTCP {
+	for i := range rules {
+		r := &rules[i]
 		if r.name == t.Name && r.port == t.Port && (t.Name != "" || r.prefix == t.Prefix) {
 			r.sc = sc
-			return
+			return rules
 		}
 	}
-	s.tcp = append(s.tcp, targetTCP{prefix: t.Prefix, name: t.Name, port: t.Port, sc: sc})
+	return append(rules, targetTCP{prefix: t.Prefix, name: t.Name, port: t.Port, sc: sc})
 }
 
 // addDNS adds a DNS rule, or replaces the one for the same name.

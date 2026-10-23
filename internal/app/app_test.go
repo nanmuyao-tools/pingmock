@@ -361,3 +361,28 @@ func TestServerRefusesDNS(t *testing.T) {
 		t.Errorf("exit %v, output %s", err, out)
 	}
 }
+
+func TestParseSettingsUDP(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "c.yaml")
+	os.WriteFile(cfg, []byte("udp:\n  10.99.0.1:514: timeout\n"), 0o644)
+	s, _, err := parse(t, "-config", cfg, "-udp", "10.99.0.1:514=refuse", "-udp", "[fd99::1]:123=unreachable", "-udp", "ntp.example.com:123=refuse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range s.udp {
+		got = append(got, r.name+"@"+r.prefix.String()+":"+itoa(r.port)+"="+r.sc.String())
+	}
+	want := "@10.99.0.1/32:514=delay=0s,refuse @fd99::1/128:123=delay=0s,unreachable ntp.example.com@10.99.0.253/32:123=delay=0s,refuse"
+	if strings.Join(got, " ") != want {
+		t.Errorf("udp = %v\n  want %s", got, want)
+	}
+	if !s.names() {
+		t.Error("names() = false with a UDP rule for a name")
+	}
+	for _, bad := range []string{"nope", "10.99.0.1:514=20ms", "fd99::1:123=refuse", `10.99.0.1:514=send="x"`} {
+		if _, _, err := parse(t, "-udp", bad); err == nil {
+			t.Errorf("-udp %q: expected error", bad)
+		}
+	}
+}

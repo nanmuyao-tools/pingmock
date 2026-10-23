@@ -50,6 +50,11 @@ type Config struct {
 	//	  10.99.0.1:5432: timeout
 	//	  "[fd99::1]:443": refuse
 	TCP map[string]rule.TCPScenario `json:"tcp"`
+	// UDP gives addresses and ports UDP rules:
+	//
+	//	udp:
+	//	  10.99.0.1:514: refuse
+	UDP map[string]rule.UDPScenario `json:"udp"`
 	// DNS gives names DNS rules, for pingmock exec:
 	//
 	//	dns:
@@ -100,7 +105,7 @@ func ParseDNSName(name string) (string, error) {
 	return strings.ToLower(strings.TrimSuffix(name, ".")), nil
 }
 
-// TCPRule is a parsed entry of Config.TCP.
+// TCPRule is a parsed entry of Config.TCP, or of Config.UDP.
 type TCPRule struct {
 	Target   rule.TCPTarget
 	Scenario rule.Scenario
@@ -126,6 +131,30 @@ func (c *Config) SortedTCP(path string) ([]TCPRule, error) {
 		}
 		seen[t.String()] = k
 		out = append(out, TCPRule{t, c.TCP[k].Scenario})
+	}
+	return out, nil
+}
+
+// SortedUDP returns the file's UDP rules, validated and sorted by target
+// as written, as SortedTCP does.
+func (c *Config) SortedUDP(path string) ([]TCPRule, error) {
+	keys := make([]string, 0, len(c.UDP))
+	for k := range c.UDP {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]TCPRule, 0, len(keys))
+	seen := map[string]string{}
+	for _, k := range keys {
+		t, err := rule.ParseTCPTarget(k)
+		if err != nil {
+			return nil, fmt.Errorf("%s: udp %q: %w", path, k, err)
+		}
+		if other, dup := seen[t.String()]; dup {
+			return nil, fmt.Errorf("%s: udp %q and %q are the same target %s", path, other, k, t)
+		}
+		seen[t.String()] = k
+		out = append(out, TCPRule{t, c.UDP[k].Scenario})
 	}
 	return out, nil
 }
@@ -245,6 +274,9 @@ func Load(path string) (*Config, []Rule, error) {
 		return nil, nil, err
 	}
 	if _, err := cfg.SortedTCP(path); err != nil {
+		return nil, nil, err
+	}
+	if _, err := cfg.SortedUDP(path); err != nil {
 		return nil, nil, err
 	}
 	if _, err := cfg.SortedDNS(path); err != nil {

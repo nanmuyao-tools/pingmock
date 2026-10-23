@@ -16,7 +16,7 @@ import (
 var knownFields = map[string]bool{
 	"dev": true, "addr": true, "addr6": true, "api": true,
 	"seed": true, "history": true, "default": true, "rules": true, "hosts": true, "paths": true,
-	"tcp": true, "dns": true,
+	"tcp": true, "dns": true, "udp": true,
 }
 
 // yamlToJSON converts a YAML configuration into the equivalent JSON, which
@@ -67,7 +67,11 @@ func yamlToJSON(data []byte, path string) ([]byte, error) {
 				return nil, err
 			}
 		case key.Value == "tcp":
-			if err := checkTCP(val, path); err != nil {
+			if err := checkPortRules(val, path, "tcp", func(b []byte) error { var sc rule.TCPScenario; return json.Unmarshal(b, &sc) }); err != nil {
+				return nil, err
+			}
+		case key.Value == "udp":
+			if err := checkPortRules(val, path, "udp", func(b []byte) error { var sc rule.UDPScenario; return json.Unmarshal(b, &sc) }); err != nil {
 				return nil, err
 			}
 		}
@@ -110,35 +114,35 @@ func checkRules(n *yaml.Node, path string) error {
 	return nil
 }
 
-// checkTCP validates the tcp mapping, reporting the line of the first bad
-// target or rule.
-func checkTCP(n *yaml.Node, path string) error {
+// checkPortRules validates the tcp or udp mapping, reporting the line of
+// the first bad target or rule; decode decodes one rule's JSON.
+func checkPortRules(n *yaml.Node, path, section string, decode func([]byte) error) error {
 	if n.Kind == yaml.ScalarNode && n.Tag == "!!null" {
 		return nil
 	}
 	if n.Kind != yaml.MappingNode {
-		return fmt.Errorf("%s:%d: tcp must be a mapping of targets to rules, such as 10.99.0.1:5432: timeout", path, n.Line)
+		return fmt.Errorf("%s:%d: %s must be a mapping of targets to rules, such as 10.99.0.1:5432: timeout", path, n.Line, section)
 	}
 	seen := map[string]int{}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		key, val := n.Content[i], n.Content[i+1]
 		t, err := rule.ParseTCPTarget(key.Value)
 		if err != nil {
-			return fmt.Errorf("%s:%d: tcp %q: %w", path, key.Line, key.Value, err)
+			return fmt.Errorf("%s:%d: %s %q: %w", path, key.Line, section, key.Value, err)
 		}
 		if line, dup := seen[t.String()]; dup {
-			return fmt.Errorf("%s:%d: tcp %q is the same target %s as on line %d", path, key.Line, key.Value, t, line)
+			return fmt.Errorf("%s:%d: %s %q is the same target %s as on line %d", path, key.Line, section, key.Value, t, line)
 		}
 		seen[t.String()] = key.Line
-		if err := checkTCPRule(val); err != nil {
-			return fmt.Errorf("%s:%d: tcp %q: %w", path, val.Line, key.Value, err)
+		if err := checkPortRule(val, decode); err != nil {
+			return fmt.Errorf("%s:%d: %s %q: %w", path, val.Line, section, key.Value, err)
 		}
 	}
 	return nil
 }
 
-// checkTCPRule decodes one TCP rule as the JSON decoding will.
-func checkTCPRule(n *yaml.Node) error {
+// checkPortRule decodes one rule as the JSON decoding will.
+func checkPortRule(n *yaml.Node, decode func([]byte) error) error {
 	var v any
 	if err := n.Decode(&v); err != nil {
 		return err
@@ -150,8 +154,7 @@ func checkTCPRule(n *yaml.Node) error {
 	if err != nil {
 		return err
 	}
-	var sc rule.TCPScenario
-	return json.Unmarshal(b, &sc)
+	return decode(b)
 }
 
 // checkHosts validates the hosts mapping, reporting the line of the first

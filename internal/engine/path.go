@@ -62,6 +62,11 @@ func (rs *RuleSet) DecideProbe(p icmp.Probe) Decision {
 				return d
 			}
 		}
+		if kind == icmp.UDP {
+			if d, ok := rs.DecideUDP(p); ok {
+				return d
+			}
+		}
 		if kind != icmp.Echo {
 			return Decision{Outcome: rule.Drop, Rule: "none"}
 		}
@@ -110,11 +115,16 @@ func (rs *RuleSet) DecideProbe(p icmp.Probe) Decision {
 	}
 	rs.mu.Unlock()
 
-	// The destination: a TCP rule for the port decides a SYN; otherwise
+	// The destination: a TCP or UDP rule for the port decides; otherwise
 	// the target's rule decides, as for any target, and a UDP or TCP probe
 	// gets the answer that means "reached" instead of an echo reply.
 	if kind == icmp.TCP {
 		if d, ok := rs.DecideTCP(p); ok {
+			return d
+		}
+	}
+	if kind == icmp.UDP {
+		if d, ok := rs.DecideUDP(p); ok {
 			return d
 		}
 	}

@@ -258,3 +258,50 @@ func TestServeKeepsConnectionOrderAcrossWait(t *testing.T) {
 		t.Errorf("events %v", got)
 	}
 }
+
+// udpDatagram builds an IPv4 UDP datagram from client to dst:port.
+func udpDatagram(dst [4]byte, port uint16) []byte {
+	pkt := make([]byte, 28+4)
+	pkt[0] = 0x45
+	binary.BigEndian.PutUint16(pkt[2:4], uint16(len(pkt)))
+	pkt[8] = 64
+	pkt[9] = 17
+	c := client.As4()
+	copy(pkt[12:16], c[:])
+	copy(pkt[16:20], dst[:])
+	binary.BigEndian.PutUint16(pkt[10:12], icmp.Checksum(pkt[:20]))
+	binary.BigEndian.PutUint16(pkt[20:], 40000)
+	binary.BigEndian.PutUint16(pkt[22:], port)
+	binary.BigEndian.PutUint16(pkt[24:], 12)
+	return pkt
+}
+
+func TestHandleUDPRules(t *testing.T) {
+	def, _ := rule.ParseScenario("0ms")
+	rs := engine.NewRuleSet(def, 1)
+	for target, text := range map[string]string{"10.99.0.1:514": "delay=5ms,refuse", "10.99.0.2:123": "unreachable=net", "10.99.0.3:9": "timeout"} {
+		tt, _ := rule.ParseTCPTarget(target)
+		sc, err := rule.ParseUDPScenario(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rs.SetUDP(tt.Prefix, tt.Port, sc.Scenario)
+	}
+	hist := engine.NewHistory(10)
+	r := &Responder{Rules: rs, History: hist}
+	// refuse: ICMP port unreachable (type 3, code 3), after the delay.
+	if a, delay := r.handle(udpDatagram([4]byte{10, 99, 0, 1}, 514)); a == nil || a[20] != 3 || a[21] != 3 || delay != 5*time.Millisecond {
+		t.Errorf("refuse: % x after %v", a, delay)
+	}
+	// unreachable=net: type 3, code 0.
+	if a, _ := r.handle(udpDatagram([4]byte{10, 99, 0, 2}, 123)); a == nil || a[20] != 3 || a[21] != 0 {
+		t.Errorf("unreachable: % x", a)
+	}
+	if a, _ := r.handle(udpDatagram([4]byte{10, 99, 0, 3}, 9)); a != nil {
+		t.Errorf("timeout answered % x", a)
+	}
+	events, _ := hist.Events(nil, 0)
+	if len(events) != 3 || events[0].Probe != "udp" || events[0].Port != 514 || events[0].Result != "refused" || events[2].Result != "drop" {
+		t.Errorf("events %+v", events)
+	}
+}

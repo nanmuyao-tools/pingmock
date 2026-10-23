@@ -68,6 +68,7 @@ Examples:
   sudo pingmock -rule fd99::1=30ms -rule 10.99.0.4=unreachable
   sudo pingmock -rule 8.8.8.8=30ms -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@15ms > * > 72.14.0.1@25ms'
   sudo pingmock -tcp 10.99.0.1:5432=timeout -tcp '10.99.0.2:5432=refuse for 3 requests; 5ms'
+  sudo pingmock -udp 10.99.0.1:514=refuse -udp '10.99.0.2:123=timeout for 2 requests; refuse'
   sudo pingmock -config pingmock.yaml
   pingmock exec -rule 8.8.8.8=120ms -- ./my-app
 

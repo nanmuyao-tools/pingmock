@@ -78,6 +78,7 @@ type RuleSet struct {
 	paths   map[netip.Addr]rule.Path // targets whose route traceroute can see
 	tcp     tcpState
 	dns     dnsState
+	udp     udpState
 
 	// baseline is what Reset restores: the default, the rules and the
 	// paths as of SaveBaseline, or of NewRuleSet if it was never called.
@@ -87,6 +88,7 @@ type RuleSet struct {
 		paths map[netip.Addr]rule.Path
 		tcp   map[tcpRuleKey]rule.Scenario
 		dns   map[string]rule.Scenario
+		udp   map[tcpRuleKey]rule.Scenario
 	}
 }
 
@@ -108,6 +110,7 @@ func NewRuleSet(def rule.Scenario, seed uint64, opts ...Option) *RuleSet {
 		paths:   map[netip.Addr]rule.Path{},
 		tcp:     newTCPState(),
 		dns:     newDNSState(),
+		udp:     newUDPState(),
 	}
 	for _, o := range opts {
 		o(rs)
@@ -139,6 +142,10 @@ func (rs *RuleSet) SaveBaseline() {
 	for n, e := range rs.dns.rules {
 		rs.baseline.dns[n] = e.sc
 	}
+	rs.baseline.udp = make(map[tcpRuleKey]rule.Scenario, len(rs.udp.rules))
+	for k, e := range rs.udp.rules {
+		rs.baseline.udp[k] = e.sc
+	}
 }
 
 // Reset puts the default and the rules back as they were at the baseline
@@ -164,6 +171,10 @@ func (rs *RuleSet) Reset() {
 	rs.dns = newDNSState()
 	for n, sc := range rs.baseline.dns {
 		rs.dns.rules[n] = rs.newEntry(sc)
+	}
+	rs.udp = newUDPState()
+	for k, sc := range rs.baseline.udp {
+		rs.udp.rules[k] = rs.newEntry(sc)
 	}
 }
 
@@ -326,8 +337,9 @@ func (rs *RuleSet) Snapshot() map[string]any {
 	}
 	tcpRules, tcpStats := rs.tcpSnapshot()
 	dnsRules, dnsStats := rs.dnsSnapshot()
+	udpRules, udpStats := rs.udpSnapshot()
 	return map[string]any{"seed": rs.seed, "default": rs.def.sc, "rules": rules, "paths": paths, "stats": targets,
-		"tcp": tcpRules, "tcp_stats": tcpStats, "dns": dnsRules, "dns_stats": dnsStats}
+		"tcp": tcpRules, "tcp_stats": tcpStats, "dns": dnsRules, "dns_stats": dnsStats, "udp": udpRules, "udp_stats": udpStats}
 }
 
 // ResetStats zeroes the counters without touching scenario positions.
@@ -341,6 +353,9 @@ func (rs *RuleSet) ResetStats() {
 	}
 	for _, t := range rs.dns.targets {
 		t.stats = DNSStats{}
+	}
+	for _, t := range rs.udp.targets {
+		t.stats = UDPStats{}
 	}
 	rs.mu.Unlock()
 }

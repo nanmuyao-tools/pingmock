@@ -164,7 +164,11 @@ func (r *Responder) decide(pkt []byte) plan {
 	case rule.SynAck:
 		answer = icmp.BuildSynAck(pkt, d.TTL)
 	case rule.Refused:
-		answer = icmp.BuildRST(pkt, d.TTL)
+		if req.Kind == icmp.UDP {
+			answer = icmp.BuildPortUnreachable(pkt, d.TTL) // a UDP rule's refuse: nothing listens
+		} else {
+			answer = icmp.BuildRST(pkt, d.TTL)
+		}
 	}
 	r.record(req, d, answer != nil)
 	if answer == nil {
@@ -199,7 +203,7 @@ func (r *Responder) record(req icmp.Probe, d engine.Decision, answered bool) {
 	if req.Kind != icmp.Echo {
 		ev.Probe = req.Kind.String()
 	}
-	if req.Kind == icmp.TCP || req.Kind == icmp.Segment {
+	if req.Kind != icmp.Echo {
 		ev.Port, ev.Repeat = req.DstPort, d.Repeat
 	}
 	if d.Hop > 0 || d.Rule == "path" || req.Kind != icmp.Echo {

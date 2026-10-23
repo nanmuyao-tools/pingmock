@@ -51,6 +51,7 @@ const (
 	protoPing proto = iota
 	protoTCP
 	protoDNS
+	protoUDP
 )
 
 // DefaultTTL is the TTL of answers whose rule does not set one: what Linux
@@ -87,6 +88,11 @@ func ParseTCPSpec(s string) (Spec, error) { return parseSpec(s, protoTCP) }
 // in ParseSpec, plus "nxdomain", "servfail" and the pattern letters 'n'
 // and 's'.
 func ParseDNSSpec(s string) (Spec, error) { return parseSpec(s, protoDNS) }
+
+// ParseUDPSpec parses a spec of a UDP rule: refuse (ICMP port
+// unreachable), unreachable, timeout or loss, the pattern letters 'x', 'u'
+// and 'r', and the delay and TTL of the error.
+func ParseUDPSpec(s string) (Spec, error) { return parseSpec(s, protoUDP) }
 
 // parseSpec parses a spec; kind decides which settings it may have.
 func parseSpec(s string, kind proto) (Spec, error) {
@@ -149,8 +155,8 @@ func parseSpec(s string, kind proto) (Spec, error) {
 			}
 		case "refuse":
 			switch {
-			case kind != protoTCP:
-				err = fmt.Errorf("refuse is for TCP rules (-tcp)")
+			case kind != protoTCP && kind != protoUDP:
+				err = fmt.Errorf("refuse is for TCP and UDP rules (-tcp, -udp)")
 			case found:
 				err = fmt.Errorf("refuse takes no value")
 			default:
@@ -203,8 +209,8 @@ func (sp Spec) validateFor(kind proto) error {
 	}
 	if sp.Refuse {
 		switch {
-		case kind != protoTCP:
-			return fmt.Errorf("refuse is for TCP rules (-tcp)")
+		case kind != protoTCP && kind != protoUDP:
+			return fmt.Errorf("refuse is for TCP and UDP rules (-tcp, -udp)")
 		case sp.Unreachable != UnreachNone:
 			return fmt.Errorf("refuse and unreachable cannot be combined")
 		case sp.Pattern != "":
@@ -244,6 +250,9 @@ func (sp Spec) validateFor(kind proto) error {
 		case sp.Pattern != "":
 			return fmt.Errorf("%s and pattern cannot be combined; use n or s in the pattern", sp.DNSFail)
 		}
+	}
+	if kind == protoUDP && !sp.Refuse && sp.Unreachable == UnreachNone && sp.Loss < 1 && sp.Pattern == "" {
+		return fmt.Errorf("a UDP rule says how datagrams fail: refuse, unreachable, timeout or a pattern of x, u and r; pingmock sends no UDP answers")
 	}
 	if kind == protoDNS {
 		switch {
@@ -338,6 +347,12 @@ func parsePatternFor(s string, kind proto) (string, error) {
 	if strings.Trim(s, ".xu") != "" && strings.Trim(s, ".xuns") == "" && strings.ContainsAny(s, "ns") {
 		return "", fmt.Errorf("pattern %q: 'n' (NXDOMAIN) and 's' (SERVFAIL) are for DNS rules (-dns)", s)
 	}
+	if kind == protoUDP {
+		if strings.Trim(s, "xur") != "" {
+			return "", fmt.Errorf("pattern %q may only contain 'x' (no answer), 'u' (unreachable) and 'r' (refuse): pingmock sends no UDP answers", s)
+		}
+		return s, nil
+	}
 	if kind == protoTCP {
 		if strings.Trim(s, ".xur") != "" {
 			return "", fmt.Errorf("pattern %q may only contain '.' (accept), 'x' (drop), 'u' (unreachable) and 'r' (refuse)", s)
@@ -346,7 +361,7 @@ func parsePatternFor(s string, kind proto) (string, error) {
 	}
 	if strings.Trim(s, ".xu") != "" {
 		if strings.Trim(s, ".xur") == "" {
-			return "", fmt.Errorf("pattern %q: 'r' (refuse) is for TCP rules (-tcp)", s)
+			return "", fmt.Errorf("pattern %q: 'r' (refuse) is for TCP and UDP rules (-tcp, -udp)", s)
 		}
 		return "", fmt.Errorf("pattern %q may only contain '.' (reply), 'x' (drop) and 'u' (unreachable)", s)
 	}

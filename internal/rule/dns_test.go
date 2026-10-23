@@ -38,7 +38,7 @@ func TestParseDNSScenario(t *testing.T) {
 		"nxdomain,servfail":    "cannot be combined",
 		"nxdomain,pattern=.n":  "use n or s",
 		"pattern=.u":           "may only contain",
-		"refuse":               "TCP rules",
+		"refuse":               "TCP and UDP rules",
 		"after=close":          "TCP rules",
 		"unreachable":          "not for DNS",
 		"ttl=5":                "TTL 0",

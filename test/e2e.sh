@@ -260,6 +260,32 @@ before=$(retrans)
 read -r status took <<<"$(curl -s -o /dev/null -m 3 -w '%{http_code} %{time_total}' http://10.99.0.32/)"
 near "TCP: wait= delays the reply" "$(ms "$took")" 500 60
 same "TCP: and the client does not send its request again while waiting" "$(( $(retrans) - before ))" 0
+# UDP rules: a connected UDP socket learns of the ICMP error on its next
+# receive, so the program sees "connection refused", "no route to host" or
+# nothing at all.
+curl -sf -X PUT localhost:9100/udp/10.99.0.33:514 -d refuse >/dev/null
+curl -sf -X PUT localhost:9100/udp/10.99.0.34:123 -d unreachable=admin >/dev/null
+curl -sf -X PUT localhost:9100/udp/10.99.0.36:123 -d unreachable >/dev/null
+curl -sf -X PUT localhost:9100/udp/10.99.0.35:53 -d 'timeout for 1 request; refuse' >/dev/null
+udp() { python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_INET6 if ":" in sys.argv[1] else socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(0.5)
+s.connect((sys.argv[1], int(sys.argv[2])))
+s.send(b"hello")
+try:
+    s.recv(100); print("answer")
+except OSError as e:
+    print(type(e).__name__, e.errno or "")' "$@"; }
+same "UDP: refuse is ICMP port unreachable (connection refused)" "$(udp 10.99.0.33 514)" "ConnectionRefusedError 111"
+same "UDP: unreachable=admin is no route to host" "$(udp 10.99.0.34 123)" "OSError 113"
+# Linux tells a UDP socket only of errors it counts as hard: host and
+# network unreachable reach it only with IP_RECVERR.
+same "UDP: unreachable (host) is not reported to a plain socket" "$(udp 10.99.0.36 123 | cut -d' ' -f1)" TimeoutError
+same "UDP: timeout leaves the datagram unanswered, then the next phase refuses" "$(udp 10.99.0.35 53 | cut -d' ' -f1) $(udp 10.99.0.35 53 | cut -d' ' -f1)" "TimeoutError ConnectionRefusedError"
+same "UDP: a port without a rule is not answered" "$(udp 10.99.0.33 515 | cut -d' ' -f1)" TimeoutError
+stats=$(curl -sf localhost:9100/rules | tr -d ' \n' | grep -o '"10.99.0.35:53":{[^}]*}')
+echo "$stats" | grep -q '"requests":2,"refused":1,"dropped":1' && pass "UDP: statistics count datagrams" || fail "UDP: stats: $stats"
 # Rules change while running, through the API.
 curl -sf -X PUT localhost:9100/tcp/10.99.0.21:80 -d refuse >/dev/null
 read -r status _ <<<"$(connect http://10.99.0.21/ 2)"
@@ -274,6 +300,8 @@ if [ -e /proc/net/if_inet6 ]; then
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::27%5D:80' -d after=close >/dev/null
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::28%5D:80' -d after=reset >/dev/null
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::30%5D:80' -d 'reply="HTTP/1.1 503 x\r\nContent-Length: 2\r\n\r\nno",after=close' >/dev/null
+  curl -sf -X PUT 'localhost:9100/udp/%5Bfd99::33%5D:514' -d refuse >/dev/null
+  same "UDP over IPv6: refuse is port unreachable" "$(udp fd99::33 514)" "ConnectionRefusedError 111"
   same "TCP over IPv6: reply= answers the request" "$(curl -s -m 2 -w ' %{http_code}' 'http://[fd99::30]/')" "no 503"
   same "TCP over IPv6: after=close and after=reset (curl exits 52, 56)" \
     "$(exits 'http://[fd99::27]/' | cut -d' ' -f1) $(exits 'http://[fd99::28]/' | cut -d' ' -f1)" "52 56"

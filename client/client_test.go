@@ -290,3 +290,29 @@ func TestDNSRules(t *testing.T) {
 		t.Errorf("deleting again: %v", err)
 	}
 }
+
+func TestUDPRules(t *testing.T) {
+	c, rs, _ := serve(t)
+	ctx := context.Background()
+	if err := c.SetUDP(ctx, "10.99.0.1:514", "refuse"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetUDP(ctx, "10.99.0.1:515", "20ms"); err == nil {
+		t.Error("a UDP rule that answers nothing was accepted")
+	}
+	rs.DecideProbe(icmp.Probe{Kind: icmp.UDP, Src: netip.MustParseAddr("10.99.0.254"), Dst: netip.MustParseAddr("10.99.0.1"), TTL: 64, SrcPort: 4, DstPort: 514})
+	st, err := c.UDPStats(ctx, "10.99.0.1:514")
+	if err != nil || st.Requests != 1 || st.Refused != 1 || st.Rule != "udp 10.99.0.1/32:514" {
+		t.Errorf("UDPStats = %+v, %v", st, err)
+	}
+	s, _ := c.State(ctx)
+	if len(s.UDP) != 1 || s.UDP[0].Rule != "delay=0s,refuse" {
+		t.Errorf("State.UDP = %+v", s.UDP)
+	}
+	if err := c.DeleteUDP(ctx, "10.99.0.1:514"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.DeleteUDP(ctx, "10.99.0.1:514"); !IsNotFound(err) {
+		t.Errorf("deleting again: %v", err)
+	}
+}
