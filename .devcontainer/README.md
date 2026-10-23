@@ -40,8 +40,9 @@ Measured on a Mac with Docker Desktop. The end-to-end checks spend their time wa
 | `go test ./internal/rule/... ./internal/engine/... ./internal/icmp/... ./internal/responder/... ./internal/dns/... ./internal/config/... ./internal/api/... ./client/...` on the Mac itself | seconds | Changing anything but `internal/app` and `internal/tun`, which build on Linux only |
 | `make test` | about 15 s | Any change |
 | `make e2e` | about 25 s | Packets, rules, routes, paths |
-| `make e2e-exec` | about 30 s | `pingmock exec`, names, DNS |
-| `make e2e-compat` | about 40 s the first time, then 20 s | The `icmp` and `engine` packages, which the tools and libraries exercise |
+| `make e2e-exec` | about 20 s | `pingmock exec`, names, DNS |
+| `make e2e-compat` | about 25 s the first time, then 15 s | The `icmp` and `engine` packages, which the tools and libraries exercise |
+| `make e2e-all` | about 25 s | Before pushing: the three above at the same time, each root run in a network namespace of its own |
 
 ## What runs where
 
@@ -51,6 +52,7 @@ Measured on a Mac with Docker Desktop. The end-to-end checks spend their time wa
 | `make e2e` | yes | With IPv6 on Docker Desktop, which enables it in containers. Docker on Linux does not by default, and the IPv6 checks are then skipped |
 | `make e2e-exec` | yes | Rootless and as root |
 | `make e2e-compat` | yes | |
+| `make e2e-all` | yes | |
 | `make e2e-docker` | no | Needs Docker. CI runs it |
 | Ubuntu's AppArmor restriction on user namespaces | no | The container has no AppArmor. CI's `test` job covers the profile in [`contrib/apparmor`](../contrib/apparmor/) |
 

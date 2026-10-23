@@ -871,6 +871,7 @@ make test         # go vet and unit tests with the race detector
 make e2e          # builds pingmock and runs test/e2e.sh with sudo
 make e2e-exec     # pingmock exec, rootless and as root
 make e2e-compat   # ping, fping, pro-bing, icmplib, and Go's and Python's TCP clients against pingmock (needs fping and icmplib)
+make e2e-all      # the three above at the same time, in about 25 seconds
 make e2e-docker   # the container image and the Compose example
 ```
 

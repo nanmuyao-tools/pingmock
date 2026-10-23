@@ -27,5 +27,5 @@ pingmock mocks network answers on Linux, per target, for testing software that d
 ## Running things
 
 - Linux only. On a Mac, or wherever there is no Linux, use the development container: [.devcontainer/README.md](.devcontainer/README.md). On a Mac the packages `internal/app` and `internal/tun` do not even build; the other packages' unit tests run anywhere with `go test`.
-- `make test` (unit tests, no root), `make e2e`, `make e2e-exec`, `make e2e-compat` (root, Linux), `make e2e-docker` (Docker), `make lint`. CI runs them all on Ubuntu 24.04 and 26.04, plus the examples and the dev container: [.github/workflows/ci.yml](.github/workflows/ci.yml).
+- `make test` (unit tests, no root), `make e2e`, `make e2e-exec`, `make e2e-compat` (root, Linux), `make e2e-all` (those three at once, each root run in its own network namespace: the quick way to run them all), `make e2e-docker` (Docker), `make lint`. CI runs them all on Ubuntu 24.04 and 26.04, plus the examples and the dev container: [.github/workflows/ci.yml](.github/workflows/ci.yml).
 - Releases are made by pushing an annotated tag; after one, the version named in the examples is updated (CONTRIBUTING → Releasing).

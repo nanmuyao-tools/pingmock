@@ -1,7 +1,7 @@
 # Common development tasks. The end-to-end checks need root.
 GO ?= go
 
-.PHONY: build test e2e e2e-exec e2e-compat e2e-docker lint clean
+.PHONY: build test e2e e2e-exec e2e-compat e2e-all e2e-docker lint clean
 
 build:
 	$(GO) build -o pingmock .
@@ -21,6 +21,11 @@ e2e-exec: build
 # Needs fping, and icmplib from test/compat/requirements.txt.
 e2e-compat: build
 	sudo env "PATH=$$PATH" test/e2e-compat.sh
+
+# e2e, e2e-compat and e2e-exec at the same time, each root run in a network
+# namespace of its own.
+e2e-all: build
+	test/e2e-all.sh
 
 # The container image and the Compose example; needs Docker.
 e2e-docker:

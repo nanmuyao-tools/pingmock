@@ -870,6 +870,7 @@ make test         # go vet 和带竞态检测的单元测试
 make e2e          # 编译 pingmock，并用 sudo 运行 test/e2e.sh
 make e2e-exec     # pingmock exec，分别以普通用户和 root 运行
 make e2e-compat   # 用 ping、fping、pro-bing、icmplib，以及 Go 和 Python 的 TCP 客户端测试 pingmock（需要安装 fping 和 icmplib）
+make e2e-all      # 上面三项同时跑，约 25 秒
 make e2e-docker   # 容器镜像和 Compose 示例
 ```
 

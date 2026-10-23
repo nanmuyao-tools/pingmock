@@ -16,12 +16,15 @@ start() { # args passed to pingmock
 stop() { kill "$PM" 2>/dev/null || true; wait "$PM" 2>/dev/null || true; PM=""; }
 trap stop EXIT
 
-avg() { ping -c "$2" -i 0.2 -W 2 "$1" | awk -F'/' '/^rtt/ {print $5}'; }
+# The shortest round trip of a few pings: a busy machine delays some replies
+# but never makes one early, so the minimum is the rule's delay plus the
+# least overhead, where an average moves with every late reply.
+rtt() { ping -c "$2" -i 0.2 -W 2 "$1" | awk -F'[ /=]+' '/^rtt/ {print $6}'; }
 # Sequence numbers of the echo replies (not of error messages) ping received.
 received() { ping -c "$2" -i 0.05 -W 1 "$1" 2>/dev/null | grep 'bytes from' | grep -o 'icmp_seq=[0-9]*' | cut -d= -f2 | tr '\n' ' ' || true; }
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; exit 1; }
-near() { # name, actual avg ms, expected ms, tolerance ms
+near() { # name, actual ms, expected ms, tolerance ms
   if awk -v a="$2" -v e="$3" -v t="$4" 'BEGIN { exit !(a >= e - t && a <= e + t) }'; then
     pass "$1: ${2}ms"
   else
@@ -33,17 +36,17 @@ same() { [ "$2" = "$3" ] && pass "$1" || fail "$1: got '$2', want '$3'"; }
 start -seed 1 -rule 10.99.0.1=50ms -rule 10.99.0.2=timeout \
   -rule '10.99.0.3=delay=1ms,pattern=..x' -rule '10.99.0.4=10ms for 2 pings; 120ms'
 
-near "static 50ms" "$(avg 10.99.0.1 3)" 50 5
+near "static 50ms" "$(rtt 10.99.0.1 3)" 50 5
 curl -sf -X PUT localhost:9100/rules/10.99.0.1 -d 250ms >/dev/null
-near "changed at runtime to 250ms" "$(avg 10.99.0.1 3)" 250 10
+near "changed at runtime to 250ms" "$(rtt 10.99.0.1 3)" 250 10
 
 if ping -c 2 -i 0.2 -W 1 10.99.0.2 >/dev/null 2>&1; then fail "timeout target answered"; fi
 pass "timeout target gives no reply"
 
 same "pattern ..x drops every third request" "$(received 10.99.0.3 9)" "1 2 4 5 7 8 "
 
-near "count phase 1 (10ms for 2 pings)" "$(avg 10.99.0.4 2)" 10 3
-near "count phase 2 (120ms afterwards)" "$(avg 10.99.0.4 2)" 120 5
+near "count phase 1 (10ms for 2 pings)" "$(rtt 10.99.0.4 2)" 10 3
+near "count phase 2 (120ms afterwards)" "$(rtt 10.99.0.4 2)" 120 5
 
 events=$(curl -sf "localhost:9100/history?target=10.99.0.3" | grep -c '"seq":' || true)
 same "history records every request" "$events" 9
@@ -91,8 +94,8 @@ same "same seed reproduces random loss ($first)" "$second" "$first"
 cfg=$(mktemp --suffix=.yaml)
 printf 'seed: 3\nrules:\n  10.99.0.6: 30   # milliseconds\n  10.99.0.7: timeout\n  10.99.0.8: unreachable\n' >"$cfg"
 start -config "$cfg" -rule 10.99.0.7=60ms
-near "rule from the config file" "$(avg 10.99.0.6 2)" 30 4
-near "flag overrides the config file" "$(avg 10.99.0.7 2)" 60 5
+near "rule from the config file" "$(rtt 10.99.0.6 2)" 30 4
+near "flag overrides the config file" "$(rtt 10.99.0.7 2)" 60 5
 same "unreachable rule from the config file" "$(ping -c 1 -W 2 10.99.0.8 2>/dev/null | grep -c 'Destination Host Unreachable' || true)" 1
 stop
 rm -f "$cfg"
@@ -105,9 +108,9 @@ else
   start -addr6 fd99::fe/64 -rule fd99::1=40ms -rule fd99::2=unreachable \
     -rule fd99::3=unreachable=net -rule fd99::4=unreachable=admin \
     -rule 'fd99::5=delay=5ms,pattern=..x' -rule 2001:db8::8888=25ms
-  avg6() { ping -6 -c "$2" -i 0.2 -W 2 "$1" | awk -F'/' '/^rtt/ {print $5}'; }
-  near "IPv6 delay 40ms" "$(avg6 fd99::1 3)" 40 5
-  near "IPv6 real address mocked through a route" "$(avg6 2001:db8::8888 2)" 25 5
+  rtt6() { ping -6 -c "$2" -i 0.2 -W 2 "$1" | awk -F'[ /=]+' '/^rtt/ {print $6}'; }
+  near "IPv6 delay 40ms" "$(rtt6 fd99::1 3)" 40 5
+  near "IPv6 real address mocked through a route" "$(rtt6 2001:db8::8888 2)" 25 5
   errors6() { ping -6 -c 2 -i 0.2 -W 2 "$1" 2>/dev/null | grep -c "$2" || true; }
   same "IPv6 unreachable reports address unreachable" "$(errors6 fd99::2 'Destination unreachable: Address unreachable')" 2
   same "IPv6 unreachable=net reports no route" "$(errors6 fd99::3 'Destination unreachable: No route')" 2
@@ -128,7 +131,7 @@ ip addr add 192.168.77.5/24 dev pmhost0
 ip link set pmhost0 up
 host_route() { ip -o "$1" route show exact "$2" table main | grep -c 'dev pmhost0' || true; }
 start -rule 192.168.77.0/24=60ms
-near "a network the host is on is mocked" "$(avg 192.168.77.9 2)" 60 5
+near "a network the host is on is mocked" "$(rtt 192.168.77.9 2)" 60 5
 same "the host's route for it stays while pingmock runs" "$(host_route -4 192.168.77.0/24)" 1
 grep -q "leaving the host's route for 192.168.77.0/24 (dev pmhost0) in place" /tmp/pingmock-e2e.log &&
   pass "pingmock logs that it left the route in place" || fail "no log line about the route left in place"
@@ -148,7 +151,7 @@ same "and its route stays" "$(host_route -4 192.168.77.99/32)" 1
 if [ -e /proc/net/if_inet6 ]; then
   ip -6 addr add fd77::5/64 dev pmhost0 nodad
   start -rule fd77::/64=60ms
-  near "IPv6: a network the host is on is mocked" "$(avg6 fd77::9 2)" 60 5
+  near "IPv6: a network the host is on is mocked" "$(rtt6 fd77::9 2)" 60 5
   same "IPv6: the host's route for it stays while pingmock runs" "$(host_route -6 fd77::/64)" 1
   stop
   same "IPv6: the host's route for it stays after pingmock exits" "$(host_route -6 fd77::/64)" 1
@@ -327,7 +330,7 @@ if command -v traceroute >/dev/null; then
   same "traceroute -T shows the path" "$(hops -T)" "$want"
   hop2=$(traceroute -n -q 1 -w 0.5 -m 8 10.99.0.80 2>/dev/null | awk 'NR==3 {print $3}')
   near "the second hop answers after its own delay" "$hop2" 15 5
-  near "ping still gets the target's rule" "$(avg 10.99.0.80 2)" 30 5
+  near "ping still gets the target's rule" "$(rtt 10.99.0.80 2)" 30 5
   if command -v mtr >/dev/null; then
     same "mtr shows the path" "$(mtr -n -r -c 1 -G 0.5 10.99.0.80 | tail -n +3 | awk '{print $2}' | tr '\n' ' ')" "192.168.1.1 10.0.0.1 ??? 72.14.0.1 10.99.0.80 "
   fi

@@ -159,7 +159,7 @@ The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../
 ## Where the tests are
 
 - **Unit tests**: the `*_test.go` files next to each package; no root needed, run `make test`. The responder tests feed packets to a fake device, and the engine tests use a fake clock moved by hand.
-- **End-to-end checks**: in [`test/`](../test/), with the real `ping`, curl, bash's `/dev/tcp`, getent and Python; run `make e2e`, `make e2e-exec`, `make e2e-compat` and `make e2e-docker`.
+- **End-to-end checks**: in [`test/`](../test/), with the real `ping`, curl, bash's `/dev/tcp`, getent and Python; run `make e2e`, `make e2e-exec`, `make e2e-compat` and `make e2e-docker`, or the first three at once with `make e2e-all`.
 
 ## Where to make common changes
 

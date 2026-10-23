@@ -14,6 +14,7 @@ trap 'status=$?; echo "FAIL at line $LINENO (exit $status)"; echo "--- pingmock 
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; echo "--- pingmock log:"; tail -n 20 "$LOG"; exit 1; }
 same() { [ "$2" = "$3" ] && pass "$1" || fail "$1: got '$2', want '$3'"; }
+# Ping results are the shortest round trip of a few pings, as in e2e.sh.
 near() {
   if awk -v a="$2" -v e="$3" -v t="$4" 'BEGIN { exit !(a >= e - t && a <= e + t) }'; then
     pass "$1: ${2}ms"
@@ -25,8 +26,8 @@ run() { "$PM" exec -addr6 "" "$@" 2>>"$LOG"; }
 
 if [ "$(id -u)" = 0 ]; then echo "running as root"; else echo "running as $(id -un) (rootless)"; fi
 
-avg=$(run -rule 10.99.0.1=45ms -- sh -c "ping -c 3 -i 0.2 10.99.0.1 | awk -F/ '/^rtt/ {print \$5}'")
-near "ping inside exec" "$avg" 45 5
+rtt=$(run -rule 10.99.0.1=45ms -- sh -c "ping -c 3 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
+near "ping inside exec" "$rtt" 45 5
 
 status=0
 run -- sh -c 'exit 7' || status=$?
@@ -48,14 +49,14 @@ same "PINGMOCK_API is set for the command" "$api" "http://127.0.0.1:9100"
 
 changed=$(run -rule 10.99.0.1=10ms -- sh -c "
   curl -sf -X PUT \"\$PINGMOCK_API/rules/10.99.0.1\" -d 120ms >/dev/null
-  ping -c 2 -i 0.2 10.99.0.1 | awk -F/ '/^rtt/ {print \$5}'")
+  ping -c 2 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
 near "rules change through the API inside exec" "$changed" 120 6
 
 # POST /reset puts the startup rules back; GET /version names the build.
 reset=$(run -rule 10.99.0.1=10ms -- sh -c "
   curl -sf -X PUT \"\$PINGMOCK_API/rules/10.99.0.1\" -d 120ms >/dev/null
   curl -sf -X POST \"\$PINGMOCK_API/reset\"
-  ping -c 2 -i 0.2 10.99.0.1 | awk -F/ '/^rtt/ {print \$5}'")
+  ping -c 2 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
 near "POST /reset restores the startup rules" "$reset" 10 5
 version=$(run -- sh -c 'curl -sf "$PINGMOCK_API/version"' | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
 same "GET /version reports the build" "$version" "$("$PM" -version | cut -d' ' -f2)"
@@ -64,7 +65,7 @@ same "GET /version reports the build" "$version" "$("$PM" -version | cut -d' ' -
 before=$(md5sum /etc/hosts)
 resolved=$(run -host test.example=10.99.0.1 -rule 10.99.0.1=35ms -- sh -c "
   getent hosts test.example | awk '{print \$1}'
-  ping -c 2 -i 0.2 test.example | awk -F/ '/^rtt/ {print \$5}'")
+  ping -c 2 -i 0.2 test.example | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
 same "-host resolves the name for the command" "$(echo "$resolved" | head -1)" "10.99.0.1"
 near "-host: ping by name gets the rule's delay" "$(echo "$resolved" | tail -1)" 35 5
 same "-host leaves the system's /etc/hosts alone" "$(md5sum /etc/hosts)" "$before"
@@ -89,7 +90,7 @@ before_resolv=$(md5sum /etc/resolv.conf 2>/dev/null || true)
 named=$(run -rule by-name.example=45ms -- sh -c "
   getent hosts by-name.example | awk '{print \$1}'
   getent hosts 10.99.0.253 | awk '{print \$2}'
-  ping -c 2 -i 0.2 by-name.example | awk -F/ '/^rtt/ {print \$5}'
+  ping -c 2 -i 0.2 by-name.example | awk -F'[ /=]+' '/^rtt/ {print \$6}'
   getent hosts does-not-exist.invalid >/dev/null; echo \$?")
 same "a rule for a name resolves to the top of the subnet" "$(echo "$named" | sed -n 1p)" "10.99.0.253"
 same "the address resolves back to the name" "$(echo "$named" | sed -n 2p)" "by-name.example"
@@ -214,7 +215,7 @@ pass "the host network is untouched"
 # Parallel runs are isolated: same device name and API port, different rules.
 out=$(mktemp -d)
 for d in 20 50 80; do
-  run -rule 10.99.0.1=${d}ms -- sh -c "sleep 0.3; ping -c 2 -i 0.2 10.99.0.1 | awk -F/ '/^rtt/ {print \$5}'" >"$out/$d" &
+  run -rule 10.99.0.1=${d}ms -- sh -c "sleep 0.3; ping -c 2 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'" >"$out/$d" &
 done
 wait
 for d in 20 50 80; do near "parallel run with ${d}ms" "$(cat "$out/$d")" "$d" 5; done

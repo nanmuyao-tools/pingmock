@@ -27,6 +27,7 @@ make test         # go vet and unit tests with the race detector (no root needed
 make e2e          # build and run test/e2e.sh with sudo
 make e2e-exec     # pingmock exec, rootless and as root
 make e2e-compat   # fping, pro-bing and icmplib against pingmock (needs fping and icmplib)
+make e2e-all      # e2e, e2e-exec and e2e-compat at the same time, in about 25 seconds
 make e2e-docker   # the container image and the Compose example (needs Docker)
 make lint         # gofmt, go vet and shellcheck
 ```
@@ -56,7 +57,8 @@ docs/                    network basics, the code tour, the packet path, the pac
                          the roadmap, and how it is planned
 examples/                example configuration, Compose file, complete examples in Go, Python
                          and shell, a ping library's tests, and a GitHub Actions workflow
-test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-compat.sh, e2e-docker.sh;
+test/                    end-to-end checks: e2e.sh, e2e-exec.sh, e2e-compat.sh, e2e-docker.sh,
+                         and e2e-all.sh, which runs the first three at once;
                          test/compat holds the libraries e2e-compat.sh uses, as its own module
 scripts/release-notes.sh release notes from an annotated tag
 Dockerfile               the container image

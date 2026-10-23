@@ -161,7 +161,7 @@ main.go: main
 ## 测试在哪里
 
 - **单元测试**：每个包旁边的 `*_test.go`，不需要 root，运行 `make test`。responder 的测试用一个假的网卡喂数据包，engine 的测试用一个可以手动拨动的假时钟
-- **端到端测试**：[`test/`](../test/) 目录下，用真实的 `ping`、curl、bash 的 `/dev/tcp`、getent 和 Python 验证，运行 `make e2e`、`make e2e-exec`、`make e2e-compat`、`make e2e-docker`
+- **端到端测试**：[`test/`](../test/) 目录下，用真实的 `ping`、curl、bash 的 `/dev/tcp`、getent 和 Python 验证，运行 `make e2e`、`make e2e-exec`、`make e2e-compat`、`make e2e-docker`，前三项也可以用 `make e2e-all` 同时跑
 
 ## 常见的修改改哪里
 

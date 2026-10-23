@@ -208,4 +208,4 @@ jobs:
           docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tun \
             --security-opt apparmor=unconfined \
             -v "$PWD:/workspace" -w /workspace pingmock-dev \
-            bash -c 'make lint && make test && make e2e && make e2e-exec && make e2e-compat'
+            bash -c 'make lint && make test && make e2e-all'

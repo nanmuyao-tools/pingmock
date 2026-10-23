@@ -40,8 +40,9 @@ docker run --rm -it --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tu
 | 在 Mac 上直接 `go test ./internal/rule/... ./internal/engine/... ./internal/icmp/... ./internal/responder/... ./internal/dns/... ./internal/config/... ./internal/api/... ./client/...` | 几秒 | 改的不是 `internal/app` 和 `internal/tun`（这两个只能在 Linux 上编译）时 |
 | `make test` | 约 15 秒 | 任何改动 |
 | `make e2e` | 约 25 秒 | 数据包、规则、路由、路径 |
-| `make e2e-exec` | 约 30 秒 | `pingmock exec`、域名、DNS |
-| `make e2e-compat` | 第一次约 40 秒，之后 20 秒 | `icmp` 和 `engine` 包，各种工具和库会用到 |
+| `make e2e-exec` | 约 20 秒 | `pingmock exec`、域名、DNS |
+| `make e2e-compat` | 第一次约 25 秒，之后 15 秒 | `icmp` 和 `engine` 包，各种工具和库会用到 |
+| `make e2e-all` | 约 25 秒 | 推送之前：上面三项同时跑，用 root 跑的各自在自己的网络命名空间里 |
 
 ## 哪些在容器里跑，哪些交给 CI
 
@@ -51,6 +52,7 @@ docker run --rm -it --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tu
 | `make e2e` | 能 | Docker Desktop 的容器里有 IPv6，所以 IPv6 的检查也会跑；Linux 上的 Docker 默认没有，这些检查会跳过 |
 | `make e2e-exec` | 能 | 免 root 和 root 两种都跑 |
 | `make e2e-compat` | 能 | |
+| `make e2e-all` | 能 | |
 | `make e2e-docker` | 不能 | 需要 Docker，由 CI 运行 |
 | Ubuntu 的 AppArmor 对用户命名空间的限制 | 不能 | 容器里没有 AppArmor，CI 的 `test` 任务覆盖 [`contrib/apparmor`](../contrib/apparmor/) 里的配置 |
 
