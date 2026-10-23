@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/netip"
 	"os"
 	"time"
 
@@ -14,20 +13,19 @@ import (
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
-// dnsServerAddr is the address of the command's DNS server, as recorded
-// in the history.
-var dnsServerAddr = netip.MustParseAddr("127.0.0.1")
-
 // dnsRule returns the DNS server's Rule: the decision of rs, recorded in
 // hist and, if verbose, in the log.
-func dnsRule(rs *engine.RuleSet, hist *engine.History, verbose bool) func(string, uint16) (rule.Outcome, time.Duration, bool) {
-	return func(name string, qtype uint16) (rule.Outcome, time.Duration, bool) {
+// A query's event has the query's ID and no addresses: they would all be
+// the command's own DNS server, 127.0.0.1, and the history filters events
+// by address.
+func dnsRule(rs *engine.RuleSet, hist *engine.History, verbose bool) func(uint16, string, uint16) (rule.Outcome, time.Duration, bool) {
+	return func(id uint16, name string, qtype uint16) (rule.Outcome, time.Duration, bool) {
 		d, ok := rs.DecideDNS(name, qtype)
 		if !ok {
 			return 0, 0, false
 		}
 		ev := engine.Event{
-			Time: time.Now(), Src: dnsServerAddr, Dst: dnsServerAddr, Result: d.Outcome.String(),
+			Time: time.Now(), ID: id, Result: d.Outcome.String(),
 			Rule: d.Rule, Phase: d.Phase, Probe: "dns", Name: dns.Canonical(name), QType: engine.QType(qtype),
 		}
 		if d.Outcome == rule.Reply {

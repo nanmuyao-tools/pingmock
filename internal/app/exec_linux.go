@@ -36,8 +36,8 @@ TCP connections and UDP datagrams there, and DNS queries for names with
 a -dns rule.
 Root is not needed: as an unprivileged user, pingmock creates a user
 namespace too. The host network is not touched, several runs can happen
-at once, and pingmock exits with CMD's exit status. When CMD exits, any
-processes it left running are stopped.
+at once, and pingmock exits with CMD's exit status, or 125 if it fails
+itself. When CMD exits, any processes it left running are stopped.
 
 CMD can reach the control API at the address in $PINGMOCK_API. It has no
 network access other than the mocked targets. A rule may be written for a
@@ -61,6 +61,13 @@ Flags:
 	fs.PrintDefaults()
 }
 
+// execFailed is the exit status of pingmock exec when it fails itself,
+// before or around the command: bad flags or rules, or a network that
+// cannot be set up. As for docker run, env and timeout, it is 125, so
+// that it is not taken for the command's own status; 126 and 127 say the
+// command could not be run or found.
+const execFailed = 125
+
 // runExec starts a copy of pingmock in new namespaces, which then runs the
 // command. It returns the command's exit status.
 func runExec(args []string) int {
@@ -70,16 +77,16 @@ func runExec(args []string) int {
 	}
 	if err != nil {
 		log.Print(err)
-		return 2
+		return execFailed
 	}
 	if len(cmdArgs) == 0 {
 		log.Print("pingmock exec: no command given; usage: pingmock exec [flags] -- CMD [ARGS...]")
-		return 2
+		return execFailed
 	}
 	self, err := os.Executable()
 	if err != nil {
 		log.Printf("pingmock exec: %v", err)
-		return 1
+		return execFailed
 	}
 	child := exec.Command(self, append([]string{execChildArg}, args...)...)
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -99,7 +106,7 @@ func runExec(args []string) int {
 		fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
 		if err != nil {
 			log.Printf("pingmock exec: %v", err)
-			return 1
+			return execFailed
 		}
 		parentEnd := os.NewFile(uintptr(fds[0]), "dns-relay")
 		childEnd = os.NewFile(uintptr(fds[1]), "dns-relay")
@@ -133,7 +140,7 @@ func runExec(args []string) int {
 		} else {
 			log.Printf("pingmock exec: cannot create a network namespace: %v", err)
 		}
-		return 1
+		return execFailed
 	}
 	stop := forwardSignals(child.Process)
 	defer stop()
@@ -149,31 +156,31 @@ func runExecChild(args []string) int {
 	s, cmdArgs, err := parseSettings("pingmock exec", args, execUsage, io.Discard)
 	if err != nil {
 		log.Print(err)
-		return 2
+		return execFailed
 	}
 	s.exec = true
 	if s.names() {
 		if err := setupNames(s.hostsFile(), s.dnsNames()); err != nil {
 			log.Print(explain(err, rootless))
-			return 1
+			return execFailed
 		}
 	}
 	// The new namespace starts with loopback down; the API and the DNS
 	// server listen on it.
 	if err := tun.IP("link", "set", "lo", "up"); err != nil {
 		log.Print(explain(err, rootless))
-		return 1
+		return execFailed
 	}
 	in, err := start(s)
 	if err != nil {
 		log.Print(explain(err, rootless))
-		return 1
+		return execFailed
 	}
 	defer in.Close()
 	if s.names() {
 		if err := serveDNS(s.hosts, in.rules, in.history, s.verbose); err != nil {
 			log.Print(explain(err, rootless))
-			return 1
+			return execFailed
 		}
 	}
 
@@ -237,7 +244,7 @@ func exitStatus(err error) int {
 		return ee.ExitCode()
 	}
 	log.Print(err)
-	return 1
+	return execFailed
 }
 
 // explain adds advice to errors that unprivileged users commonly hit.

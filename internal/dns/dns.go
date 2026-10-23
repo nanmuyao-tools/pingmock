@@ -91,8 +91,9 @@ type Server struct {
 	// Rule, if set, decides how to answer a query for a name with a DNS
 	// rule: answer as without the rule (rule.Reply), rule.NXDomain,
 	// rule.ServFail or no answer (rule.Drop), after the delay. ok is false
-	// for names without a rule. PTR queries are not asked about.
-	Rule func(name string, qtype uint16) (out rule.Outcome, delay time.Duration, ok bool)
+	// for names without a rule. PTR queries are not asked about. id is
+	// the query's ID, for the history.
+	Rule func(id uint16, name string, qtype uint16) (out rule.Outcome, delay time.Duration, ok bool)
 	// Log, if set, is told about every query.
 	Log func(format string, args ...any)
 }
@@ -182,7 +183,7 @@ func (s *Server) answer(q []byte, tcp bool) []byte {
 		return respond(q, q[12:qend], rcodeOK, nil)
 	}
 	if s.Rule != nil && qtype != typePTR {
-		if out, delay, ok := s.Rule(name, qtype); ok {
+		if out, delay, ok := s.Rule(binary.BigEndian.Uint16(q[0:2]), name, qtype); ok {
 			var resp []byte
 			switch out {
 			case rule.Drop:

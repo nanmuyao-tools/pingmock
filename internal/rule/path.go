@@ -1,6 +1,7 @@
 package rule
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
@@ -176,7 +177,17 @@ func (p Path) Addrs() []netip.Addr {
 }
 
 // The JSON form of a path is its text form.
-func (p Path) MarshalJSON() ([]byte, error) { return json.Marshal(p.String()) }
+// MarshalJSON writes the text form, with ">" as it is rather than escaped
+// for HTML.
+func (p Path) MarshalJSON() ([]byte, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(p.String()); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
+}
 
 func (p *Path) UnmarshalJSON(b []byte) error {
 	var text string

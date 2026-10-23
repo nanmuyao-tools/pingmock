@@ -360,7 +360,7 @@ func TestRules(t *testing.T) {
 		return respond(q, q[12:], rcodeOK, [][]byte{record(typeA, []byte{93, 184, 216, 34})}), nil
 	})
 	var asked []string
-	s.Rule = func(name string, qtype uint16) (rule.Outcome, time.Duration, bool) {
+	s.Rule = func(_ uint16, name string, qtype uint16) (rule.Outcome, time.Duration, bool) {
 		asked = append(asked, fmt.Sprintf("%s/%d", name, qtype))
 		switch name {
 		case "api.example.com":

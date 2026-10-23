@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/rand/v2"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -101,5 +102,30 @@ func TestPathJSON(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(`"10.0.0.1@nope"`), &out); err == nil {
 		t.Error("a bad path was accepted")
+	}
+}
+
+// The JSON of a path keeps ">" as it is, so that GET /rules reads as the
+// text form does.
+func TestPathJSONKeepsArrows(t *testing.T) {
+	p, err := ParsePath("192.168.1.1@2ms > * > 10.0.0.1@20ms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// As the API writes it, with an encoder that does not escape HTML;
+	// json.Marshal would escape what MarshalJSON returns again.
+	var buf strings.Builder
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(map[string]Path{"path": p}); err != nil {
+		t.Fatal(err)
+	}
+	escaped := "\\" + "u003e"
+	if got := buf.String(); strings.Contains(got, escaped) || !strings.Contains(got, " > ") {
+		t.Errorf("JSON %s", got)
+	}
+	var back map[string]Path
+	if err := json.Unmarshal([]byte(buf.String()), &back); err != nil || back["path"].String() != p.String() {
+		t.Errorf("round trip: %v %v", back, err)
 	}
 }

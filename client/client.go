@@ -326,7 +326,9 @@ func (c *Client) ResetStats(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/stats", "", nil)
 }
 
-// Event describes how one echo request was answered.
+// Event describes how one request was answered: an echo request, a probe
+// of traceroute, a TCP connection attempt or segment, a UDP datagram or a
+// DNS query.
 type Event struct {
 	Time   time.Time `json:"time"`
 	Src    string    `json:"src"`

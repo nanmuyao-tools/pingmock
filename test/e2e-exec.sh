@@ -36,6 +36,13 @@ status=0
 run -- no-such-command-pingmock || status=$?
 same "missing command exits 127" "$status" 127
 
+status=0
+run -tcp 10.99.0.1:80=nonsense -- true || status=$?
+same "pingmock exec's own failure exits 125, not a status the command could have" "$status" 125
+status=0
+run -- sh -c 'exit 2' || status=$?
+same "the command's exit status 2 is its own" "$status" 2
+
 api=$(run -rule 10.99.0.1=10ms -- sh -c 'echo "$PINGMOCK_API"')
 same "PINGMOCK_API is set for the command" "$api" "http://127.0.0.1:9100"
 
@@ -149,7 +156,9 @@ dns=$(run -host fixed.example=10.99.0.5 -rule api.example.com=5ms \
     flaky.example. flaky.example. flaky.example. slow.example. fixed.example.
   grep -c 'api.example.com' /etc/hosts || true
   curl -s localhost:9100/rules | tr -d ' \n' | grep -o '\"flaky.example/A\":{[^}]*}'
-  curl -s 'localhost:9100/history?target=gone.example' | tr -d ' \n' | grep -o '\"result\":\"[a-z]*\"' | sort -u")
+  curl -s 'localhost:9100/history?target=gone.example' | tr -d ' \n' | grep -o '\"result\":\"[a-z]*\"' | sort -u
+  curl -s 'localhost:9100/history?target=gone.example' | tr -d ' \n' | grep -o '\"src\":\"[^\"]*\",\"dst\":\"[^\"]*\",\"id\":[0-9]*' | head -1
+  curl -s 'localhost:9100/history?target=127.0.0.1' | tr -d ' \n' | grep -c '\"probe\":\"dns\"' || true")
 field() { echo "$dns" | awk -v n="$1" -v f="$2" 'NR == n {print $f}'; }
 same "DNS: nxdomain fails the lookup as not found (EAI_NONAME)" "$(field 1 2)" error-2
 same "DNS: servfail fails it as a temporary failure (EAI_AGAIN)" "$(field 2 2)" error-3
@@ -161,6 +170,8 @@ same "DNS: a name without a DNS rule resolves as before" "$(field 8 2)" 10.99.0.
 same "DNS: a name with a DNS rule is left out of the command's /etc/hosts" "$(echo "$dns" | sed -n 9p)" 0
 echo "$dns" | sed -n 10p | grep -q '"requests":3,"answered":1,"nxdomain":2' && pass "DNS: statistics count the queries per name and type" || fail "DNS: stats: $(echo "$dns" | sed -n 10p)"
 same "DNS: the history records the result of each query" "$(echo "$dns" | sed -n 11p)" '"result":"nxdomain"'
+echo "$dns" | sed -n 12p | grep -q '^"src":"","dst":"","id":[1-9]' && pass "DNS: events have no addresses and the query's ID" || fail "DNS: event fields: $(echo "$dns" | sed -n 12p)"
+same "DNS: events do not match an address filter" "$(echo "$dns" | sed -n 13p)" 0
 # Rules change while the command runs, also for names that are not
 # mocked (localhost.example is forwarded otherwise).
 changed=$(run -dns gone.example=nxdomain -host gone.example=10.99.0.8 -- sh -c "
