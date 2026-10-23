@@ -173,3 +173,13 @@ func TestServeIPv6(t *testing.T) {
 		t.Errorf("history = %+v", events)
 	}
 }
+
+// handle is decide for a test that expects one packet: the first one the
+// plan writes, and its delay.
+func (r *Responder) handle(pkt []byte) ([]byte, time.Duration) {
+	pl := r.decide(pkt)
+	if all := append(pl.now, pl.later...); len(all) > 0 {
+		return all[0], pl.delay
+	}
+	return nil, 0
+}

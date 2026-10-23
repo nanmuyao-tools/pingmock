@@ -236,6 +236,30 @@ pass "TCP: statistics count closed and reset connections"
 events=$(curl -sf "localhost:9100/history?target=10.99.0.28" | tr -d ' \n')
 [ "$(grep -o '"result":"reset"' <<<"$events" | wc -l)" -eq 5 ] || fail "TCP: history of resets: $events"
 pass "TCP: the history records each reset once"
+# Data on the connection: a banner sent at once, a reply to the request,
+# and a limit on what the client may send.
+curl -sf -X PUT localhost:9100/tcp/10.99.0.29:22 -d 'send="SSH-2.0-OpenSSH_9.6\r\n"' >/dev/null
+curl -sf -X PUT localhost:9100/tcp/10.99.0.30:80 -d 'reply="HTTP/1.1 503 Service Unavailable\r\nContent-Length: 4\r\n\r\ndown",after=close' >/dev/null
+curl -sf -X PUT localhost:9100/tcp/10.99.0.31:80 -d 'limit=1000,after=reset' >/dev/null
+curl -sf -X PUT localhost:9100/tcp/10.99.0.32:80 -d 'wait=500ms,reply="HTTP/1.0 200 OK\r\n\r\nhi",after=close' >/dev/null
+same "TCP: send= is the first thing the client reads" "$(python3 -c '
+import socket
+print(socket.create_connection(("10.99.0.29", 22), timeout=2).recv(100).decode().strip())')" "SSH-2.0-OpenSSH_9.6"
+same "TCP: reply= answers the request (curl gets the status and body)" "$(curl -s -m 2 -w ' %{http_code}' http://10.99.0.30/)" "down 503"
+same "TCP: limit= resets the connection once the client sent that much" "$(python3 -c '
+import socket, time
+s = socket.create_connection(("10.99.0.31", 80), timeout=2)
+try:
+    for _ in range(10):
+        s.sendall(b"x" * 500); time.sleep(0.05)
+    s.recv(1); print("no error")
+except OSError as e:
+    print(type(e).__name__)')" ConnectionResetError
+retrans() { awk '/^Tcp:/ {n++} n == 2 && /^Tcp:/ {print $13}' /proc/net/snmp; }
+before=$(retrans)
+read -r status took <<<"$(curl -s -o /dev/null -m 3 -w '%{http_code} %{time_total}' http://10.99.0.32/)"
+near "TCP: wait= delays the reply" "$(ms "$took")" 500 60
+same "TCP: and the client does not send its request again while waiting" "$(( $(retrans) - before ))" 0
 # Rules change while running, through the API.
 curl -sf -X PUT localhost:9100/tcp/10.99.0.21:80 -d refuse >/dev/null
 read -r status _ <<<"$(connect http://10.99.0.21/ 2)"
@@ -249,6 +273,8 @@ if [ -e /proc/net/if_inet6 ]; then
   same "TCP over IPv6: refused" "$status" 7
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::27%5D:80' -d after=close >/dev/null
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::28%5D:80' -d after=reset >/dev/null
+  curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::30%5D:80' -d 'reply="HTTP/1.1 503 x\r\nContent-Length: 2\r\n\r\nno",after=close' >/dev/null
+  same "TCP over IPv6: reply= answers the request" "$(curl -s -m 2 -w ' %{http_code}' 'http://[fd99::30]/')" "no 503"
   same "TCP over IPv6: after=close and after=reset (curl exits 52, 56)" \
     "$(exits 'http://[fd99::27]/' | cut -d' ' -f1) $(exits 'http://[fd99::28]/' | cut -d' ' -f1)" "52 56"
 fi

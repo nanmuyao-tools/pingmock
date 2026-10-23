@@ -29,6 +29,15 @@ type Spec struct {
 	// After is what happens to a connection once it is accepted: it
 	// stays open (the default), is closed or is reset. TCP rules only.
 	After After
+	// Send is what pingmock sends as soon as a connection is accepted,
+	// and Reply what it sends when the client first sends data: fixed
+	// bytes, such as a banner or an error reply. Wait delays them. TCP
+	// rules only.
+	Send, Reply []byte
+	Wait        time.Duration
+	// Limit, if positive, is how many bytes the client may send before
+	// After (close or reset) ends the connection. TCP rules only.
+	Limit int
 	// DNSFail answers a DNS query with an error instead of the answer:
 	// the name does not exist, or the server failed. DNS rules only.
 	DNSFail DNSFail
@@ -90,7 +99,7 @@ func parseSpec(s string, kind proto) (Spec, error) {
 		sp.Loss = 1
 		return sp, nil
 	}
-	for _, part := range strings.Split(s, ",") {
+	for _, part := range splitUnquoted(s, ',') {
 		part = strings.TrimSpace(part)
 		key, val, found := strings.Cut(part, "=")
 		if !found {
@@ -123,6 +132,20 @@ func parseSpec(s string, kind proto) (Spec, error) {
 				err = fmt.Errorf("after is for TCP rules (-tcp)")
 			} else {
 				sp.After, err = parseAfter(val)
+			}
+		case "send", "reply", "limit", "wait":
+			k := strings.ToLower(strings.TrimSpace(key))
+			switch {
+			case kind != protoTCP:
+				err = fmt.Errorf("%s is for TCP rules (-tcp)", k)
+			case k == "send":
+				sp.Send, err = parseData(k, val)
+			case k == "reply":
+				sp.Reply, err = parseData(k, val)
+			case k == "wait":
+				sp.Wait, err = parseDuration(val)
+			default:
+				sp.Limit, err = parseLimit(val)
 			}
 		case "refuse":
 			switch {
@@ -197,6 +220,23 @@ func (sp Spec) validateFor(kind proto) error {
 			return fmt.Errorf("after=%s applies to accepted connections, and this rule accepts none", sp.After)
 		}
 	}
+	if sp.sends() || sp.Limit != 0 || sp.Wait != 0 {
+		switch {
+		case kind != protoTCP:
+			return fmt.Errorf("send, reply, limit and wait are for TCP rules (-tcp)")
+		case sp.Refuse || sp.Unreachable != UnreachNone || (sp.Loss == 1 && sp.Pattern == "") ||
+			(sp.Pattern != "" && !strings.Contains(sp.Pattern, ".")):
+			return fmt.Errorf("send, reply and limit apply to accepted connections, and this rule accepts none")
+		case sp.Wait < 0 || sp.Limit < 0:
+			return fmt.Errorf("negative wait or limit")
+		case sp.Wait != 0 && !sp.sends():
+			return fmt.Errorf("wait delays send or reply, and this rule has neither")
+		case sp.Limit != 0 && sp.After == AfterHang:
+			return fmt.Errorf("limit=%d needs after=close or after=reset, which says how the connection ends", sp.Limit)
+		case len(sp.Send) > MaxData || len(sp.Reply) > MaxData:
+			return fmt.Errorf("send and reply may hold %d bytes each", MaxData)
+		}
+	}
 	if sp.DNSFail != DNSFailNone {
 		switch {
 		case kind != protoDNS:
@@ -214,6 +254,24 @@ func (sp Spec) validateFor(kind proto) error {
 		}
 	}
 	return nil
+}
+
+// sends reports whether the spec sends bytes on a connection.
+func (sp Spec) sends() bool { return len(sp.Send) > 0 || len(sp.Reply) > 0 }
+
+// Talks reports whether connections accepted under the spec exchange
+// data: pingmock sends bytes or counts the client's, and so acknowledges
+// what the client sends. Under a spec that does not, an accepted
+// connection gets nothing after the handshake but what After sends.
+func (sp Spec) Talks() bool { return sp.sends() || sp.Limit > 0 }
+
+// parseLimit accepts a number of bytes, at least 1.
+func parseLimit(s string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("limit %q must be a number of bytes, at least 1", s)
+	}
+	return n, nil
 }
 
 // parseDuration accepts Go durations ("1.5s", "120ms") and plain numbers,
@@ -311,6 +369,18 @@ func (sp Spec) String() string {
 	}
 	if sp.Refuse {
 		parts = append(parts, "refuse")
+	}
+	if len(sp.Send) > 0 {
+		parts = append(parts, "send="+quoteData(sp.Send))
+	}
+	if len(sp.Reply) > 0 {
+		parts = append(parts, "reply="+quoteData(sp.Reply))
+	}
+	if sp.Wait > 0 {
+		parts = append(parts, "wait="+sp.Wait.String())
+	}
+	if sp.Limit > 0 {
+		parts = append(parts, "limit="+strconv.Itoa(sp.Limit))
 	}
 	if sp.After != AfterHang {
 		parts = append(parts, "after="+sp.After.String())

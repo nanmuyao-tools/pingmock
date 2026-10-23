@@ -124,7 +124,7 @@ func TestBuildSegment(t *testing.T) {
 	c4, t4 := netip.MustParseAddr("10.99.0.254"), netip.MustParseAddr("10.99.0.1")
 	req := buildProbe(TCP, c4, t4, 64, 40000, 80, 1001)
 	req[20+13] = FlagACK
-	out := BuildSegment(req, 64, FlagFIN|FlagACK, SynAckSeq+1, 1001)
+	out := BuildSegment(req, 64, FlagFIN|FlagACK, SynAckSeq+1, 1001, nil)
 	seg := out[20:]
 	if Checksum(out[:20]) != 0 || tcpChecksum(out[12:16], out[16:20], seg) != 0 {
 		t.Fatal("v4: bad checksum")
@@ -136,13 +136,26 @@ func TestBuildSegment(t *testing.T) {
 	}
 	req = buildProbe(TCP, client6, target6, 64, 40001, 443, 7)
 	req[40+13] = FlagACK
-	out = BuildSegment(req, 64, FlagRST|FlagACK, SynAckSeq+1, 20)
+	out = BuildSegment(req, 64, FlagRST|FlagACK, SynAckSeq+1, 20, nil)
 	if tcpChecksum(out[8:24], out[24:40], out[40:]) != 0 || out[40+13] != 0x14 || binary.BigEndian.Uint32(out[40+8:]) != 20 {
 		t.Errorf("v6: flags %#x ack %d or bad checksum", out[40+13], binary.BigEndian.Uint32(out[40+8:]))
 	}
 	// What pingmock sends must never come back in as a segment to answer.
 	if p, ok := ParseProbe(out); ok {
 		t.Errorf("the reset parsed as %+v", p)
+	}
+	// With data: the lengths grow by it, and the checksum covers it.
+	data := []byte("SSH-2.0-pingmock\r\n")
+	out = BuildSegment(req, 64, FlagPSH|FlagACK, SynAckSeq+1, 8, data)
+	if len(out) != 60+len(data) || int(binary.BigEndian.Uint16(out[4:6])) != 20+len(data) ||
+		tcpChecksum(out[8:24], out[24:40], out[40:]) != 0 || string(out[60:]) != string(data) {
+		t.Errorf("v6 with data: % x", out)
+	}
+	req4 := buildProbe(TCP, c4, t4, 64, 40000, 80, 1001)
+	out = BuildSegment(req4, 64, FlagPSH|FlagACK, SynAckSeq+1, 1001, data)
+	if len(out) != 40+len(data) || int(binary.BigEndian.Uint16(out[2:4])) != 40+len(data) || Checksum(out[:20]) != 0 ||
+		tcpChecksum(out[12:16], out[16:20], out[20:]) != 0 || string(out[40:]) != string(data) {
+		t.Errorf("v4 with data: % x", out)
 	}
 }
 

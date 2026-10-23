@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
@@ -327,5 +328,38 @@ func TestLoadDNS(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: error %v, want it to contain %q", in, err, want)
 		}
+	}
+}
+
+// The bytes of send= and reply= in both forms of a configuration file:
+// the mapping takes text, with YAML's escapes in double quotes, and the
+// text form in single quotes reaches pingmock as written.
+func TestLoadTCPData(t *testing.T) {
+	cfg, _, err := Load(writeFile(t, "d.yaml", `tcp:
+  10.99.0.1:80:
+    reply: "HTTP/1.1 503 x\r\n\r\n"
+    after: close
+  10.99.0.2:80: 'send="\xff\x00",limit=5,after=reset'
+  10.99.0.3:80: {send: "a,b;c", wait: 1s}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tcp, err := cfg.SortedTCP("d.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]rule.Spec{}
+	for _, r := range tcp {
+		got[r.Target.String()] = r.Scenario.Phases[0].Spec
+	}
+	if sp := got["10.99.0.1/32:80"]; string(sp.Reply) != "HTTP/1.1 503 x\r\n\r\n" || sp.After != rule.AfterClose {
+		t.Errorf("mapping: %+v", sp)
+	}
+	if sp := got["10.99.0.2/32:80"]; string(sp.Send) != "\xff\x00" || sp.Limit != 5 {
+		t.Errorf("text form: %+v", sp)
+	}
+	if sp := got["10.99.0.3/32:80"]; string(sp.Send) != "a,b;c" || sp.Wait != time.Second {
+		t.Errorf("flow mapping: %+v", sp)
 	}
 }

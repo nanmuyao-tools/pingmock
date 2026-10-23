@@ -241,7 +241,7 @@ func TestTCPAfterClose(t *testing.T) {
 	}
 	// The handshake's final ACK: a FIN, acknowledging the SYN.
 	a, ok := rs.DecideSegment(seg("10.99.0.1", 80, 40000, ack, 101, next, 0))
-	if !ok || a.Flags != finAck || a.Seq != next || a.Ack != 101 || a.TTL != 50 || a.Action == nil ||
+	if !ok || first(a).Flags != finAck || first(a).Seq != next || first(a).Ack != 101 || a.TTL != 50 || a.Action == nil ||
 		a.Action.Outcome != rule.Closed || a.Action.Rule != "tcp 10.99.0.1/32:80" || a.Action.Phase != 1 {
 		t.Fatalf("final ACK: %+v %v (action %+v)", a, ok, a.Action)
 	}
@@ -251,11 +251,11 @@ func TestTCPAfterClose(t *testing.T) {
 	}
 	// The client closes too: its FIN is acknowledged, not recorded.
 	a, ok = rs.DecideSegment(seg("10.99.0.1", 80, 40000, finAck, 101, next+1, 0))
-	if !ok || a.Flags != ack || a.Seq != next+1 || a.Ack != 102 || a.Action != nil {
+	if !ok || first(a).Flags != ack || first(a).Seq != next+1 || first(a).Ack != 102 || a.Action != nil {
 		t.Errorf("client's FIN: %+v %v", a, ok)
 	}
 	// Sent again, because our ACK was lost: acknowledged again.
-	if a, ok := rs.DecideSegment(seg("10.99.0.1", 80, 40000, finAck, 101, next+1, 0)); !ok || a.Flags != ack {
+	if a, ok := rs.DecideSegment(seg("10.99.0.1", 80, 40000, finAck, 101, next+1, 0)); !ok || first(a).Flags != ack {
 		t.Errorf("client's FIN again: %+v %v", a, ok)
 	}
 
@@ -264,7 +264,7 @@ func TestTCPAfterClose(t *testing.T) {
 	rs.DecideProbe(syn("10.99.0.1", 80, 40001, 500))
 	rs.DecideSegment(seg("10.99.0.1", 80, 40001, ack, 501, next, 0))
 	a, ok = rs.DecideSegment(seg("10.99.0.1", 80, 40001, ack, 501, next+1, 18))
-	if !ok || a.Flags != icmp.FlagRST|icmp.FlagACK || a.Seq != next+1 || a.Ack != 519 || a.Action != nil {
+	if !ok || first(a).Flags != icmp.FlagRST|icmp.FlagACK || first(a).Seq != next+1 || first(a).Ack != 519 || a.Action != nil {
 		t.Errorf("data after our FIN: %+v %v", a, ok)
 	}
 	st := rs.Snapshot()["tcp_stats"].(map[string]TCPTargetState)["10.99.0.1:80"]
@@ -283,13 +283,13 @@ func TestTCPAfterReset(t *testing.T) {
 	}
 	// The first data: a reset, at the sequence number the client expects.
 	a, ok := rs.DecideSegment(seg("10.99.0.1", 5432, 40000, ack|0x08, 101, next, 40))
-	if !ok || a.Flags != icmp.FlagRST|icmp.FlagACK || a.Seq != next || a.Ack != 141 || a.Action == nil || a.Action.Outcome != rule.Reset {
+	if !ok || first(a).Flags != icmp.FlagRST|icmp.FlagACK || first(a).Seq != next || first(a).Ack != 141 || a.Action == nil || a.Action.Outcome != rule.Reset {
 		t.Fatalf("first data: %+v %v", a, ok)
 	}
 	// A client that closes without sending: reset on its FIN.
 	rs.DecideProbe(syn("10.99.0.1", 5432, 40001, 7))
 	rs.DecideSegment(seg("10.99.0.1", 5432, 40001, ack, 8, next, 0))
-	if a, ok := rs.DecideSegment(seg("10.99.0.1", 5432, 40001, finAck, 8, next, 0)); !ok || a.Flags != icmp.FlagRST|icmp.FlagACK || a.Ack != 9 || a.Action == nil {
+	if a, ok := rs.DecideSegment(seg("10.99.0.1", 5432, 40001, finAck, 8, next, 0)); !ok || first(a).Flags != icmp.FlagRST|icmp.FlagACK || first(a).Ack != 9 || a.Action == nil {
 		t.Errorf("client's FIN: %+v %v", a, ok)
 	}
 	st := rs.Snapshot()["tcp_stats"].(map[string]TCPTargetState)["10.99.0.1:5432"]
@@ -373,4 +373,15 @@ func TestTCPAfterKeepsSeededSequence(t *testing.T) {
 	if a, b := run("delay=20ms,jitter=10ms,loss=30%"), run("delay=20ms,jitter=10ms,loss=30%,after=close"); a != b {
 		t.Errorf("after=close changed the sequence:\n%s\n%s", a, b)
 	}
+}
+
+// first is the one segment an answer without data sends.
+func first(a SegmentAnswer) TCPSegment {
+	if len(a.Ordered) > 0 {
+		return a.Ordered[0]
+	}
+	if len(a.Now) > 0 {
+		return a.Now[0]
+	}
+	return TCPSegment{}
 }

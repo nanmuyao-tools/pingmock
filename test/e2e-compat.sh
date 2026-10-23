@@ -38,7 +38,7 @@ fi
 ./pingmock -addr6= -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=20ms,pattern=.x \
   -rule 10.99.0.3=unreachable -rule 8.8.8.8=30ms \
   -tcp 10.99.0.11:80=200ms -tcp 10.99.0.12:80=refuse -tcp 10.99.0.13:80=timeout -tcp 10.99.0.14:80=unreachable \
-  -tcp 10.99.0.15:80=after=close -tcp 10.99.0.16:80=after=reset \
+  -tcp 10.99.0.15:80=after=close -tcp 10.99.0.16:80=after=reset -tcp '10.99.0.17:80=reply="hi"' \
   >"$WORK/pingmock.log" 2>&1 &
 PM=$!
 for _ in $(seq 50); do curl -sf localhost:9100/rules >/dev/null && break; sleep 0.1; done
@@ -92,8 +92,9 @@ check_all icmplib raw dgram
 # TCP rules, seen by the standard libraries of Go and Python: the error each
 # outcome gives, the connect time, and on an accepted connection what a
 # request gets: a read timeout under after=hang, on which pingmock never
-# sends anything, end of file under after=close, a reset under after=reset.
-TARGETS="10.99.0.11:80 10.99.0.12:80 10.99.0.13:80 10.99.0.14:80 10.99.0.15:80 10.99.0.16:80"
+# sends anything, end of file under after=close, a reset under after=reset,
+# and the bytes of reply= under reply=.
+TARGETS="10.99.0.11:80 10.99.0.12:80 10.99.0.13:80 10.99.0.14:80 10.99.0.15:80 10.99.0.16:80 10.99.0.17:80"
 expect_tcp() { # LANG TARGET OUTCOME [MS_LOW MS_HIGH]; OUTCOME is a pattern
   local line
   line=$(grep "^$1 $2 " <<<"$results") || fail "$1 $2: no result in: $results"
@@ -124,6 +125,7 @@ for lang in go python; do
   expect_tcp "$lang" 10.99.0.14:80 unreachable
   expect_tcp "$lang" 10.99.0.15:80 "accepted [0-9]*ms read=closed"
   expect_tcp "$lang" 10.99.0.16:80 "accepted [0-9]*ms read=reset"
+  expect_tcp "$lang" 10.99.0.17:80 "accepted [0-9]*ms read=data"
 done
 
 echo "all compatibility checks passed"

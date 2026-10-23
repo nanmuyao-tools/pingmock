@@ -21,6 +21,7 @@ const (
 	// For TCP rules, on a connection already accepted (see After):
 	Closed // TCP FIN: pingmock closed the connection
 	Reset  // TCP RST: pingmock reset the connection
+	Sent   // bytes of send= or reply= on the connection
 	// For DNS rules:
 	NXDomain // the name does not exist
 	ServFail // the server failed
@@ -44,6 +45,8 @@ func (o Outcome) String() string {
 		return "closed"
 	case Reset:
 		return "reset"
+	case Sent:
+		return "sent"
 	case NXDomain:
 		return "nxdomain"
 	case ServFail:

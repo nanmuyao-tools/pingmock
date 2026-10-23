@@ -79,13 +79,27 @@ const (
 )
 
 // connState is an accepted connection whose rule says what to do after
-// the handshake. The action is decided with the SYN, so a phase that ends
-// in between does not change it.
+// the handshake. The rule's settings are taken with the SYN, so a phase
+// that ends in between does not change them.
 type connState struct {
 	after rule.After
 	stage int
 	d     Decision // what the SYN got: rule and phase, for the history
 	at    time.Time
+
+	// For rules that exchange data (rule.Spec.Talks).
+	talks       bool
+	send, reply []byte
+	wait        time.Duration
+	limit       int
+	snd         uint32    // pingmock's next sequence number
+	rcv         uint32    // the next byte expected from the client
+	got         int       // bytes the client sent so far
+	started     bool      // the handshake's last ACK has come
+	replied     bool      // reply has been sent
+	ended       bool      // after= has closed or reset the connection
+	pendingFrom uint32    // the first sequence number of data not yet written,
+	pendingTill time.Time // until then, when wait= delays it
 }
 
 // tcpState holds the TCP rules and what they have done so far.
@@ -205,8 +219,10 @@ func (rs *RuleSet) DecideTCP(p icmp.Probe) (Decision, bool) {
 		Rule: "tcp " + key.String(), Phase: t.phase + 1, From: p.Dst}
 
 	c := conn{p.Src, p.Dst, p.SrcPort, p.DstPort}
-	if out == rule.SynAck && sp.After != rule.AfterHang {
-		rs.tcp.conns[c] = &connState{after: sp.After, d: d, at: now}
+	if out == rule.SynAck && (sp.After != rule.AfterHang || sp.Talks()) {
+		rs.tcp.conns[c] = &connState{after: sp.After, d: d, at: now, talks: sp.Talks(),
+			send: sp.Send, reply: sp.Reply, wait: sp.Wait, limit: sp.Limit,
+			snd: icmp.SynAckSeq + 1, rcv: p.TCPSeq + 1}
 	} else {
 		delete(rs.tcp.conns, c) // a new attempt from the same port
 	}
@@ -227,29 +243,48 @@ func (rs *RuleSet) DecideTCP(p icmp.Probe) (Decision, bool) {
 	return d, true
 }
 
-// SegmentAnswer is what to send in answer to a segment of an accepted
-// connection: a segment without data with these flags and numbers.
-type SegmentAnswer struct {
+// TCPSegment is a segment pingmock sends on a connection, with data or
+// without.
+type TCPSegment struct {
 	Flags    byte
 	Seq, Ack uint32
-	TTL      uint8 // the TTL of the rule that accepted the connection
+	Data     []byte
+}
+
+// SegmentAnswer is what to send in answer to a segment of an accepted
+// connection.
+type SegmentAnswer struct {
+	// Now are acknowledgments to write at once.
+	Now []TCPSegment
+	// Ordered are segments that use up sequence numbers (data, a FIN) or
+	// must match them (a reset): they go out after Delay, and after
+	// anything still waiting to go out on the connection, in order.
+	Ordered []TCPSegment
+	Delay   time.Duration
+	TTL     uint8 // the TTL of the rule that accepted the connection
 	// Action is set when the answer closes or resets the connection, once
 	// per connection: Outcome is rule.Closed or rule.Reset, with the rule
 	// and phase the SYN got. The answers that follow, such as the ACK of
 	// the client's FIN, leave it nil and are not recorded.
 	Action *Decision
+	// Sent is how many bytes of send= or reply= Ordered carries, and
+	// Accepted what the SYN got, for the history.
+	Sent     int
+	Accepted Decision
 }
 
 // DecideSegment decides how to answer a segment p, other than a SYN, of a
-// connection accepted under after=close or after=reset. It reports false
-// for every other segment, which gets no answer, as under after=hang:
-// pingmock acknowledges nothing and sends no data.
+// connection accepted under after=close or after=reset, or under a rule
+// that exchanges data. It reports false for every other segment, which
+// gets no answer, as under after=hang without data: pingmock
+// acknowledges nothing and sends nothing.
 //
-// after=close sends a FIN as soon as the client completes the handshake.
-// after=reset waits for the client's first data or FIN: a reset on the
-// handshake's final ACK would race with the client's connect, which then
-// fails in some runs and succeeds in others. Data after pingmock's FIN
-// gets a reset, as from a real server that closed its socket.
+// Without data, after=close sends a FIN as soon as the client completes
+// the handshake. after=reset waits for the client's first data or FIN: a
+// reset on the handshake's final ACK would race with the client's
+// connect, which then fails in some runs and succeeds in others. Data
+// after pingmock's FIN gets a reset, as from a real server that closed
+// its socket.
 func (rs *RuleSet) DecideSegment(p icmp.Probe) (SegmentAnswer, bool) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -257,19 +292,12 @@ func (rs *RuleSet) DecideSegment(p icmp.Probe) (SegmentAnswer, bool) {
 	if cs == nil {
 		return SegmentAnswer{}, false
 	}
-	const next = icmp.SynAckSeq + 1 // our sequence number after the SYN-ACK
-	if p.TCPFlags&icmp.FlagACK == 0 || (p.TCPAck != next && p.TCPAck != next+1) {
-		return SegmentAnswer{}, false // not acknowledging our SYN-ACK or FIN: another connection
+	if p.TCPFlags&icmp.FlagACK == 0 || p.TCPAck-(icmp.SynAckSeq+1) > cs.snd+1-(icmp.SynAckSeq+1) {
+		return SegmentAnswer{}, false // not acknowledging what pingmock sent: another connection
 	}
 	now := rs.now()
 	cs.at = now
-	fin := p.TCPFlags&icmp.FlagFIN != 0
-	end := p.TCPSeq + uint32(p.TCPData) // what the client sent up to
-	if fin {
-		end++
-	}
-	ttl := cs.d.TTL
-	reset := SegmentAnswer{Flags: icmp.FlagRST | icmp.FlagACK, Seq: p.TCPAck, Ack: end, TTL: ttl}
+	a := SegmentAnswer{TTL: cs.d.TTL, Accepted: cs.d}
 	action := func(out rule.Outcome) *Decision {
 		t := rs.tcp.targets[netip.AddrPortFrom(p.Dst, p.DstPort)]
 		if t != nil && out == rule.Closed {
@@ -281,24 +309,177 @@ func (rs *RuleSet) DecideSegment(p icmp.Probe) (SegmentAnswer, bool) {
 		d.Outcome, d.Delay, d.Repeat = out, 0, false
 		return &d
 	}
+	if cs.talks {
+		rs.talk(cs, p, now, &a, action)
+		return a, len(a.Now)+len(a.Ordered) > 0
+	}
+
+	const next = icmp.SynAckSeq + 1 // our sequence number after the SYN-ACK
+	fin := p.TCPFlags&icmp.FlagFIN != 0
+	end := p.TCPSeq + uint32(p.TCPData) // what the client sent up to
+	if fin {
+		end++
+	}
+	reset := TCPSegment{Flags: icmp.FlagRST | icmp.FlagACK, Seq: p.TCPAck, Ack: end}
 	switch {
 	case cs.stage == connOpen && cs.after == rule.AfterClose:
 		cs.stage = connClosing
-		return SegmentAnswer{Flags: icmp.FlagFIN | icmp.FlagACK, Seq: next, Ack: end, TTL: ttl, Action: action(rule.Closed)}, true
+		cs.snd = next + 1
+		a.Ordered, a.Action = []TCPSegment{{Flags: icmp.FlagFIN | icmp.FlagACK, Seq: next, Ack: end}}, action(rule.Closed)
 	case cs.stage == connOpen && (p.TCPData > 0 || fin):
 		cs.stage = connDone
-		reset.Action = action(rule.Reset)
-		return reset, true
+		a.Ordered, a.Action = []TCPSegment{reset}, action(rule.Reset)
 	case cs.stage == connOpen:
 		return SegmentAnswer{}, false // the handshake's ACK: wait for data
 	case p.TCPData > 0:
 		cs.stage = connDone
-		return reset, true
+		a.Ordered = []TCPSegment{reset}
 	case fin && cs.after == rule.AfterClose:
 		cs.stage = connDone
-		return SegmentAnswer{Flags: icmp.FlagACK, Seq: next + 1, Ack: end, TTL: ttl}, true
+		a.Ordered = []TCPSegment{{Flags: icmp.FlagACK, Seq: next + 1, Ack: end}}
+	default:
+		return SegmentAnswer{}, false // the ACK of our FIN
 	}
-	return SegmentAnswer{}, false // the ACK of our FIN
+	return a, true
+}
+
+// talk answers a segment of a connection whose rule exchanges data:
+// pingmock acknowledges what the client sends, sends send= once the
+// handshake completes and reply= on the client's first data, after wait=,
+// and ends the connection as after= says, at limit= bytes if there is a
+// limit, once it has sent all it has to send otherwise. Callers hold
+// rs.mu.
+func (rs *RuleSet) talk(cs *connState, p icmp.Probe, now time.Time, a *SegmentAnswer, action func(rule.Outcome) *Decision) {
+	// The sequence number of a bare acknowledgment: the start of data
+	// still waiting to go out, which is what the client expects next.
+	ackSeq := func() uint32 {
+		if now.Before(cs.pendingTill) {
+			return cs.pendingFrom
+		}
+		return cs.snd
+	}
+	ack := func() { a.Now = append(a.Now, TCPSegment{Flags: icmp.FlagACK, Seq: ackSeq(), Ack: cs.rcv}) }
+	data := func(b []byte) {
+		if cs.wait > 0 {
+			ack() // at once, so that the client does not send it again while pingmock waits
+			cs.pendingFrom, cs.pendingTill = cs.snd, now.Add(cs.wait)
+			a.Delay = cs.wait
+		}
+		for len(b) > 0 {
+			n := min(len(b), icmp.MaxSegment)
+			flags := byte(icmp.FlagACK)
+			if n == len(b) {
+				flags |= icmp.FlagPSH
+			}
+			a.Ordered = append(a.Ordered, TCPSegment{Flags: flags, Seq: cs.snd, Ack: cs.rcv, Data: b[:n]})
+			cs.snd += uint32(n)
+			a.Sent += n
+			b = b[n:]
+		}
+	}
+	end := func(out rule.Outcome) {
+		cs.ended = true
+		if out == rule.Closed {
+			a.Ordered = append(a.Ordered, TCPSegment{Flags: icmp.FlagFIN | icmp.FlagACK, Seq: cs.snd, Ack: cs.rcv})
+			cs.snd++
+			cs.stage = connClosing
+		} else {
+			a.Ordered = append(a.Ordered, TCPSegment{Flags: icmp.FlagRST | icmp.FlagACK, Seq: cs.snd, Ack: cs.rcv})
+			cs.stage = connDone
+		}
+		a.Action = action(out)
+	}
+	fin := p.TCPFlags&icmp.FlagFIN != 0
+	// Data the client sends again, up to what was acknowledged, as it does
+	// when an acknowledgment is late: acknowledged again, whatever came since.
+	old := p.TCPData > 0 && cs.rcv-(p.TCPSeq+uint32(p.TCPData)) < 1<<31
+	switch cs.stage {
+	case connDone: // reset, or both sides closed: a closed port
+		if old && cs.after == rule.AfterClose {
+			ack()
+		} else if p.TCPData > 0 {
+			a.Ordered = append(a.Ordered, TCPSegment{Flags: icmp.FlagRST | icmp.FlagACK, Seq: p.TCPAck, Ack: p.TCPSeq + uint32(p.TCPData)})
+		} else if fin && cs.after == rule.AfterClose {
+			ack() // the client's FIN again: our ACK was lost
+		}
+		return
+	case connClosing: // pingmock sent its FIN
+		switch {
+		case old:
+			ack()
+		case p.TCPData > 0:
+			cs.stage = connDone
+			a.Ordered = append(a.Ordered, TCPSegment{Flags: icmp.FlagRST | icmp.FlagACK, Seq: p.TCPAck, Ack: p.TCPSeq + uint32(p.TCPData)})
+		case fin:
+			cs.rcv = p.TCPSeq + 1
+			cs.stage = connDone
+			ack()
+		}
+		return
+	}
+
+	// The handshake completes with the client's first segment after the
+	// SYN, which may already carry data.
+	if !cs.started {
+		cs.started = true
+		if len(cs.send) > 0 {
+			data(cs.send)
+		}
+		if cs.after == rule.AfterClose && len(cs.reply) == 0 && cs.limit == 0 {
+			end(rule.Closed)
+			return
+		}
+	}
+	if p.TCPData > 0 {
+		if p.TCPSeq != cs.rcv { // sent again, or ahead of what came: say what is expected
+			ack()
+			return
+		}
+		n := p.TCPData
+		if cs.limit > 0 && cs.got+n >= cs.limit {
+			cs.rcv += uint32(cs.limit - cs.got)
+			cs.got = cs.limit
+			if cs.after == rule.AfterClose {
+				end(rule.Closed)
+			} else {
+				end(rule.Reset)
+			}
+			return
+		}
+		cs.rcv += uint32(n)
+		cs.got += n
+		sentAll := len(cs.reply) == 0 || cs.replied
+		switch {
+		case len(cs.reply) > 0 && !cs.replied:
+			cs.replied = true
+			data(cs.reply)
+			if cs.after == rule.AfterClose && cs.limit == 0 {
+				end(rule.Closed)
+			}
+		case sentAll && cs.limit == 0 && cs.after == rule.AfterReset:
+			end(rule.Reset)
+		default:
+			ack()
+		}
+	}
+	if fin && cs.stage == connClosing { // pingmock's FIN just went out: acknowledge the client's after it
+		cs.rcv++
+		cs.stage = connDone
+		a.Ordered = append(a.Ordered, TCPSegment{Flags: icmp.FlagACK, Seq: cs.snd, Ack: cs.rcv})
+		return
+	}
+	if fin && !cs.ended {
+		cs.rcv++
+		switch {
+		case cs.after == rule.AfterReset:
+			end(rule.Reset)
+		case cs.after == rule.AfterClose:
+			end(rule.Closed)
+			cs.stage = connDone // both sides have closed
+		default:
+			ack() // a half close: pingmock's side stays open, as under hang
+		}
+	}
 }
 
 // TCPTargetState is the API view of one address and port.

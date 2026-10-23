@@ -42,7 +42,7 @@ func parseScenario(s string, kind proto) (Scenario, error) {
 	if strings.TrimSpace(s) == "" {
 		return Scenario{}, fmt.Errorf("empty rule")
 	}
-	parts := strings.Split(s, ";")
+	parts := splitUnquoted(s, ';')
 	if last := strings.TrimSpace(parts[len(parts)-1]); strings.EqualFold(last, "repeat") {
 		sc.Repeat = true
 		parts = parts[:len(parts)-1]
@@ -54,7 +54,7 @@ func parseScenario(s string, kind proto) (Scenario, error) {
 		}
 		var p Phase
 		specText := part
-		if i := strings.LastIndex(part, " for "); i >= 0 {
+		if i := lastIndexUnquoted(part, " for "); i >= 0 {
 			specText = part[:i]
 			if err := p.parseBound(part[i+len(" for "):]); err != nil {
 				return Scenario{}, fmt.Errorf("invalid rule %q: %w", s, err)

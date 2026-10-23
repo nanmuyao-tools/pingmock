@@ -199,3 +199,62 @@ func TestServeKeepsSegmentOrder(t *testing.T) {
 		}
 	}
 }
+
+// Under wait=, the client's data is acknowledged at once, and what comes
+// after the delayed reply, here the reset of the client's next data,
+// waits for it: on the wire the reply comes before the reset.
+func TestServeKeepsConnectionOrderAcrossWait(t *testing.T) {
+	def, _ := rule.ParseScenario("0ms")
+	rs := engine.NewRuleSet(def, 1)
+	tt, _ := rule.ParseTCPTarget("10.99.0.1:80")
+	sc, err := rule.ParseTCPScenario(`reply="later",wait=150ms,after=reset`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs.SetTCP(tt.Prefix, tt.Port, sc.Scenario)
+	dev := newFakeDevice()
+	hist := engine.NewHistory(10)
+	done := make(chan error, 1)
+	go func() { done <- (&Responder{Rules: rs, History: hist}).Serve(dev) }()
+	const next = icmp.SynAckSeq + 1
+	syn := tcpSYN([4]byte{10, 99, 0, 1}, 40000, 80, 100)
+	start := time.Now()
+	dev.in <- syn
+	dev.in <- tcpSeg(syn, icmp.FlagACK, 101, next, "")                 // the handshake: nothing
+	dev.in <- tcpSeg(syn, icmp.FlagACK|icmp.FlagPSH, 101, next, "one") // ACK now, reply later
+	dev.in <- tcpSeg(syn, icmp.FlagACK|icmp.FlagPSH, 104, next, "two") // the reset, after the reply
+	for i := 0; i < 4; i++ {
+		select {
+		case <-dev.wrote:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%d answers written, want 4", i)
+		}
+	}
+	close(dev.in)
+	<-done
+	dev.mu.Lock()
+	defer dev.mu.Unlock()
+	want := []byte{0x12, icmp.FlagACK, icmp.FlagACK | icmp.FlagPSH, icmp.FlagRST | icmp.FlagACK}
+	for i, w := range dev.writes {
+		if w.pkt[33] != want[i] {
+			t.Fatalf("answer %d has flags %#x, want %#x", i, w.pkt[33], want[i])
+		}
+	}
+	if string(dev.writes[2].pkt[40:]) != "later" || dev.writes[2].at.Sub(start) < 150*time.Millisecond {
+		t.Errorf("reply %q after %v", dev.writes[2].pkt[40:], dev.writes[2].at.Sub(start))
+	}
+	if dev.writes[1].at.Sub(start) > 100*time.Millisecond {
+		t.Errorf("the ACK waited %v", dev.writes[1].at.Sub(start))
+	}
+	events, _ := hist.Events(nil, 0)
+	var got []string
+	for _, e := range events {
+		got = append(got, e.Result)
+		if e.Result == "sent" && (e.Bytes != 5 || e.Delay != "150ms") {
+			t.Errorf("sent event %+v", e)
+		}
+	}
+	if strings.Join(got, " ") != "syn-ack sent reset" {
+		t.Errorf("events %v", got)
+	}
+}

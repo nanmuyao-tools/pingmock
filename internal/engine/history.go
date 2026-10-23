@@ -13,7 +13,7 @@ type Event struct {
 	Dst    netip.Addr `json:"dst"`
 	ID     uint16     `json:"id"`
 	Seq    uint16     `json:"seq"`
-	Result string     `json:"result"`          // "reply", "drop", "unreachable", for paths "time-exceeded", "port-unreachable", "syn-ack", for TCP rules also "refused", "closed" and "reset", for DNS rules "answer", "nxdomain" and "servfail"
+	Result string     `json:"result"`          // "reply", "drop", "unreachable", for paths "time-exceeded", "port-unreachable", "syn-ack", for TCP rules also "refused", "sent", "closed" and "reset", for DNS rules "answer", "nxdomain" and "servfail"
 	Code   string     `json:"code,omitempty"`  // unreachable code: "host", "net" or "admin"
 	Reply  bool       `json:"reply"`           // true for echo replies; kept for compatibility
 	Delay  string     `json:"delay,omitempty"` // for replies and unreachable messages
@@ -27,6 +27,7 @@ type Event struct {
 	// For TCP probes.
 	Port   uint16 `json:"port,omitempty"`   // the destination port
 	Repeat bool   `json:"repeat,omitempty"` // a SYN sent again for an attempt already answered; not counted again
+	Bytes  int    `json:"bytes,omitempty"`  // for "sent": the bytes of send= or reply= pingmock sent
 	// For DNS queries, under pingmock exec.
 	Name  string `json:"name,omitempty"`  // the name asked for
 	QType string `json:"qtype,omitempty"` // "A", "AAAA", ...

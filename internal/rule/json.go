@@ -23,6 +23,10 @@ type specJSON struct {
 	TTL         numOrString `json:"ttl,omitempty"`         // 1 to 255; unset means rule.DefaultTTL
 	Refuse      bool        `json:"refuse,omitempty"`      // TCP rules only
 	After       string      `json:"after,omitempty"`       // "close", "reset" or "hang"; TCP rules only
+	Send        *string     `json:"send,omitempty"`        // TCP rules only: the bytes, as text
+	Reply       *string     `json:"reply,omitempty"`       // likewise
+	Wait        numOrString `json:"wait,omitempty"`        // a duration, as delay
+	Limit       int         `json:"limit,omitempty"`       // bytes
 	NXDomain    bool        `json:"nxdomain,omitempty"`    // DNS rules only
 	ServFail    bool        `json:"servfail,omitempty"`    // DNS rules only
 }
@@ -72,6 +76,18 @@ func (sp Spec) MarshalJSON() ([]byte, error) {
 		j.After = sp.After.String()
 	}
 	j.NXDomain, j.ServFail = sp.DNSFail == DNSNXDomain, sp.DNSFail == DNSServFail
+	if len(sp.Send) > 0 {
+		s := string(sp.Send)
+		j.Send = &s
+	}
+	if len(sp.Reply) > 0 {
+		s := string(sp.Reply)
+		j.Reply = &s
+	}
+	if sp.Wait > 0 {
+		j.Wait = numOrString(sp.Wait.String())
+	}
+	j.Limit = sp.Limit
 	return json.Marshal(j)
 }
 
@@ -140,6 +156,27 @@ func (sp *Spec) unmarshal(b []byte, kind proto) error {
 			return err
 		}
 	}
+	for _, d := range []struct {
+		key string
+		in  *string
+		out *[]byte
+	}{{"send", j.Send, &out.Send}, {"reply", j.Reply, &out.Reply}} {
+		if d.in == nil {
+			continue
+		}
+		if kind != protoTCP {
+			return fmt.Errorf("%s is for TCP rules (-tcp)", d.key)
+		}
+		if *d.out, err = checkData(d.key, []byte(*d.in)); err != nil {
+			return err
+		}
+	}
+	if j.Wait != "" {
+		if out.Wait, err = parseDuration(string(j.Wait)); err != nil {
+			return err
+		}
+	}
+	out.Limit = j.Limit
 	switch {
 	case j.NXDomain && j.ServFail:
 		return fmt.Errorf("nxdomain and servfail cannot be combined")

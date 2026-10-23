@@ -51,6 +51,7 @@ const (
 	FlagFIN = 0x01
 	FlagSYN = 0x02
 	FlagRST = 0x04
+	FlagPSH = 0x08
 	FlagACK = 0x10
 )
 
@@ -244,12 +245,18 @@ func BuildRST(req []byte, ttl uint8) []byte {
 }
 
 // BuildSegment answers a segment req of an accepted connection with a
-// segment without data, from the connection's server side, with the given
-// flags, sequence and acknowledgment numbers: a FIN to close it, the ACK
-// of the client's FIN, or a reset.
-func BuildSegment(req []byte, ttl uint8, flags byte, seq, ack uint32) []byte {
-	return buildTCPAnswer(req, ttl, flags, seq, 65535, ack)
+// segment from the connection's server side, with the given flags,
+// sequence and acknowledgment numbers, carrying data if there is any: a
+// FIN to close it, the ACK of what the client sent, bytes of a TCP rule's
+// send= or reply=, or a reset.
+func BuildSegment(req []byte, ttl uint8, flags byte, seq, ack uint32, data []byte) []byte {
+	return buildTCPAnswer(req, ttl, flags, seq, 65535, ack, data...)
 }
+
+// MaxSegment is the most data pingmock puts in one TCP segment: the
+// maximum segment size every IPv4 host accepts (RFC 9293 3.7.1), so that
+// no client's MSS needs to be read.
+const MaxSegment = 536
 
 // tcpSeq returns the sequence number of the TCP segment in pkt.
 func tcpSeq(pkt []byte) uint32 {
@@ -263,20 +270,21 @@ func tcpSeq(pkt []byte) uint32 {
 // buildTCPAnswer builds a TCP segment without data from the destination
 // of the TCP segment req back to its sender, with the given flags,
 // sequence number, window and acknowledgment number.
-func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16, ack uint32) []byte {
+func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16, ack uint32, data ...byte) []byte {
 	var out, seg []byte
 	var src, dst []byte
+	n := 20 + len(data)
 	if req[0]>>4 == 6 {
-		out = make([]byte, ipv6Header+20)
+		out = make([]byte, ipv6Header+n)
 		out[0] = 0x60
-		binary.BigEndian.PutUint16(out[4:6], 20)
+		binary.BigEndian.PutUint16(out[4:6], uint16(n))
 		out[6] = protoTCP
 		out[7] = ttl
 		copy(out[8:24], req[24:40])
 		copy(out[24:40], req[8:24])
 		src, dst, seg = out[8:24], out[24:40], out[ipv6Header:]
 	} else {
-		out = make([]byte, ipv4Header+20)
+		out = make([]byte, ipv4Header+n)
 		out[0] = 0x45
 		binary.BigEndian.PutUint16(out[2:4], uint16(len(out)))
 		out[8] = ttl
@@ -298,6 +306,7 @@ func buildTCPAnswer(req []byte, ttl uint8, flags byte, seq uint32, window uint16
 	seg[12] = 5 << 4 // data offset: 20 bytes
 	seg[13] = flags
 	binary.BigEndian.PutUint16(seg[14:16], window)
+	copy(seg[20:], data)
 	binary.BigEndian.PutUint16(seg[16:18], tcpChecksum(src, dst, seg))
 	return out
 }
