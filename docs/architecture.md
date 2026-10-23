@@ -75,6 +75,8 @@ TCP and DNS rules reuse everything above: the same `Spec`, `Phase` and `Scenario
 3. [`BuildSynAck`](../internal/icmp/probe.go) or [`BuildRST`](../internal/icmp/probe.go) builds the answer; the client's kernel completes the handshake.
 4. Under `after=close` or `after=reset`, or a rule that sends data, the accepted connection is remembered, and [`RuleSet.DecideSegment`](../internal/engine/tcp.go) answers its later segments: a FIN on the handshake's last ACK, or a reset on the first data, at most once per connection; with `send=`, `reply=` or `limit=`, `talk` also acknowledges the client's data and sends the bytes in segments of 536 bytes. Acknowledgments go out at once; data, FINs and resets go through a queue per connection in the responder, so that nothing overtakes data held back by `wait=`.
 
+**A UDP datagram** to an address and port with a UDP rule goes the same way as a SYN, without the cache: [`RuleSet.DecideUDP`](../internal/engine/udp.go) decides `Refused` (answered with ICMP port unreachable), `Unreachable` or `Drop`, and with a path the hops answer first.
+
 **A DNS query** never reaches the device. Under `pingmock exec`, the command's `resolv.conf` points at a small DNS server in the [`dns`](../internal/dns/dns.go) package, which the child starts in [`serveDNS`](../internal/app/names_linux.go):
 
 1. `Server.Serve` (UDP) and `Server.ServeTCP` answer each query on its own goroutine.
@@ -91,7 +93,7 @@ These types are the key to the code. They live in `rule` and `engine`:
 | **Phase** | [`rule.Phase`](../internal/rule/scenario.go) | A Spec with a length: a duration (`for 10s`) or a number of requests (`for 5 pings`) |
 | **Scenario** | [`rule.Scenario`](../internal/rule/scenario.go) | A sequence of phases, such as `30ms for 10 pings; timeout`. A plain rule is a scenario with one endless phase |
 | **Outcome** | [`rule.Outcome`](../internal/rule/outcome.go) | What happens to a request: `Reply`, `Drop` or `Unreachable`; for paths also `TimeExceeded`, `PortUnreachable` and `SynAck`, and for TCP rules `Refused`, `Closed` and `Reset` for connections they accepted with `after=`, and `Sent` for their `send=` and `reply=`; for DNS rules `NXDomain` and `ServFail` |
-| **RuleSet** | [`engine.RuleSet`](../internal/engine/ruleset.go) | The installed rules, and **the state of each target address**: its phase, how many requests it got in that phase, and its own random source; likewise for each address and port of TCP rules ([`tcp.go`](../internal/engine/tcp.go)) and each name and query type of DNS rules ([`dns.go`](../internal/engine/dns.go)) |
+| **RuleSet** | [`engine.RuleSet`](../internal/engine/ruleset.go) | The installed rules, and **the state of each target address**: its phase, how many requests it got in that phase, and its own random source; likewise for each address and port of TCP rules ([`tcp.go`](../internal/engine/tcp.go)) each address and port of UDP rules ([`udp.go`](../internal/engine/udp.go)), and each name and query type of DNS rules ([`dns.go`](../internal/engine/dns.go)) |
 | **Decision** | [`engine.Decision`](../internal/engine/ruleset.go) | What `RuleSet.DecideProbe` and `Decide` return: the outcome, the delay, and the rule and phase that applied |
 | **History** | [`engine.History`](../internal/engine/history.go) | Recent requests, in a fixed-size ring buffer |
 

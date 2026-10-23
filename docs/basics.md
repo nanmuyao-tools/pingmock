@@ -669,7 +669,7 @@ Because it is only a sum, a change to one field changes the checksum by the same
 | **handshake**, **SYN**, **SYN-ACK**, **ACK** | the three segments that open a TCP connection |
 | **RST**, **reset** | aborts a connection; in answer to a SYN, "connection refused" |
 | **FIN** | closes a connection normally |
-| **UDP** | a protocol without connections, used by DNS |
+| **UDP** | a protocol without connections, used by DNS; pingmock answers it only with ICMP errors (`-udp`) |
 | **TTL**, **hop** | the counter routers lower by one; each router on the way |
 | **traceroute**, **mtr** | tools that list the routers on the way to a target |
 | **DNS**, **resolve** | turning a name into an address |

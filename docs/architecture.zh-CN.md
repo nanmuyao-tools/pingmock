@@ -77,6 +77,8 @@ TCP 和 DNS 规则沿用上面的一切：同样的 `Spec`、`Phase`、`Scenario
 3. [`BuildSynAck`](../internal/icmp/probe.go) 或 [`BuildRST`](../internal/icmp/probe.go) 构造回应，客户端内核完成握手。
 4. 在 `after=close` 或 `after=reset` 下，或者规则要发送数据时，接受的连接会被记住，[`RuleSet.DecideSegment`](../internal/engine/tcp.go) 回应它之后的报文：在握手的最后一个 ACK 上发 FIN，或者在第一段数据上发 RST，每个连接最多一次；有 `send=`、`reply=` 或 `limit=` 时，`talk` 还会确认客户端的数据，并把字节按 536 字节一段发出。确认立即发出；数据、FIN 和 RST 经过 responder 里每个连接一条的队列，所以不会有东西抢在被 `wait=` 推迟的数据之前。
 
+**一个 UDP 数据报**发往有 UDP 规则的地址和端口时，走的路和 SYN 一样，只是没有缓存：[`RuleSet.DecideUDP`](../internal/engine/udp.go) 决定 `Refused`（用 ICMP 端口不可达回应）、`Unreachable` 或 `Drop`，有路径时先由各跳回应。
+
 **一次 DNS 查询**根本不经过网卡。在 `pingmock exec` 下，命令的 `resolv.conf` 指向 [`dns`](../internal/dns/dns.go) 包里的一个小 DNS 服务，由子进程在 [`serveDNS`](../internal/app/names_linux.go) 中启动：
 
 1. `Server.Serve`（UDP）和 `Server.ServeTCP` 为每个查询单独起一个 goroutine 回答。
@@ -93,7 +95,7 @@ TCP 和 DNS 规则沿用上面的一切：同样的 `Spec`、`Phase`、`Scenario
 | **阶段** | [`rule.Phase`](../internal/rule/scenario.go) | 一个 Spec 加上持续多久（`for 10s`）或持续几个请求（`for 5 pings`） |
 | **场景** | [`rule.Scenario`](../internal/rule/scenario.go) | 若干阶段组成的序列，比如 `30ms for 10 pings; timeout`。普通规则就是只有一个阶段、永不结束的场景 |
 | **结果** | [`rule.Outcome`](../internal/rule/outcome.go) | 一个请求的结局：`Reply`（回复）、`Drop`（丢弃）、`Unreachable`（不可达）；路径还有 `TimeExceeded`、`PortUnreachable`、`SynAck`，TCP 规则还有 `Refused`（拒绝），用 `after=` 关闭或重置已接受连接时的 `Closed`、`Reset`，以及 `send=`、`reply=` 发送数据时的 `Sent`；DNS 规则还有 `NXDomain`、`ServFail` |
-| **规则集** | [`engine.RuleSet`](../internal/engine/ruleset.go) | 所有已安装的规则，以及**每个目标地址各自的状态**：处在哪个阶段、阶段里已经收到几个请求、自己的随机数生成器；TCP 规则的每个地址和端口（[`tcp.go`](../internal/engine/tcp.go)）、DNS 规则的每个域名和查询类型（[`dns.go`](../internal/engine/dns.go)）也一样 |
+| **规则集** | [`engine.RuleSet`](../internal/engine/ruleset.go) | 所有已安装的规则，以及**每个目标地址各自的状态**：处在哪个阶段、阶段里已经收到几个请求、自己的随机数生成器；TCP 规则的每个地址和端口（[`tcp.go`](../internal/engine/tcp.go)）、UDP 规则的每个地址和端口（[`udp.go`](../internal/engine/udp.go)）、DNS 规则的每个域名和查询类型（[`dns.go`](../internal/engine/dns.go)）也一样 |
 | **决策** | [`engine.Decision`](../internal/engine/ruleset.go) | `RuleSet.DecideProbe` 和 `Decide` 的返回值：结果、延迟、匹配的规则和阶段 |
 | **历史** | [`engine.History`](../internal/engine/history.go) | 最近请求的记录，固定大小的环形缓冲区 |
 

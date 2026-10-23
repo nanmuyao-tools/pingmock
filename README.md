@@ -6,7 +6,7 @@ English | [中文](README.zh-CN.md)
 
 **pingmock fakes the network for your tests.** Your program pings servers, connects to databases, looks up names, and decides things from what happens: it picks the fastest server, retries, fails over, shows "offline". Testing those decisions needs a network that is slow, broken or unreachable exactly when the test wants it. With pingmock you write rules such as "this server answers in 300 ms", "that database refuses connections" or "this name does not exist", and your program, unchanged, gets those answers.
 
-It runs on Linux and mocks ping (ICMP and ICMPv6 Echo), TCP connections and, under `pingmock exec`, DNS: the **delay, jitter, packet loss, unreachable errors, refused connections and DNS failures** of each address, port and name, changed while your tests run. New to networking? [Network basics](docs/basics.md) explains ping, TCP and DNS with diagrams, and [First steps](#first-steps) tries them out one command at a time.
+It runs on Linux and mocks ping (ICMP and ICMPv6 Echo), TCP connections, the ICMP errors of UDP and, under `pingmock exec`, DNS: the **delay, jitter, packet loss, unreachable errors, refused connections and DNS failures** of each address, port and name, changed while your tests run. New to networking? [Network basics](docs/basics.md) explains ping, TCP and DNS with diagrams, and [First steps](#first-steps) tries them out one command at a time.
 
 ![A program that pings three servers and picks the fastest chooses a different one each time pingmock changes their latency](docs/demo/demo.svg)
 
@@ -329,7 +329,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`, each phase a `spec` with either `for: 10s` or `count: 5` (requests). The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse`, `after`, `send`, `reply`, `limit` and `wait` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`). In the mapping form, `send` and `reply` are text, with YAML's own escapes in double quotes (`reply: "HTTP/1.1 503 x\r\n\r\n"`); in the text form, write the rule in single quotes, so that YAML leaves the Go string to pingmock (`'reply="\xff\x00"'`).
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`, each phase a `spec` with either `for: 10s` or `count: 5` (requests). The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections), [`udp`](#udp-datagrams) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse`, `after`, `send`, `reply`, `limit` and `wait` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`). In the mapping form, `send` and `reply` are text, with YAML's own escapes in double quotes (`reply: "HTTP/1.1 503 x\r\n\r\n"`); in the text form, write the rule in single quotes, so that YAML leaves the Go string to pingmock (`'reply="\xff\x00"'`).
 
 Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 
@@ -351,6 +351,7 @@ Flags given on the command line override the file, so one file can serve many te
 | `-host` | | `NAME=ADDR`, repeatable, `pingmock exec` only: the command resolves `NAME` to `ADDR`, see [Names](#names) |
 | `-path` | | `TARGET=PATH`, repeatable: the route traceroute and mtr see to `TARGET`, see [Paths](#paths-traceroute-and-mtr) |
 | `-tcp` | | `TARGET=RULE`, repeatable: how TCP connections to `TARGET` (`ADDR[:PORT]`, `PREFIX[:PORT]`, `[IPv6]:PORT`) are answered, see [TCP connections](#tcp-connections) |
+| `-udp` | | `TARGET=RULE`, repeatable: how UDP datagrams to `TARGET` fail, see [UDP datagrams](#udp-datagrams) |
 | `-dns` | | `NAME=RULE`, repeatable, `pingmock exec` only: how the command's DNS queries for `NAME` are answered, see [DNS faults](#dns-faults) |
 | `-v` | `false` | Log every request |
 
@@ -447,6 +448,44 @@ curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 ```
 
 The Go client has `SetTCP`, `DeleteTCP` and `TCPStats`. `GET /rules` lists the TCP rules under `tcp`, and their statistics under `tcp_stats`, keyed by address and port (`"10.99.0.1:5432"`): requests, accepted, refused, dropped, unreachable, and of the accepted ones, closed and reset. History events of connection attempts carry `"probe": "tcp"` and the `port`, with the result `syn-ack` (accepted), `refused`, `drop` or `unreachable`; a SYN the kernel sent again is recorded with `"repeat": true` and not counted. Closing or resetting an accepted connection adds an event with the result `closed` or `reset`, and the rule and phase that accepted it. Randomness comes from the seed, per address and port, separate from the pings to the same address, whose seeded results do not change.
+
+## UDP datagrams
+
+UDP has no connections, so a program that sends to a UDP service (syslog, statsd, NTP, a game server) learns that it is down only from an ICMP error, or from silence. A **UDP rule** decides which, per address and port; pingmock never sends a UDP answer:
+
+```bash
+pingmock exec \
+  -udp 10.99.0.1:514=refuse \
+  -udp '10.99.0.2:123=timeout for 2 requests; refuse' \
+  -udp 10.99.0.3=unreachable=admin \
+  -- ./my-app
+```
+
+| Setting | What pingmock does | What a connected UDP socket sees on its next receive |
+|---|---|---|
+| `refuse` | ICMP port unreachable, as a host with nothing on the port sends | `ECONNREFUSED` ("Connection refused") |
+| `unreachable=admin` | ICMP administratively prohibited, as a firewall that rejects sends | `EHOSTUNREACH` over IPv4, `EACCES` over IPv6 |
+| `unreachable`, `unreachable=net` | ICMP host or network unreachable | nothing: Linux reports these to UDP sockets only with `IP_RECVERR` |
+| `timeout`, `loss=30%` | no answer | a receive timeout |
+| `pattern=xxr` | datagrams in turn: `x` no answer, `u` unreachable, `r` refused | |
+| `delay=`, `jitter=`, `ttl=` | the delay and TTL of the ICMP error | |
+
+The target is written as for [TCP rules](#tcp-connections), with names under `pingmock exec`. Phases count datagrams: every datagram is a request. A rule must say how datagrams fail: `20ms` alone, with no error to delay, is rejected. A UDP rule for a target with a [path](#paths-traceroute-and-mtr) decides at the destination, and the hops still answer traceroute's probes on the way. The command's own DNS server under `pingmock exec` is not on the virtual device, so `-udp` does not reach it: use [DNS faults](#dns-faults).
+
+In a configuration file and through the API:
+
+```yaml
+udp:
+  10.99.0.1:514: refuse
+  10.99.0.2:123: {refuse: true, delay: 5ms}
+```
+
+```bash
+curl -X PUT localhost:9100/udp/10.99.0.1:514 -d refuse
+curl -X DELETE localhost:9100/udp/10.99.0.1:514
+```
+
+The Go client has `SetUDP`, `DeleteUDP` and `UDPStats`. `GET /rules` lists the UDP rules under `udp`, and their statistics under `udp_stats`, keyed by address and port: requests, refused, dropped, unreachable. History events of datagrams carry `"probe": "udp"` and the `port`, with the result `refused`, `unreachable` or `drop`.
 
 ## Paths: traceroute and mtr
 
@@ -629,7 +668,7 @@ Rules can be changed over HTTP at any time during a test, and changes take effec
 ```bash
 # Show the seed, the default, the rules, the paths and per-target statistics
 # (stats: requests, replied, dropped, unreachable, hops, rule, phase), and the
-# same for TCP rules (tcp, tcp_stats) and DNS rules (dns, dns_stats)
+# same for TCP rules (tcp, tcp_stats), UDP rules (udp, udp_stats) and DNS rules (dns, dns_stats)
 curl localhost:9100/rules
 
 # Create or change a rule
@@ -645,6 +684,10 @@ curl -X DELETE localhost:9100/rules/10.99.0.1
 curl -X PUT localhost:9100/tcp/10.99.0.1:5432 -d refuse
 curl -X PUT localhost:9100/tcp/10.99.0.2:443 -d 5ms,after=reset
 curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
+
+# UDP rules: datagrams to a port are refused (ICMP port unreachable)
+curl -X PUT localhost:9100/udp/10.99.0.1:514 -d refuse
+curl -X DELETE localhost:9100/udp/10.99.0.1:514
 
 # DNS rules, under pingmock exec: a name stops resolving, then resolves again
 curl -X PUT localhost:9100/dns/api.example.com -d nxdomain
@@ -691,12 +734,12 @@ All the fields an event can have:
 |---|---|---|
 | `time`, `src`, `dst`, `rule`, `phase`, `reply` | always | `reply` is true for echo replies only; DNS queries have `src` and `dst` 127.0.0.1, the command's DNS server |
 | `id`, `seq` | pings | the identifier and sequence number of the echo request |
-| `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `sent`, `closed`, `reset`; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
+| `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `sent`, `closed`, `reset`; UDP rules: `refused`, `unreachable`, `drop`; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
 | `code` | unreachable answers | `host`, `net` or `admin` |
 | `delay` | anything answered | such as `40ms` |
 | `probe` | anything but a ping | `udp`, `tcp` or `dns` |
 | `ttl`, `hop`, `from` | UDP and TCP probes | the probe's TTL, the hop that answered or lost it (left out for the destination), the address the answer came from |
-| `port`, `repeat` | TCP | the destination port; `true` for a SYN sent again, not counted |
+| `port`, `repeat` | TCP and UDP | the destination port; `repeat` is `true` for a SYN sent again, not counted |
 | `bytes` | TCP, result `sent` | how many bytes of `send` or `reply` pingmock sent; `delay` is its `wait` |
 | `name`, `qtype` | DNS | the name asked for, and `A`, `AAAA`... |
 
@@ -760,7 +803,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-The client covers the whole API: rules (`SetRule`, `DeleteRule`, `SetDefault`), paths (`SetPath`, `DeletePath`), TCP and DNS rules (`SetTCP`, `DeleteTCP`, `SetDNS`, `DeleteDNS`), statistics (`State`, `Stats`, `TCPStats`, `DNSStats`, `ResetStats`), the history (`History`, `ClearHistory`), `Reset` to put everything back as at startup (for the beginning of each test) and `Version`; `New`, `FromEnv` and `URL` connect it, and `IsNotFound` tells a missing rule from other errors. See its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
+The client covers the whole API: rules (`SetRule`, `DeleteRule`, `SetDefault`), paths (`SetPath`, `DeletePath`), TCP, UDP and DNS rules (`SetTCP`, `DeleteTCP`, `SetUDP`, `DeleteUDP`, `SetDNS`, `DeleteDNS`), statistics (`State`, `Stats`, `TCPStats`, `UDPStats`, `DNSStats`, `ResetStats`), the history (`History`, `ClearHistory`), `Reset` to put everything back as at startup (for the beginning of each test) and `Version`; `New`, `FromEnv` and `URL` connect it, and `IsNotFound` tells a missing rule from other errors. See its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
 
 ### Other languages
 
@@ -813,7 +856,7 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 
 ## Limitations
 
-- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. On a TCP connection pingmock sends only the fixed bytes of a rule's `send` and `reply`, never sends anything twice and never reads what the program sends: the only service it runs is the DNS server it gives a command under `pingmock exec`. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
+- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. On a TCP connection pingmock sends only the fixed bytes of a rule's `send` and `reply`, never sends anything twice and never reads what the program sends: the only service it runs is the DNS server it gives a command under `pingmock exec`. Other TCP traffic gets no response, and UDP gets an ICMP error only from a [UDP rule](#udp-datagrams) or, for traceroute and mtr, a path; pingmock never sends a UDP answer.
 - Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
 - Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr: its pings are answered, its TCP probes only on ports with a TCP rule, and its UDP probes not at all. With a path, UDP and TCP probes get the answers that mean "reached", on every port, unless a TCP rule for the port decides otherwise.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
