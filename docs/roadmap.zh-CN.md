@@ -28,7 +28,7 @@ flowchart LR
 
 ### 已完成：`exec` 访问外网
 
-维护者在下面几项里先选了它，因为它服务的应用开发者人数最多。`pingmock exec -outside` 通过 pasta 让命令使用宿主机的网络，`-outside-port 5432` 让它访问宿主机本机的端口，模拟的目标仍然按规则回应（[README](../README.zh-CN.md#访问外网)）。2026 年 10 月 23 日实现，还没有发布。
+维护者在下面几项里先选了它，因为它服务的应用开发者人数最多。`pingmock exec -outside` 通过 pasta 让命令使用宿主机的网络，`-outside-port 5432` 让它访问宿主机本机的端口，模拟的目标仍然按规则回应（[README](../README.zh-CN.md#访问外网)）。2026 年 10 月 23 日随 v0.15.0 发布。
 
 ### 已完成：补文档，不发版
 

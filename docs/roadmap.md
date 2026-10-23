@@ -28,7 +28,7 @@ flowchart LR
 
 ### Done: outside access for `exec`
 
-The maintainer chose it first among the items below, since it serves the largest group, application developers. `pingmock exec -outside` gives the command the host's network through pasta, and `-outside-port 5432` its host's loopback port, while mocked targets keep their rules ([README](../README.md#outside-access)). Implemented on 23 October 2026, not released yet.
+The maintainer chose it first among the items below, since it serves the largest group, application developers. `pingmock exec -outside` gives the command the host's network through pasta, and `-outside-port 5432` its host's loopback port, while mocked targets keep their rules ([README](../README.md#outside-access)). Released in v0.15.0 on 23 October 2026.
 
 ### Done: documentation, no release
 
