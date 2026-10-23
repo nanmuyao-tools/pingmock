@@ -1,6 +1,6 @@
 # TODO
 
-已发布 v0.13.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
+已发布 v0.14.0（见 [Releases](https://github.com/nanmuyao/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则、v0.14.0 冻结前的整理，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
 接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
 
@@ -290,11 +290,11 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 - [x] **3. v0.13：`-udp`**（2026-10-23 实现，未发布）。维护者确认语法：目标和 `-tcp` 一样，`udp:`、`PUT/DELETE /udp/{目标}`、`SetUDP`/`DeleteUDP`/`UDPStats`；`refuse`（ICMP 端口不可达）、`unreachable[=net|admin]`、`timeout`/`loss=`、pattern 的 `x`、`u`、`r`、错误的 `delay` 和 `ttl`；每个数据报计一次；只写延迟、没有失败方式的规则报错；有路径时各跳先回应，终点由 UDP 规则决定；exec 的 DNS 服务不受影响
   - 验证（开发容器）：Python 已连接的 UDP socket：`refuse` 得到 `ECONNREFUSED`，`unreachable=admin` 得到 `EHOSTUNREACH`（IPv6 是 `EACCES`），`timeout for 1 request; refuse` 先超时再拒绝，没有规则的端口超时，IPv6 的 refuse，exec 里按域名的规则；统计按数据报计数。**发现**：普通的 `unreachable`（主机不可达）Linux 不报告给没有 `IP_RECVERR` 的 UDP socket，程序只看到超时，README 写明了
   - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39913858988) 在 Ubuntu 24.04 和 26.04 上全部通过，9 项 UDP 检查在 4 个任务里都跑了；[v0.13.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.13.0)，下载的 arm64 二进制在开发容器里 refuse 得到 `ECONNREFUSED`，`unreachable=admin` 得到 `EHOSTUNREACH`
-- [x] **4. v0.14：冻结前的整理**（2026-10-23，未发布）。维护者决定：DNS 事件的 `src`、`dst` 留空，`id` 放查询的 DNS ID；`pingmock exec` 自己失败时退出码改为 125（和 docker run、env、timeout 一样），126、127 不变；其余不一致保持现状，写进兼容性承诺：各协议的结果用词（`reply`、`syn-ack`、`answer`）和统计字段（`replied`、`accepted`、`answered`）、规则标签（ping 是网段或 `default`，其他带协议前缀）、统计键的格式、阶段单位宽松接受、`reply` 布尔字段、路径一跳的回应 `phase` 为 0、配置文件的未知键报错
+- [x] **4. v0.14：冻结前的整理**（2026-10-23，已发布）。维护者决定：DNS 事件的 `src`、`dst` 留空，`id` 放查询的 DNS ID；`pingmock exec` 自己失败时退出码改为 125（和 docker run、env、timeout 一样），126、127 不变；其余不一致保持现状，写进兼容性承诺：各协议的结果用词（`reply`、`syn-ack`、`answer`）和统计字段（`replied`、`accepted`、`answered`）、规则标签（ping 是网段或 `default`，其他带协议前缀）、统计键的格式、阶段单位宽松接受、`reply` 布尔字段、路径一跳的回应 `phase` 为 0、配置文件的未知键报错
   - 修正：`GET /rules` 里路径的 `>` 被转义成 `\u003e`（`Path.MarshalJSON` 用了会转义 HTML 的 `json.Marshal`），测试在去掉修正时失败
   - Go 自带的 fuzz：`FuzzParseScenario`（ping、TCP、UDP、DNS 四种规则，解析成功的必须原样往返）、`FuzzParsePathAndTargets`、`FuzzParseProbe`（报文解析和据此构造的所有回应）、`FuzzAnswer`（DNS 服务），各跑 2 分钟，没有发现问题
   - musl（Alpine 3.20，下载的 v0.13.0 二进制）：按（域名, 类型）计数成立，`nxdomain for 2 requests` 让两次解析失败、第三次解析出地址，和 glibc 一样；**但 musl 收到 SERVFAIL 会立即重问**，一次解析每种类型问了 6 次，所以 `servfail for 2 requests` 在 musl 下一次都不失败。README 写明了
-  - [ ] 推送后看 CI；发布
+  - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/39917348427) 在 Ubuntu 24.04 和 26.04 上全部通过，退出码 125 和 DNS 事件字段的检查在 4 个任务里都跑了；[v0.14.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.14.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在开发容器里：规则写错时退出码是 125，命令自己的退出码 3 原样返回，DNS 事件的 `src`、`dst` 为空，`id` 是 DNS ID
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文
 
 **需要维护者决定**（括号里是 agent 的推荐，还没有确认）：
