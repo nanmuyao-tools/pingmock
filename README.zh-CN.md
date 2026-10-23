@@ -67,6 +67,7 @@ pingmock 用来测试**根据 ping 的结果或连接能否建立来做决定的
 | 测试一个会 ping 或建立连接的程序：选服务器、切换线路、判断网络是否可用、显示延迟、连接超时和被拒绝 | **pingmock** |
 | 把某块网卡上的真实流量变慢、丢包，对所有协议都生效：压力测试、"在 3G 网络下程序的体验" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html)，内核自带的网络模拟器 |
 | 让到某个服务的 TCP 连接上的数据变慢或出错：延迟、限速、传输中途重置，针对数据库或 API | [Toxiproxy](https://github.com/Shopify/toxiproxy)，带 API 和多语言客户端的 TCP 代理 |
+| 测试 QUIC（HTTP/3）客户端在 UDP 被拦时回退到 TCP | 用防火墙规则丢掉发往服务器的 UDP，比如 `iptables -A OUTPUT -p udp --dport 443 -d SERVER -j DROP`：pingmock 接管的是整个地址，没法只让 UDP 失败、TCP 仍然连到真实的服务器 |
 | 在测试之外，让整台机器或整个集群的域名解析出错 | 让客户端指向一个 DNS 服务器，比如 CoreDNS 的 `erratic` 插件，或者混沌测试工具；只改一个域名的话，在 `/etc/hosts` 里加一行。pingmock 的 [DNS 故障](#dns-故障)按域名设置，在 `pingmock exec` 下使用 |
 
 netem 作用在网卡和队列上，一条规则往往会波及所有流量（包括你自己的 SSH），而且需要 root。Toxiproxy 夹在应用和某个 TCP 服务之间，应用得改成连代理。pingmock 是**透明**的：程序照常 ping、照常连接它原来的地址和端口，不需要改成连代理；`pingmock exec` **不需要 root**，也不会改动被测命令之外的任何东西。在此之上，它吸收了这两者面向测试的那一面：故障**按目标地址、网段和端口**声明在和测试放在一起的配置文件里，随机丢包和抖动用 seed **可以复现**，规则可以通过 API **在程序运行中修改**。
@@ -299,6 +300,29 @@ pingmock 会把这个地址路由到虚拟网卡上。**注意：在 pingmock �
 规则也可以覆盖本机所在的整个网络，比如 VLAN 网卡上的 `192.168.20.0/24`。这时 pingmock 会把它拆成 `192.168.20.0/25` 和 `192.168.20.128/25` 两半来添加路由：它们更精确，所以会接管流量，同时**保留本机原有的这个网络的路由**，pingmock 退出后本机依然能访问这个网络。这样做时 pingmock 会在日志中说明。单个地址如果已经有自己的路由，就无法这样拆分，pingmock 会拒绝这条规则，而不是替换那条路由。`pingmock exec` 不涉及这些问题，因为它从不改动宿主机的路由。
 
 如果软件 ping 的是域名，可以在 `/etc/hosts` 里把域名指向测试网段的地址，例如 `10.99.0.1 api.example.com`。
+
+### 绑定网卡的探测
+
+绑定到网卡的探测无论主路由表怎样都会从那块网卡发出，所以 `ping -I eth0 8.8.8.8` 会绕过 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的：用 `SO_BINDTODEVICE` 绑定网卡，再用防火墙标记把探测引到自己的路由表。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）或者绑定 `pingmock0` 则照常被模拟。
+
+测试仍然可以把绑定的探测引到 pingmock，不用改程序。用标记引导的探测走自己的路由表，在那张表里加上 pingmock 的网段即可：
+
+```bash
+sudo ip route add 10.99.0.0/24 dev pingmock0 table 100
+```
+
+绑定到网卡的探测需要用 `tc` 从那块网卡重定向到 pingmock 的网卡，回应再重定向回去；回程按那块网卡自己的地址匹配（这里是 eth0 的 172.17.0.2），其他回应不受影响：
+
+```bash
+sudo tc qdisc add dev eth0 clsact
+sudo tc filter add dev eth0 egress protocol ip u32 match ip dst 10.99.0.0/24 \
+  action mirred egress redirect dev pingmock0
+sudo tc qdisc add dev pingmock0 clsact
+sudo tc filter add dev pingmock0 ingress protocol ip u32 match ip dst 172.17.0.2/32 \
+  action mirred ingress redirect dev eth0
+```
+
+两种做法都在[开发容器](.devcontainer/README.zh-CN.md)里用 iputils 的 `ping -I` 试过，重定向还用 curl 的 `--interface` 试过，都是 IPv4；没有用 mwan3 本身试过。在 `pingmock exec` 下，命令可以为自己要用的网卡创建 dummy 设备，并设置同样的重定向，不需要 root。规则仍然只按目标区分，所以同一个地址不能经一块网卡不通、经另一块网卡通。
 
 ### 配置文件
 
@@ -659,7 +683,7 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 [`examples/compose-demo`](examples/compose-demo/README.zh-CN.md) 更进一步：一个被测服务实时响应从宿主机修改的规则，以及用 `docker compose run` 运行的测试。
 
-不带参数时，镜像运行 `pingmock -api 0.0.0.0:9100`，所以 API 可以用 `-p 9100:9100` 映射出来；给了参数就会替换这个默认值，要映射 API 的话请在参数里加上 `-api 0.0.0.0:9100`。镜像为它所在的网络命名空间运行 pingmock，就像 `sudo pingmock` 为整台机器运行一样，所以那里不能用域名、`-host` 和 `-dns`，请写地址。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
+不带参数时，镜像运行 `pingmock -api 0.0.0.0:9100`，所以 API 可以用 `-p 9100:9100` 映射出来。API 没有认证，能访问到它的人都能改规则，所以除非是你自己的网络，只映射到本机地址：`-p 127.0.0.1:9100:9100`；给了参数就会替换这个默认值，要映射 API 的话请在参数里加上 `-api 0.0.0.0:9100`。镜像为它所在的网络命名空间运行 pingmock，就像 `sudo pingmock` 为整台机器运行一样，所以那里不能用域名、`-host` 和 `-dns`，请写地址。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
 
 ## 运行时控制 API
 
@@ -856,7 +880,7 @@ make e2e-docker   # 容器镜像和 Compose 示例
 ## 限制
 
 - 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。在 `pingmock exec` 下，对有 [DNS 规则](#dns-故障)的域名的 DNS 查询按规则回应。pingmock 在 TCP 连接上只发送规则里 `send` 和 `reply` 的固定字节，不重发任何东西，也不读程序发来的内容：它运行的唯一一个服务，是 `pingmock exec` 下为命令运行的 DNS 服务。其他 TCP 流量不会得到响应；UDP 只会从 [UDP 规则](#udp-数据报)，或者 traceroute、mtr 遇到的路径那里得到 ICMP 错误，pingmock 从不发送 UDP 回答。
-- **绑定网卡**的 ping 不会被模拟：`ping -I eth0 8.8.8.8` 无论路由怎样都会从 `eth0` 发出，因此绕过了 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）则照常被模拟。
+- **绑定网卡**的探测（`ping -I eth0`、OpenWrt 的 mwan3 都这样发）会绕过 pingmock，除非测试把它们重定向过来；规则也不能区分网卡。见[绑定网卡的探测](#绑定网卡的探测)。
 - 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外：回应它的 ping，TCP 探测只在有 TCP 规则的端口上回应，UDP 探测一概不回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，任何端口都是，除非这个端口有 TCP 规则另作规定。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
 - 不支持分片的请求（例如 `ping -s 2000`）和带扩展头的 IPv6 请求，这类请求会被忽略。

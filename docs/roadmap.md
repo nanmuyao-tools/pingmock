@@ -4,7 +4,7 @@ English | [中文](roadmap.zh-CN.md)
 
 Where pingmock stands after v0.14.0, what comes next, and why, as of 23 October 2026. The steps, with what was verified at each one, are tracked in [TODO.md](../TODO.md#通往-v10) (in Chinese). The evidence behind this page, including the competitor analysis, is in [planning, round seven](planning.md#a-seventh-round-competitors-and-direction-after-v10-23-october-2026).
 
-The common protocols are now supported. Next comes the v1.0 compatibility promise. After that, a new feature waits until a user asks for it, and features are ordered by the number of users they serve. Of the 34 competitors studied, none keeps all four [core values](../CONTRIBUTING.md#design-principles): transparent, per target, reproducible, and controllable and observable.
+The common protocols are now supported, and the documentation stage is done. The v1.0 compatibility promise is deferred: the project is still in internal development, so changes need not stay compatible (the maintainer, 23 October 2026). A new feature waits until a user asks for it, and features are ordered by the number of users they serve. Of the 34 competitors studied, none keeps all four [core values](../CONTRIBUTING.md#design-principles): transparent, per target, reproducible, and controllable and observable.
 
 ## What is done
 
@@ -21,28 +21,21 @@ The common protocols are now supported. Next comes the v1.0 compatibility promis
 
 ```mermaid
 flowchart LR
-    A["Now: documentation<br/>no release"] --> B["v1.0<br/>compatibility promise"]
-    B --> C["After v1.0<br/>when a user asks"]
+    A["Done: documentation"] --> C["Next: when a user asks"]
+    C --> B["v1.0, deferred<br/>compatibility promise"]
     N["Not planned"]
 ```
 
-### Now: documentation, no release
+### Done: documentation, no release
 
-About half a day, in both languages.
+Done on 23 October 2026, in both languages.
 
 - What is left of item 1 in TODO.md: QUIC falling back to TCP under "when to use something else", and UDP replies with content and QUIC fallback under "not planned".
 - **Probes bound to an interface.** `ping -I <address>` and `ping -I pingmock0` reach pingmock today. A probe bound to a real device, such as `ping -I eth0` or mwan3's wrapper, does not. It reaches pingmock once pingmock's prefix is added to that probe's routing table, or with a `tc` mirred redirect. Both were verified in the development container.
 - Check off the items in TODO.md that were decided but not marked.
+- The README's Docker section says that the API has no authentication, and to publish it on loopback only.
 
-### v1.0: the compatibility promise
-
-About one day, in both languages.
-
-- **To decide first: the API address of the container image.** The image runs `pingmock -api 0.0.0.0:9100`, and the API has no authentication. Default addresses are frozen at v1.0. One option is for the image to listen on loopback only, so that users who publish the port pass `-api 0.0.0.0:9100` themselves. The other is to keep the default and log a warning when the API listens on a non-loopback address, as Toxiproxy v2.13.0 does. Logs are not frozen, so a warning can come in any release; the default can change only before v1.0.
-- **Frozen:** flags and their defaults, the rule text, YAML keys and JSON, API paths, methods and status codes, event fields and result words, the `client` package (additions only), seeded sequences, exit statuses, `PINGMOCK_API`, default addresses.
-- **Not frozen:** the `-v` log, error messages, the order of keys, `internal/`.
-
-### After v1.0: when a user asks
+### Next: when a user asks
 
 These are ordered by the number of users they would serve, but none starts without a user asking.
 
@@ -50,10 +43,19 @@ These are ordered by the number of users they would serve, but none starts witho
 |---|---|---|
 | Rules per interface or source address (multi-WAN, mwan3) | operations staff | Designed. The experiment works, also without root inside `exec`. Medium cost: `rule`, `engine`, `tun`, `app`, `api`, `client` |
 | Outside access for `exec`, through pasta or slirp4netns | application developers | Lets the command download dependencies and reach real services |
-| Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages. Best after v1.0, so it follows a stable API |
+| Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages. Lowest priority: the API may still change |
 | Testcontainers module | application developers | Useful only when the code under test runs in a container |
 | Replace the `ip` command with netlink | everyone | Removes the runtime dependency on iproute2 |
 | ICMP Packet Too Big, DNS in root mode, records other than A/AAAA, replaying recorded latency | — | No evidence of users yet |
+
+### v1.0: the compatibility promise, deferred
+
+About one day, in both languages, once the project leaves internal development. Until then nothing is frozen. The image keeps `-api 0.0.0.0:9100`, so that `-p` works, and the README says to publish the port on loopback only.
+
+What the promise would cover:
+
+- **Frozen:** flags and their defaults, the rule text, YAML keys and JSON, API paths, methods and status codes, event fields and result words, the `client` package (additions only), seeded sequences, exit statuses, `PINGMOCK_API`, default addresses.
+- **Not frozen:** the `-v` log, error messages, the order of keys, `internal/`.
 
 ### Not planned
 
@@ -86,7 +88,7 @@ These are ordered by the number of users they would serve, but none starts witho
 | Gap | Competitors | What the roadmap does |
 |---|---|---|
 | Platforms | Toxiproxy runs on Windows and macOS; clumsy covers Windows | Not planned; Docker on macOS |
-| Client languages | Toxiproxy has 10 | Python after v1.0 |
+| Client languages | Toxiproxy has 10 | Python, when a user asks |
 | Test frameworks | testcontainers-go has a Toxiproxy module | Waits for a user |
 | Protocol depth | HTTP mocks match requests and know the protocol | Not planned; fixed bytes cover a server that answers 503 |
 | Multi-WAN probes | Tools shape traffic per interface; none fakes answers per interface | Designed, waits for an operations user |

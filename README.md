@@ -67,6 +67,7 @@ pingmock tests **programs that decide things from ping or from whether a connect
 | Test a program that pings or connects: server selection, failover, "is the network up", a latency display, connect timeouts and refusals | **pingmock** |
 | Slow down or lose real traffic on an interface, for every protocol: load tests, "how does the app feel on 3G" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html), the kernel's network emulator |
 | Slow down or break the data of TCP connections to one service: latency, bandwidth, resets in the middle of a stream, for a database or an API | [Toxiproxy](https://github.com/Shopify/toxiproxy), a TCP proxy with an API and client libraries |
+| Test a QUIC (HTTP/3) client falling back to TCP when UDP is blocked | a firewall rule that drops UDP to the server, such as `iptables -A OUTPUT -p udp --dport 443 -d SERVER -j DROP`: pingmock takes over the whole address, so it cannot fail UDP while TCP still reaches the real server |
 | Make names fail to resolve for the whole machine or a cluster, outside a test | a DNS server you point clients at, such as CoreDNS's `erratic` plugin, or a chaos tool; for one name, an `/etc/hosts` entry. pingmock's [DNS faults](#dns-faults) work per name, under `pingmock exec` |
 
 netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. pingmock is **transparent**: the program keeps pinging and connecting to the addresses and ports it always uses, with no proxy to point it at, and `pingmock exec` needs **no root** and changes nothing outside the command it runs. On top of that it takes the test-oriented side of both: faults are declared **per target address, prefix and port** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, and rules change **while the program runs** through the API.
@@ -299,6 +300,29 @@ pingmock routes that address to its virtual device. **Note: while pingmock is ru
 A rule can also cover a whole network the host is on, such as `192.168.20.0/24` on a VLAN interface. pingmock then routes it as two halves, `192.168.20.0/25` and `192.168.20.128/25`, which are more specific and so take the traffic, and leaves the host's own route for the network in place, so that the host is not cut off from it when pingmock exits. It logs when it does so. A single address that already has a route of its own cannot be split around: pingmock refuses it rather than replace that route. `pingmock exec` has none of this to worry about, since it never touches the host's routes.
 
 If the software pings a hostname, point that name at an address in the test subnet in `/etc/hosts`, e.g. `10.99.0.1 api.example.com`.
+
+### Probes bound to an interface
+
+A probe bound to a network interface leaves through that interface whatever the main routing table says, so `ping -I eth0 8.8.8.8` bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way: they bind with `SO_BINDTODEVICE` and steer with a firewall mark into a routing table of their own. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) or to `pingmock0` is mocked as usual.
+
+A test can still bring bound probes to pingmock, without changing the program. Probes steered by a mark follow their own table, so add pingmock's prefix to it:
+
+```bash
+sudo ip route add 10.99.0.0/24 dev pingmock0 table 100
+```
+
+Probes bound to a device need a `tc` redirect from that device to pingmock's, and one back for the answers, keyed on the device's own address (here eth0's, 172.17.0.2) so that other answers are left alone:
+
+```bash
+sudo tc qdisc add dev eth0 clsact
+sudo tc filter add dev eth0 egress protocol ip u32 match ip dst 10.99.0.0/24 \
+  action mirred egress redirect dev pingmock0
+sudo tc qdisc add dev pingmock0 clsact
+sudo tc filter add dev pingmock0 ingress protocol ip u32 match ip dst 172.17.0.2/32 \
+  action mirred ingress redirect dev eth0
+```
+
+Both were tried with iputils' `ping -I`, and the redirect with curl's `--interface`, over IPv4 in the [development container](.devcontainer/README.md); not with mwan3 itself. Under `pingmock exec`, the command can create dummy devices for its interfaces and the same redirects, without root. Rules are still per target, so one address cannot be down through one interface and up through another.
 
 ### Configuration file
 
@@ -659,7 +683,7 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 [`examples/compose-demo`](examples/compose-demo/) goes further: a service under test reacting live to rules changed from the host, and tests run with `docker compose run`.
 
-Without arguments, the image runs `pingmock -api 0.0.0.0:9100`, so the API can be published with `-p 9100:9100`; arguments replace that default, so add `-api 0.0.0.0:9100` to them to publish the API. The image runs pingmock for its network namespace, as `sudo pingmock` does for a machine, so names, `-host` and `-dns` are refused there: use addresses. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
+Without arguments, the image runs `pingmock -api 0.0.0.0:9100`, so the API can be published with `-p 9100:9100`. The API has no authentication and anyone who reaches it can change the rules, so publish it on the loopback address only, `-p 127.0.0.1:9100:9100`, unless the network is your own; arguments replace that default, so add `-api 0.0.0.0:9100` to them to publish the API. The image runs pingmock for its network namespace, as `sudo pingmock` does for a machine, so names, `-host` and `-dns` are refused there: use addresses. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
 
 ## Runtime control API
 
@@ -857,7 +881,7 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 ## Limitations
 
 - Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. On a TCP connection pingmock sends only the fixed bytes of a rule's `send` and `reply`, never sends anything twice and never reads what the program sends: the only service it runs is the DNS server it gives a command under `pingmock exec`. Other TCP traffic gets no response, and UDP gets an ICMP error only from a [UDP rule](#udp-datagrams) or, for traceroute and mtr, a path; pingmock never sends a UDP answer.
-- Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
+- Probes bound to a network interface, as `ping -I eth0` and OpenWrt's mwan3 send them, bypass pingmock unless the test redirects them, and rules cannot tell interfaces apart: see [Probes bound to an interface](#probes-bound-to-an-interface).
 - Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr: its pings are answered, its TCP probes only on ports with a TCP rule, and its UDP probes not at all. With a path, UDP and TCP probes get the answers that mean "reached", on every port, unless a TCP rule for the port decides otherwise.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.
