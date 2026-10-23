@@ -185,7 +185,7 @@ A connection can fail in more ways than a ping:
 | The connection opens, then the server closes it (**FIN**) | reading gets end of file; an HTTP client reports an empty reply |
 | The connection opens, then the server resets it (**RST**) | "connection reset by peer" (`ECONNRESET`) |
 
-**For pingmock**: a TCP rule picks one of these per address and port: `5ms` accepts after 5 ms, `refuse` answers RST, `timeout` never answers, `unreachable` sends the ICMP error, and `after=hang|close|reset` decides what happens once the connection is open. pingmock does not run a server: it writes the SYN-ACK, RST or FIN itself, and the program's own kernel does the rest of the handshake. A port without a TCP rule gets no answer, unless the address has a [path](../README.md#paths-traceroute-and-mtr), whose target accepts every port. See [TCP connections](../README.md#tcp-connections).
+**For pingmock**: a TCP rule picks one of these per address and port: `5ms` accepts after 5 ms, `refuse` answers RST, `timeout` never answers, `unreachable` sends the ICMP error, `after=hang|close|reset` decides what happens once the connection is open, and `send=` and `reply=` put fixed bytes on it. pingmock does not run a server: it writes the SYN-ACK, RST, FIN or data segments itself, and the program's own kernel does the rest of the handshake. A port without a TCP rule gets no answer, unless the address has a [path](../README.md#paths-traceroute-and-mtr), whose target accepts every port. See [TCP connections](../README.md#tcp-connections).
 
 ## 6. traceroute: TTL and hops
 
@@ -446,7 +446,7 @@ Packet 4 is the request. Compared with the SYN, the total length grows by the da
 
 ### 9.7 Where pingmock comes in
 
-With a TCP rule for 10.99.0.1:80, there is no server: pingmock writes the server's packets itself, and only a few of them.
+With a TCP rule for 10.99.0.1:80, there is no server: pingmock writes the server's packets itself, and only those the rule asks for.
 
 | The rule | What pingmock writes | Then |
 |---|---|---|
@@ -455,6 +455,7 @@ With a TCP rule for 10.99.0.1:80, there is no server: pingmock writes the server
 | `timeout` | nothing | the client sends packet 1 again and again, then gives up |
 | `after=close` | packet 2, then on packet 3 a FIN, ACK, like packet 8 | the client reads end of file |
 | `after=reset` | packet 2, then on packet 4 an RST, ACK | the client gets "connection reset by peer" |
+| `reply="HTTP/1.0 200 OK...",after=close` | packet 2; on packet 4 an ACK and, like packet 6, the reply; then a FIN, like packet 8 | the client reads the reply, then end of file: much of this very conversation |
 
 pingmock's own sequence number is not 5000 but `70 69 6e 67`, the letters "ping" in ASCII, the same in every connection; only the client's numbers (the 1001 it acknowledges) come from the packet it answers. [Inside the packets](packets.md#12-tcp-a-connection-attempt-and-pingmocks-answers) shows these answers byte by byte.
 

@@ -203,7 +203,7 @@ SYN、ACK、FIN、RST 是**标志位**：TCP 头部里的单个比特，说明�
 | 连接建立后，服务器关闭了它（**FIN**） | 读到文件结束；HTTP 客户端报空回复 |
 | 连接建立后，服务器重置了它（**RST**） | 「connection reset by peer」（`ECONNRESET`） |
 
-**和 pingmock 的关系**：TCP 规则为每个地址和端口选其中一种：`5ms` 在 5ms 后接受，`refuse` 回 RST，`timeout` 不回应，`unreachable` 回 ICMP 错误，`after=hang|close|reset` 决定连接建立之后怎样。pingmock 并不运行服务器：它自己写出 SYN-ACK、RST 或 FIN，握手的其余部分由程序自己的内核完成。没有 TCP 规则的端口不会得到回应，除非这个地址设了[路径](../README.zh-CN.md#路径traceroute-和-mtr)，路径的目标接受任何端口的连接。见 [TCP 连接](../README.zh-CN.md#tcp-连接)。
+**和 pingmock 的关系**：TCP 规则为每个地址和端口选其中一种：`5ms` 在 5ms 后接受，`refuse` 回 RST，`timeout` 不回应，`unreachable` 回 ICMP 错误，`after=hang|close|reset` 决定连接建立之后怎样，`send=` 和 `reply=` 在连接上发送固定的字节。pingmock 并不运行服务器：它自己写出 SYN-ACK、RST、FIN 或数据报文，握手的其余部分由程序自己的内核完成。没有 TCP 规则的端口不会得到回应，除非这个地址设了[路径](../README.zh-CN.md#路径traceroute-和-mtr)，路径的目标接受任何端口的连接。见 [TCP 连接](../README.zh-CN.md#tcp-连接)。
 
 ## 6. traceroute：TTL 和跳
 
@@ -457,7 +457,7 @@ TCP 包的第 33 字节（TCP 头部的第 13 字节）存放标志位，每个�
 
 ### 9.7 pingmock 在哪里出场
 
-如果 10.99.0.1:80 有 TCP 规则，就没有服务器：服务器那一侧的包由 pingmock 自己写出，而且只写其中几个。
+如果 10.99.0.1:80 有 TCP 规则，就没有服务器：服务器那一侧的包由 pingmock 自己写出，而且只写规则要求的那些。
 
 | 规则 | pingmock 写出什么 | 接下来 |
 |---|---|---|
@@ -466,6 +466,7 @@ TCP 包的第 33 字节（TCP 头部的第 13 字节）存放标志位，每个�
 | `timeout` | 什么都不写 | 客户端一遍遍重发第 1 个包，最后放弃 |
 | `after=close` | 第 2 个包，然后在收到第 3 个包时写一个 FIN、ACK，像第 8 个包那样 | 客户端读到文件结束 |
 | `after=reset` | 第 2 个包，然后在收到第 4 个包时写一个 RST、ACK | 客户端看到「connection reset by peer」 |
+| `reply="HTTP/1.0 200 OK...",after=close` | 第 2 个包；收到第 4 个包时写回复，像第 6 个包那样同时确认请求；然后写一个 FIN，像第 8 个包 | 客户端读到回复，然后是文件结束：差不多就是这段对话本身 |
 
 pingmock 自己的序号不是 5000，而是 `70 69 6e 67`，ASCII 的「ping」，每个连接都一样；只有客户端那边的数（它确认的 1001）来自它要回应的包。[数据包详解](packets.zh-CN.md#12-tcp一次连接请求和-pingmock-的回应)逐字节展示了这些回应。
 

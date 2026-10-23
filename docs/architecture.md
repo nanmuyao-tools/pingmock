@@ -73,7 +73,7 @@ TCP and DNS rules reuse everything above: the same `Spec`, `Phase` and `Scenario
 1. [`ParseProbe`](../internal/icmp/probe.go) recognizes a TCP SYN (`Kind` `TCP`), or another segment of a connection (`Kind` `Segment`).
 2. For a SYN, [`RuleSet.DecideTCP`](../internal/engine/tcp.go) finds the rule for the address and port (the most specific prefix, then a rule for the port over one for every port) and decides as for a ping: `SynAck`, `Refused`, `Drop` or `Unreachable`. A SYN the client's kernel sends again for the same attempt gets the same answer, from a cache keyed by addresses, ports and initial sequence number.
 3. [`BuildSynAck`](../internal/icmp/probe.go) or [`BuildRST`](../internal/icmp/probe.go) builds the answer; the client's kernel completes the handshake.
-4. Under `after=close` or `after=reset`, the accepted connection is remembered, and [`RuleSet.DecideSegment`](../internal/engine/tcp.go) answers its later segments: a FIN on the handshake's last ACK, or a reset on the first data, at most once per connection. Answers without a delay are written in order from the read loop, so a reset never overtakes the FIN before it.
+4. Under `after=close` or `after=reset`, or a rule that sends data, the accepted connection is remembered, and [`RuleSet.DecideSegment`](../internal/engine/tcp.go) answers its later segments: a FIN on the handshake's last ACK, or a reset on the first data, at most once per connection; with `send=`, `reply=` or `limit=`, `talk` also acknowledges the client's data and sends the bytes in segments of 536 bytes. Acknowledgments go out at once; data, FINs and resets go through a queue per connection in the responder, so that nothing overtakes data held back by `wait=`.
 
 **A DNS query** never reaches the device. Under `pingmock exec`, the command's `resolv.conf` points at a small DNS server in the [`dns`](../internal/dns/dns.go) package, which the child starts in [`serveDNS`](../internal/app/names_linux.go):
 
@@ -87,10 +87,10 @@ These types are the key to the code. They live in `rule` and `engine`:
 
 | Concept | Code | Meaning |
 |---|---|---|
-| **Spec** | [`rule.Spec`](../internal/rule/spec.go) | How to answer **one** request: delay, jitter, loss or a loss pattern, unreachable or not, TTL; for TCP rules also `refuse` and `after`, for DNS rules `nxdomain` and `servfail`. `delay=50ms,loss=5%` is a Spec |
+| **Spec** | [`rule.Spec`](../internal/rule/spec.go) | How to answer **one** request: delay, jitter, loss or a loss pattern, unreachable or not, TTL; for TCP rules also `refuse`, `after`, `send`, `reply`, `limit` and `wait`, for DNS rules `nxdomain` and `servfail`. `delay=50ms,loss=5%` is a Spec |
 | **Phase** | [`rule.Phase`](../internal/rule/scenario.go) | A Spec with a length: a duration (`for 10s`) or a number of requests (`for 5 pings`) |
 | **Scenario** | [`rule.Scenario`](../internal/rule/scenario.go) | A sequence of phases, such as `30ms for 10 pings; timeout`. A plain rule is a scenario with one endless phase |
-| **Outcome** | [`rule.Outcome`](../internal/rule/outcome.go) | What happens to a request: `Reply`, `Drop` or `Unreachable`; for paths also `TimeExceeded`, `PortUnreachable` and `SynAck`, and for TCP rules `Refused`, and `Closed` and `Reset` for connections they accepted with `after=`; for DNS rules `NXDomain` and `ServFail` |
+| **Outcome** | [`rule.Outcome`](../internal/rule/outcome.go) | What happens to a request: `Reply`, `Drop` or `Unreachable`; for paths also `TimeExceeded`, `PortUnreachable` and `SynAck`, and for TCP rules `Refused`, `Closed` and `Reset` for connections they accepted with `after=`, and `Sent` for their `send=` and `reply=`; for DNS rules `NXDomain` and `ServFail` |
 | **RuleSet** | [`engine.RuleSet`](../internal/engine/ruleset.go) | The installed rules, and **the state of each target address**: its phase, how many requests it got in that phase, and its own random source; likewise for each address and port of TCP rules ([`tcp.go`](../internal/engine/tcp.go)) and each name and query type of DNS rules ([`dns.go`](../internal/engine/dns.go)) |
 | **Decision** | [`engine.Decision`](../internal/engine/ruleset.go) | What `RuleSet.DecideProbe` and `Decide` return: the outcome, the delay, and the rule and phase that applied |
 | **History** | [`engine.History`](../internal/engine/history.go) | Recent requests, in a fixed-size ring buffer |

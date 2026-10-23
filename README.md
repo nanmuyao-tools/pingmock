@@ -329,7 +329,7 @@ rules:
 sudo ./pingmock -config examples/pingmock.yaml
 ```
 
-A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`, each phase a `spec` with either `for: 10s` or `count: 5` (requests). The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse` and `after` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`).
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`, each phase a `spec` with either `for: 10s` or `count: 5` (requests). The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse`, `after`, `send`, `reply`, `limit` and `wait` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`). In the mapping form, `send` and `reply` are text, with YAML's own escapes in double quotes (`reply: "HTTP/1.1 503 x\r\n\r\n"`); in the text form, write the rule in single quotes, so that YAML leaves the Go string to pingmock (`'reply="\xff\x00"'`).
 
 Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 
@@ -384,6 +384,7 @@ The rule is written as for `-rule`, and means:
 | `after=close` | The connection is accepted, then closed at once: a read gets end of file, an HTTP client an empty reply (curl: "Empty reply from server") |
 | `after=reset` | The connection is accepted, then reset when the program first sends or closes: `ECONNRESET` ("Connection reset by peer") |
 | `after=hang` | The default: the connection is accepted and held open, nothing is sent |
+| `send="..."`, `reply="..."`, `limit=`, `wait=` | Bytes sent on the connection, a limit on what the program may send, and a delay, see [Sending data](#sending-data) |
 | `ttl=` | The TTL of the answers |
 
 Phases count connection attempts: `for 3 requests` (or `connections`). An attempt is counted once, however many times the client's kernel sends its SYN again while waiting, so `timeout for 2 requests` means two attempts whatever the kernel's retry timer. When several rules match, the most specific prefix wins, then a rule for the port over one for every port.
@@ -392,7 +393,7 @@ As with ping rules, a TCP rule for a real address in root mode routes **all** tr
 
 ### After the connection opens
 
-An accepted connection is held open, but nothing is ever sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. Ports without a TCP rule are not answered, as before, unless the address has a [path](#paths-traceroute-and-mtr), whose target accepts every port.
+An accepted connection is held open, and unless the rule [sends data](#sending-data) nothing is sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. Ports without a TCP rule are not answered, as before, unless the address has a [path](#paths-traceroute-and-mtr), whose target accepts every port.
 
 The same rule tests a **TLS handshake timeout**: the connection opens, the client sends its ClientHello and never gets an answer. `pingmock exec -tcp api.example.com:443=5ms -- ./my-app` makes every HTTPS request to that name hang in the handshake: Python's `ssl` reports "The handshake operation timed out", curl gives up with exit 28, and Go's `http.Transport` fails after its `TLSHandshakeTimeout`.
 
@@ -401,6 +402,32 @@ The same rule tests a **TLS handshake timeout**: the connection opens, the clien
 `after=reset` waits for the program to send: a reset sent as soon as the connection opens would sometimes arrive while `connect` is still returning, and fail it instead. A program that waits for the server to speak first, as SSH, SMTP and MySQL clients do, therefore gets a read timeout under `after=reset`, and end of file under `after=close`.
 
 Data the program writes after the close gets a reset, as from a real server that closed its socket; a write after that fails with `EPIPE`. The action is decided when the connection is accepted, so it does not change if a phase ends before the program sends. A connection that stays idle for 10 minutes is forgotten, and gets nothing after that.
+
+### Sending data
+
+A rule can also send fixed bytes on the connection, to test how a program handles what a server says, or the server that stops listening:
+
+```bash
+pingmock exec \
+  -tcp '10.99.0.1:22=send="SSH-2.0-OpenSSH_9.6\r\n"' \
+  -tcp '10.99.0.2:80=reply="HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",after=close' \
+  -tcp '10.99.0.3:5432=limit=1000,after=reset' \
+  -tcp '10.99.0.4:443=wait=2s,reply="HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"' \
+  -- ./my-app
+```
+
+| Setting | What pingmock does |
+|---|---|
+| `send="..."` | Sends the bytes as soon as the connection opens, as servers that speak first do: SSH, SMTP, FTP, MySQL |
+| `reply="..."` | Sends the bytes when the program first sends data: one fixed answer to the request, whatever it was |
+| `limit=1000` | Accepts 1000 bytes from the program, then ends the connection as `after=` says; it needs `after=close` or `after=reset` |
+| `wait=2s` | Waits that long before sending `send` or `reply`: a server that is slow to answer |
+
+The bytes are written as a Go string in double quotes, with `\r`, `\n`, `\t`, `\"`, `\\` and `\xff` for any byte, up to 16 KiB each. pingmock sends them as they are and never looks at what the program sends: it plays a server that always says the same thing, not a protocol. When the rule sends data or has a limit, pingmock acknowledges what the program sends, so its writes do not stall; without them, nothing is acknowledged, as above.
+
+`after=` decides what follows the data: with `after=close`, pingmock closes the connection once it has sent everything (after `reply` if there is one), so an HTTP client gets the reply and the end of the response; with `after=reset`, the program's next data or close gets a reset; with `after=hang`, the connection stays open and silent. With `limit`, `after=` applies at the limit instead. pingmock never sends anything twice: on a network that loses packets, use the rule's `delay` and `loss` for the connection attempts instead.
+
+`wait` delays only pingmock's data: the program's own data is acknowledged at once, as a slow server's kernel would, so the program waits for an answer rather than resending its request.
 
 ### Configuration file, API and history
 
@@ -664,12 +691,13 @@ All the fields an event can have:
 |---|---|---|
 | `time`, `src`, `dst`, `rule`, `phase`, `reply` | always | `reply` is true for echo replies only; DNS queries have `src` and `dst` 127.0.0.1, the command's DNS server |
 | `id`, `seq` | pings | the identifier and sequence number of the echo request |
-| `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `closed`, `reset`; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
+| `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `sent`, `closed`, `reset`; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
 | `code` | unreachable answers | `host`, `net` or `admin` |
 | `delay` | anything answered | such as `40ms` |
 | `probe` | anything but a ping | `udp`, `tcp` or `dns` |
 | `ttl`, `hop`, `from` | UDP and TCP probes | the probe's TTL, the hop that answered or lost it (left out for the destination), the address the answer came from |
 | `port`, `repeat` | TCP | the destination port; `true` for a SYN sent again, not counted |
+| `bytes` | TCP, result `sent` | how many bytes of `send` or `reply` pingmock sent; `delay` is its `wait` |
 | `name`, `qtype` | DNS | the name asked for, and `A`, `AAAA`... |
 
 ## Using it in automated tests
@@ -785,7 +813,7 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 
 ## Limitations
 
-- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. pingmock never sends application data on a TCP connection: the only service it runs is the DNS server it gives a command under `pingmock exec`. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
+- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. On a TCP connection pingmock sends only the fixed bytes of a rule's `send` and `reply`, never sends anything twice and never reads what the program sends: the only service it runs is the DNS server it gives a command under `pingmock exec`. Other TCP traffic and UDP get no response, except the probes of traceroute and mtr to targets with a path.
 - Pings bound to a network interface are not mocked: `ping -I eth0 8.8.8.8` leaves through `eth0` whatever the routes say, so it bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) is mocked as usual.
 - Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr: its pings are answered, its TCP probes only on ports with a TCP rule, and its UDP probes not at all. With a path, UDP and TCP probes get the answers that mean "reached", on every port, unless a TCP rule for the port decides otherwise.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
