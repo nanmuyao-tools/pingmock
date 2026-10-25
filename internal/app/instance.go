@@ -96,7 +96,7 @@ func start(s *settings) (*instance, error) {
 	in.rules, in.history = rs, hist
 
 	if s.api != "" {
-		h := api.NewHandler(rs, hist, router.Ensure, buildVersion(), s.dnsTarget, s.apiFacts())
+		h := api.NewHandler(rs, hist, router, buildVersion(), s.dnsTarget, s.apiFacts())
 		if err := in.startAPI(s.api, h); err != nil {
 			dev.Close()
 			return nil, err

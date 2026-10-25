@@ -10,20 +10,29 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/nanmuyao/pingmock/internal/engine"
 	"github.com/nanmuyao/pingmock/internal/rule"
 )
 
-// NewHandler returns the HTTP control API. ensureRoute is called before a
-// rule is installed, so that pings to its target reach pingmock. version is
+// Routes are the routes that bring traffic for mocked targets to pingmock.
+type Routes interface {
+	Ensure(netip.Prefix) error      // before a rule for the prefix is installed
+	Sync(want []netip.Prefix) error // after rules are removed: exactly these stay routed
+	Routes() []netip.Prefix         // what is routed, besides the device's subnets
+}
+
+// NewHandler returns the HTTP control API. routes get the route a rule's
+// target needs before the rule is installed, so that its traffic reaches
+// pingmock, and lose the ones no rule needs once rules go. version is
 // what GET /version reports. dnsTarget checks the name of a DNS rule and
 // whether such a rule can take effect, and returns it as rules are keyed.
 // facts are added to GET /rules as they are: what was set up at startup
 // and cannot change, such as pingmock exec's outside access.
-func NewHandler(rs *engine.RuleSet, hist *engine.History, ensureRoute func(netip.Prefix) error, version string,
+func NewHandler(rs *engine.RuleSet, hist *engine.History, routes Routes, version string,
 	dnsTarget func(name string) (string, error), facts map[string]any) http.Handler {
-	h := &handler{rules: rs, history: hist, ensureRoute: ensureRoute, version: version, dnsTarget: dnsTarget, facts: facts}
+	h := &handler{rules: rs, history: hist, routes: routes, version: version, dnsTarget: dnsTarget, facts: facts}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /rules", h.getRules)                  // default, rules and per-target stats
 	mux.HandleFunc("PUT /rules/{target...}", h.setRule)       // body: the text form or JSON
@@ -118,6 +127,8 @@ func (h *handler) setTCP(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err)
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	if err := h.ensureRoute(t.Prefix); err != nil {
 		httpError(w, http.StatusInternalServerError, err)
 		return
@@ -149,6 +160,8 @@ func (h *handler) setUDP(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err)
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	if err := h.ensureRoute(t.Prefix); err != nil {
 		httpError(w, http.StatusInternalServerError, err)
 		return
@@ -163,11 +176,15 @@ func (h *handler) deleteUDP(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err)
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	if !h.rules.DeleteUDP(t.Prefix, t.Port) {
 		httpError(w, http.StatusNotFound, fmt.Errorf("no UDP rule for %s", t))
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if h.syncRoutes(w) {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (h *handler) deleteTCP(w http.ResponseWriter, r *http.Request) {
@@ -176,11 +193,15 @@ func (h *handler) deleteTCP(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err)
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	if !h.rules.DeleteTCP(t.Prefix, t.Port) {
 		httpError(w, http.StatusNotFound, fmt.Errorf("no TCP rule for %s", t))
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if h.syncRoutes(w) {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // setPath gives a target a route. The target and its hops get routes to
@@ -207,6 +228,8 @@ func (h *handler) setPath(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err)
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	for _, a := range append(path.Addrs(), p.Addr()) {
 		if err := h.ensureRoute(netip.PrefixFrom(a, a.BitLen())); err != nil {
 			httpError(w, http.StatusInternalServerError, err)
@@ -214,6 +237,10 @@ func (h *handler) setPath(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.rules.SetPath(p.Addr(), path)
+	// A path replaced may leave hops of the old one without a rule.
+	if !h.syncRoutes(w) {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"target": p.Addr().String(), "path": path})
 }
 
@@ -223,24 +250,52 @@ func (h *handler) deletePath(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, fmt.Errorf("a path's target must be a single address: %q", r.PathValue("target")))
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	if !h.rules.DeletePath(p.Addr()) {
 		httpError(w, http.StatusNotFound, fmt.Errorf("no path to %s", p.Addr()))
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if h.syncRoutes(w) {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 type handler struct {
-	rules       *engine.RuleSet
-	history     *engine.History
-	ensureRoute func(netip.Prefix) error
-	version     string
-	dnsTarget   func(string) (string, error)
-	facts       map[string]any
+	rules   *engine.RuleSet
+	history *engine.History
+	routes  Routes
+	// routing orders the changes of rules and their routes, so that a
+	// rule's route cannot be removed between being added and the rule
+	// being installed.
+	routing   sync.Mutex
+	version   string
+	dnsTarget func(string) (string, error)
+	facts     map[string]any
+}
+
+// ensureRoute routes p to pingmock, for a rule about to be installed; the
+// caller holds h.routing.
+func (h *handler) ensureRoute(p netip.Prefix) error { return h.routes.Ensure(p) }
+
+// syncRoutes removes the routes no rule needs any more, and adds back those
+// a reset brought rules back for; the caller holds h.routing. It reports
+// whether it succeeded, having written the error otherwise.
+func (h *handler) syncRoutes(w http.ResponseWriter) bool {
+	if err := h.routes.Sync(h.rules.Routed()); err != nil {
+		httpError(w, http.StatusInternalServerError, fmt.Errorf("routes: %w", err))
+		return false
+	}
+	return true
 }
 
 func (h *handler) getRules(w http.ResponseWriter, r *http.Request) {
 	snap := h.rules.Snapshot()
+	routes := []string{}
+	for _, p := range h.routes.Routes() {
+		routes = append(routes, p.String())
+	}
+	snap["routes"] = routes
 	for k, v := range h.facts {
 		snap[k] = v
 	}
@@ -258,6 +313,8 @@ func (h *handler) setRule(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err)
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	if err := h.ensureRoute(p); err != nil {
 		httpError(w, http.StatusInternalServerError, err)
 		return
@@ -272,11 +329,15 @@ func (h *handler) deleteRule(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, err)
 		return
 	}
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	if !h.rules.Delete(p) {
 		httpError(w, http.StatusNotFound, fmt.Errorf("no rule for %s", p))
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if h.syncRoutes(w) {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (h *handler) setDefault(w http.ResponseWriter, r *http.Request) {
@@ -343,12 +404,17 @@ func (h *handler) clearHistory(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// reset puts rules, default, statistics and history back as they were at
-// startup, so that a test starts from a known state whatever ran before.
+// reset puts rules, default, statistics, history and routes back as they
+// were at startup, so that a test starts from a known state whatever ran
+// before.
 func (h *handler) reset(w http.ResponseWriter, r *http.Request) {
+	h.routing.Lock()
+	defer h.routing.Unlock()
 	h.rules.Reset()
 	h.history.Clear()
-	w.WriteHeader(http.StatusNoContent)
+	if h.syncRoutes(w) {
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (h *handler) getVersion(w http.ResponseWriter, r *http.Request) {

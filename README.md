@@ -295,7 +295,7 @@ If the software under test pings a hard-coded real address such as `8.8.8.8` or 
 sudo ./pingmock -rule 8.8.8.8=120ms
 ```
 
-pingmock routes that address to its virtual device. **Note: while pingmock is running, all traffic from this machine to that address is intercepted**, not only ping. Normal routing comes back when pingmock exits. Running it on a test machine or in a container is recommended.
+pingmock routes that address to its virtual device. **Note: while a rule needs the route, all traffic from this machine to that address is intercepted**, not only ping. Normal routing comes back when the last rule for the address is deleted through the API, or when pingmock exits. `GET /rules` lists the routed targets under `routes`. Running it on a test machine or in a container is recommended.
 
 A rule can also cover a whole network the host is on, such as `192.168.20.0/24` on a VLAN interface. pingmock then routes it as two halves, `192.168.20.0/25` and `192.168.20.128/25`, which are more specific and so take the traffic, and leaves the host's own route for the network in place, so that the host is not cut off from it when pingmock exits. It logs when it does so. A single address that already has a route of its own cannot be split around: pingmock refuses it rather than replace that route. `pingmock exec` has none of this to worry about, since it never touches the host's routes.
 
@@ -716,7 +716,8 @@ Rules can be changed over HTTP at any time during a test, and changes take effec
 ```bash
 # Show the seed, the default, the rules, the paths and per-target statistics
 # (stats: requests, replied, dropped, unreachable, hops, rule, phase), and the
-# same for TCP rules (tcp, tcp_stats), UDP rules (udp, udp_stats) and DNS rules (dns, dns_stats)
+# same for TCP rules (tcp, tcp_stats), UDP rules (udp, udp_stats) and DNS rules (dns, dns_stats);
+# routes lists the addresses routed to pingmock besides its own subnets
 curl localhost:9100/rules
 
 # Create or change a rule
@@ -725,7 +726,9 @@ curl -X PUT localhost:9100/rules/10.99.0.1 -d 'delay=300ms,pattern=.x'
 curl -X PUT localhost:9100/rules/10.99.0.1 -d '50ms for 3 pings; timeout'
 curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5ms","loss":0.02}'
 
-# Delete a rule (the default applies again)
+# Delete a rule (the default applies again). For an address outside
+# pingmock's subnets, the route that brought it to pingmock goes too, once
+# no other rule or path needs it, and its traffic goes where it did before
 curl -X DELETE localhost:9100/rules/10.99.0.1
 
 # TCP rules: refuse connections to a port, reset accepted ones, then remove a rule
@@ -758,8 +761,8 @@ curl 'localhost:9100/history?target=10.99.0.1&limit=20'
 # Clear the history
 curl -X DELETE localhost:9100/history
 
-# Start over: the rules and default from the command line and configuration file,
-# no statistics, no history. Targets restart their scenarios and random sequences.
+# Start over: the rules, default and routes from the command line and configuration
+# file, no statistics, no history. Targets restart their scenarios and random sequences.
 curl -X POST localhost:9100/reset
 
 # Which pingmock this is: {"version": "vX.Y.Z"}

@@ -191,6 +191,36 @@ func (rs *RuleSet) Set(p netip.Prefix, sc rule.Scenario) {
 	rs.mu.Unlock()
 }
 
+// Routed returns the prefixes the rules need routed to the device, sorted:
+// those of the ping, TCP and UDP rules, and every path's target and hops,
+// as single addresses.
+func (rs *RuleSet) Routed() []netip.Prefix {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	set := map[netip.Prefix]bool{}
+	for p := range rs.rules {
+		set[p.Masked()] = true
+	}
+	for k := range rs.tcp.rules {
+		set[k.prefix.Masked()] = true
+	}
+	for k := range rs.udp.rules {
+		set[k.prefix.Masked()] = true
+	}
+	for a, path := range rs.paths {
+		set[netip.PrefixFrom(a, a.BitLen())] = true
+		for _, h := range path.Addrs() {
+			set[netip.PrefixFrom(h, h.BitLen())] = true
+		}
+	}
+	out := make([]netip.Prefix, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
+}
+
 func (rs *RuleSet) Delete(p netip.Prefix) bool {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()

@@ -97,3 +97,45 @@ func TestHalves(t *testing.T) {
 		}
 	}
 }
+
+func TestUnneeded(t *testing.T) {
+	pfx := func(ss ...string) []netip.Prefix {
+		var out []netip.Prefix
+		for _, s := range ss {
+			out = append(out, netip.MustParsePrefix(s))
+		}
+		return out
+	}
+	join := func(ps []netip.Prefix) string {
+		var s []string
+		for _, p := range ps {
+			s = append(s, p.String())
+		}
+		return strings.Join(s, " ")
+	}
+	routed := map[netip.Prefix][]netip.Prefix{
+		netip.MustParsePrefix("8.8.8.8/32"): pfx("8.8.8.8/32"),
+		netip.MustParsePrefix("1.1.1.1/32"): pfx("1.1.1.1/32"),
+		// A network the host is on, split in halves, and a rule for one
+		// of the halves, which shares its route.
+		netip.MustParsePrefix("192.168.20.0/24"): pfx("192.168.20.0/25", "192.168.20.128/25"),
+		netip.MustParsePrefix("192.168.20.0/25"): pfx("192.168.20.0/25"),
+	}
+	cases := []struct{ want, targets, routes string }{
+		{"8.8.8.8/32 1.1.1.1/32 192.168.20.0/24 192.168.20.0/25", "", ""},
+		{"8.8.8.8/32 192.168.20.0/24 192.168.20.0/25", "1.1.1.1/32", "1.1.1.1/32"},
+		// The /24 goes, but the half the /25 still needs stays.
+		{"8.8.8.8/32 1.1.1.1/32 192.168.20.0/25", "192.168.20.0/24", "192.168.20.128/25"},
+		{"192.168.20.0/24", "1.1.1.1/32 192.168.20.0/25 8.8.8.8/32", "1.1.1.1/32 8.8.8.8/32"},
+		{"", "1.1.1.1/32 192.168.20.0/24 192.168.20.0/25 8.8.8.8/32", "1.1.1.1/32 192.168.20.0/25 192.168.20.128/25 8.8.8.8/32"},
+		// Unmasked prefixes are compared masked.
+		{"8.8.8.8/32 1.1.1.1/32 192.168.20.7/24 192.168.20.0/25", "", ""},
+	}
+	for _, c := range cases {
+		want := pfx(strings.Fields(c.want)...)
+		targets, routes := unneeded(routed, want)
+		if join(targets) != c.targets || join(routes) != c.routes {
+			t.Errorf("want %s: targets %q routes %q, want %q and %q", c.want, join(targets), join(routes), c.targets, c.routes)
+		}
+	}
+}

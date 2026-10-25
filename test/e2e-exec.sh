@@ -228,6 +228,13 @@ sleep 0.5
 after=$(pgrep -c -x -u "$(id -u)" sleep || true)
 same "background processes are stopped" "$after" "$before"
 
+# Routes follow the rules: once a real address's rule is deleted, the
+# command's network is as before it had one, here with no way out.
+same "a deleted rule's address is unreachable again, as before the rule" "$(run -rule 8.8.8.8=5ms -- bash -c "
+  ping -c 1 -W 1 8.8.8.8 >/dev/null && echo -n 'answered, '
+  curl -sf -X DELETE \"\$PINGMOCK_API/rules/8.8.8.8\" >/dev/null
+  ping -c 1 -W 1 8.8.8.8 2>&1 | grep -o 'Network is unreachable' | head -1")" "answered, Network is unreachable"
+
 # Outside access, through pasta: the command reaches a service on the
 # host's loopback with -outside-port, and only with it, while mocked
 # targets keep their rules and the subnet's unmocked ports stay silent.
@@ -249,6 +256,16 @@ if command -v pasta >/dev/null; then
   near "a mocked target keeps its rule with outside access" "$(sed -n 2p <<<"$inside")" 100 5
   same "an unmocked port of the subnet is not answered with outside access" "$(sed -n 3p <<<"$inside")" "0.000000"
   same "GET /rules shows the outside access" "$(sed -n 4p <<<"$inside")" "['18765/tcp']"
+  # A real address mocked through the API goes back to pasta's route once
+  # its rule is deleted.
+  # pasta's device takes the name of the host's, so only pingmock0 is known.
+  devs=$(run -outside -- bash -c "
+    curl -sf -X PUT \"\$PINGMOCK_API/tcp/1.1.1.1:80\" -d refuse >/dev/null
+    ip route get 1.1.1.1 | grep -o 'dev [^ ]*' | head -1
+    curl -sf -X DELETE \"\$PINGMOCK_API/tcp/1.1.1.1:80\" >/dev/null
+    ip route get 1.1.1.1 | grep -o 'dev [^ ]*' | head -1")
+  same "with outside access, a mocked real address goes to pingmock" "$(sed -n 1p <<<"$devs")" "dev pingmock0"
+  same "and once its rule is deleted, out through pasta again" "$(sed -n 2p <<<"$devs" | grep -c -v -e pingmock0 -e '^$' || true)" 1
   same "without -outside-port, the host's loopback is out of reach" \
     "$(run -outside -- curl -s -o /dev/null -m 2 -w '%{http_code}' http://127.0.0.1:18765/ || true)" 000
   kill "$srv" 2>/dev/null || true

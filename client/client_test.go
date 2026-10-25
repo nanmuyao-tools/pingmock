@@ -23,10 +23,18 @@ func serve(t *testing.T) (*Client, *engine.RuleSet, *engine.History) {
 	rs := engine.NewRuleSet(def, 42)
 	hist := engine.NewHistory(100)
 	dnsTarget := func(name string) (string, error) { return strings.ToLower(name), rule.ValidName(name) }
-	srv := httptest.NewServer(api.NewHandler(rs, hist, func(netip.Prefix) error { return nil }, "v0.0.0-test", dnsTarget, nil))
+	srv := httptest.NewServer(api.NewHandler(rs, hist, noRoutes{}, "v0.0.0-test", dnsTarget, nil))
 	t.Cleanup(srv.Close)
 	return New(srv.URL), rs, hist
 }
+
+// noRoutes stands in for the device's routes, which the client's tests do
+// not look at.
+type noRoutes struct{}
+
+func (noRoutes) Ensure(netip.Prefix) error { return nil }
+func (noRoutes) Sync([]netip.Prefix) error { return nil }
+func (noRoutes) Routes() []netip.Prefix    { return nil }
 
 func TestRulesAndState(t *testing.T) {
 	c, rs, _ := serve(t)
@@ -326,7 +334,7 @@ func TestStateOutside(t *testing.T) {
 	}
 	def, _ := rule.ParseScenario("0ms")
 	facts := map[string]any{"outside": map[string]any{"address": "10.0.2.15/24", "gateway": "10.0.2.2", "ports": []string{"5432/tcp"}}}
-	srv := httptest.NewServer(api.NewHandler(engine.NewRuleSet(def, 1), engine.NewHistory(1), func(netip.Prefix) error { return nil }, "v0.0.0-test", nil, facts))
+	srv := httptest.NewServer(api.NewHandler(engine.NewRuleSet(def, 1), engine.NewHistory(1), noRoutes{}, "v0.0.0-test", nil, facts))
 	t.Cleanup(srv.Close)
 	st, err := New(srv.URL).State(context.Background())
 	if err != nil || st.Outside == nil || st.Outside.Address != "10.0.2.15/24" || st.Outside.Gateway != "10.0.2.2" || strings.Join(st.Outside.Ports, ",") != "5432/tcp" {

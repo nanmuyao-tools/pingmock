@@ -295,7 +295,7 @@ ping -6 fd99::1
 sudo ./pingmock -rule 8.8.8.8=120ms
 ```
 
-pingmock 会把这个地址路由到虚拟网卡上。**注意：在 pingmock 运行期间，本机发往该地址的所有流量都会被拦截**（不只是 ping），退出后自动恢复。建议在测试机或容器里使用。
+pingmock 会把这个地址路由到虚拟网卡上。**注意：只要还有规则需要这条路由，本机发往该地址的所有流量都会被拦截**（不只是 ping）。通过 API 删掉这个地址的最后一条规则，或者 pingmock 退出后，路由恢复原样。`GET /rules` 的 `routes` 列出被路由过来的目标。建议在测试机或容器里使用。
 
 规则也可以覆盖本机所在的整个网络，比如 VLAN 网卡上的 `192.168.20.0/24`。这时 pingmock 会把它拆成 `192.168.20.0/25` 和 `192.168.20.128/25` 两半来添加路由：它们更精确，所以会接管流量，同时**保留本机原有的这个网络的路由**，pingmock 退出后本机依然能访问这个网络。这样做时 pingmock 会在日志中说明。单个地址如果已经有自己的路由，就无法这样拆分，pingmock 会拒绝这条规则，而不是替换那条路由。`pingmock exec` 不涉及这些问题，因为它从不改动宿主机的路由。
 
@@ -716,7 +716,8 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 ```bash
 # 查看种子、默认规则、规则、路径和每个目标的统计
 # （stats：requests、replied、dropped、unreachable、hops、rule、phase），
-# 以及 TCP 规则（tcp、tcp_stats）、UDP 规则（udp、udp_stats）和 DNS 规则（dns、dns_stats）的同类信息
+# 以及 TCP 规则（tcp、tcp_stats）、UDP 规则（udp、udp_stats）和 DNS 规则（dns、dns_stats）的同类信息；
+# routes 列出 pingmock 自己的网段以外、被路由到 pingmock 的地址
 curl localhost:9100/rules
 
 # 设置或修改规则
@@ -725,7 +726,8 @@ curl -X PUT localhost:9100/rules/10.99.0.1 -d 'delay=300ms,pattern=.x'
 curl -X PUT localhost:9100/rules/10.99.0.1 -d '50ms for 3 pings; timeout'
 curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5ms","loss":0.02}'
 
-# 删除规则（回到默认值）
+# 删除规则（回到默认值）。对 pingmock 网段以外的地址，等没有别的规则或路径需要时，
+# 把它引到 pingmock 的路由也一起撤掉，流量回到原来的去处
 curl -X DELETE localhost:9100/rules/10.99.0.1
 
 # TCP 规则：拒绝发往某个端口的连接、重置已接受的连接，然后删除一条规则
@@ -757,7 +759,7 @@ curl 'localhost:9100/history?target=10.99.0.1&limit=20'
 # 清空历史
 curl -X DELETE localhost:9100/history
 
-# 从头开始：规则和默认规则恢复成命令行和配置文件设定的样子，统计和历史清空，
+# 从头开始：规则、默认规则和路由恢复成命令行和配置文件设定的样子，统计和历史清空，
 # 每个目标的场景和随机序列重新开始
 curl -X POST localhost:9100/reset
 

@@ -198,7 +198,7 @@ pingmock 调用 `Write` 把应答写进文件，TUN 驱动就把它当作"pingmo
 ip route replace 8.8.8.8/32 dev pingmock0
 ```
 
-`/32` 只包含 8.8.8.8 这一个地址，是最精确的路由，在第 ① 步的最长前缀匹配中压过了 `default`，于是发往 8.8.8.8 的包也被送到了 pingmock0。相邻的 8.8.4.4 不受影响。pingmock 退出时网卡被删除，这条路由也随之消失。
+`/32` 只包含 8.8.8.8 这一个地址，是最精确的路由，在第 ① 步的最长前缀匹配中压过了 `default`，于是发往 8.8.8.8 的包也被送到了 pingmock0。相邻的 8.8.4.4 不受影响。通过 API 删掉需要这条路由的最后一条规则或路径时，[`Router.Sync`](../internal/tun/tun_linux.go) 执行 `ip route del 8.8.8.8/32 dev pingmock0`，8.8.8.8 重新走默认路由；它只撤 pingmock 自己加的路由。pingmock 退出时网卡被删除，它的路由也随之消失。
 
 ## IPv6
 

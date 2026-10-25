@@ -346,3 +346,34 @@ func TestDecisionTTL(t *testing.T) {
 		t.Errorf("phase 2: %+v", d)
 	}
 }
+
+// Routed lists what the rules need routed: ping, TCP and UDP prefixes,
+// path targets and their hops, each once.
+func TestRouted(t *testing.T) {
+	rs, _ := newTestRuleSet(t, "0ms", 1)
+	sc := mustScenario(t, "5ms")
+	rs.Set(netip.MustParsePrefix("8.8.8.8/32"), sc)
+	rs.SetTCP(netip.MustParsePrefix("8.8.8.8/32"), 443, sc)
+	rs.SetTCP(netip.MustParsePrefix("10.1.0.0/16"), 0, sc)
+	rs.SetUDP(netip.MustParsePrefix("1.1.1.1/32"), 53, sc)
+	path, err := rule.ParsePath("192.0.2.1@1ms > * > 192.0.2.3@2ms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs.SetPath(netip.MustParseAddr("9.9.9.9"), path)
+	got := func() string {
+		var s []string
+		for _, p := range rs.Routed() {
+			s = append(s, p.String())
+		}
+		return strings.Join(s, " ")
+	}
+	if g := got(); g != "1.1.1.1/32 10.1.0.0/16 192.0.2.1/32 192.0.2.3/32 8.8.8.8/32 9.9.9.9/32" {
+		t.Errorf("Routed = %s", g)
+	}
+	rs.Delete(netip.MustParsePrefix("8.8.8.8/32"))
+	rs.DeletePath(netip.MustParseAddr("9.9.9.9"))
+	if g := got(); g != "1.1.1.1/32 10.1.0.0/16 8.8.8.8/32" {
+		t.Errorf("after deleting the ping rule and the path, Routed = %s; 8.8.8.8 keeps its TCP rule", g)
+	}
+}

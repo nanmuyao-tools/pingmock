@@ -198,7 +198,7 @@ Because the local table stops it in step ①: 10.99.0.254 is an address of this 
 ip route replace 8.8.8.8/32 dev pingmock0
 ```
 
-`/32` contains only 8.8.8.8, the most specific route there can be, so it wins over `default` in the longest prefix match of step ①, and packets to 8.8.8.8 go to pingmock0 too. Its neighbor 8.8.4.4 is not affected. When pingmock exits, the device is removed and the route with it.
+`/32` contains only 8.8.8.8, the most specific route there can be, so it wins over `default` in the longest prefix match of step ①, and packets to 8.8.8.8 go to pingmock0 too. Its neighbor 8.8.4.4 is not affected. When the last rule or path that needs the route is deleted through the API, [`Router.Sync`](../internal/tun/tun_linux.go) runs `ip route del 8.8.8.8/32 dev pingmock0`, and 8.8.8.8 follows the default route again; it removes only routes pingmock added. When pingmock exits, the device is removed and its routes with it.
 
 ## IPv6
 

@@ -139,6 +139,10 @@ type State struct {
 	// datagram, keyed as TCP's are.
 	UDP      []Rule              `json:"udp"`
 	UDPStats map[string]UDPStats `json:"udp_stats"`
+	// Routes are the targets routed to pingmock besides its own subnets,
+	// such as "8.8.8.8/32": those the rules and paths need, which stop
+	// being routed once no rule needs them.
+	Routes []string `json:"routes"`
 	// Outside is the host's network that pingmock exec -outside gives the
 	// command; nil without it.
 	Outside *Outside `json:"outside,omitempty"`

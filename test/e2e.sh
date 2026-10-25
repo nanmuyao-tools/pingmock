@@ -135,6 +135,20 @@ near "a network the host is on is mocked" "$(rtt 192.168.77.9 2)" 60 5
 same "the host's route for it stays while pingmock runs" "$(host_route -4 192.168.77.0/24)" 1
 grep -q "leaving the host's route for 192.168.77.0/24 (dev pmhost0) in place" /tmp/pingmock-e2e.log &&
   pass "pingmock logs that it left the route in place" || fail "no log line about the route left in place"
+# Routes follow the rules: deleting the rule removes the halves pingmock
+# added and only those, and a reset puts back those of the startup rules.
+# A real address set through the API is routed until its rule goes.
+pm_routes() { ip -o -4 route show table main | grep 'dev pingmock0' | grep -c "$1" || true; }
+curl -sf -X DELETE localhost:9100/rules/192.168.77.0/24 >/dev/null
+same "DELETE removes the routes pingmock added for a rule" "$(pm_routes 192.168.77.)" 0
+same "and leaves the host's route for the network" "$(host_route -4 192.168.77.0/24)" 1
+curl -sf -X POST localhost:9100/reset >/dev/null
+same "POST /reset routes the startup rules again" "$(pm_routes 192.168.77.)" 2
+curl -sf -X PUT localhost:9100/rules/198.51.100.7 -d 5ms >/dev/null
+same "a rule set through the API routes a real address" "$(pm_routes 198.51.100.7)" 1
+same "GET /rules lists the routes" "$(curl -sf localhost:9100/rules | python3 -c 'import json, sys; print(" ".join(json.load(sys.stdin)["routes"]))')" "192.168.77.0/24 198.51.100.7/32"
+curl -sf -X DELETE localhost:9100/rules/198.51.100.7 >/dev/null
+same "and DELETE removes its route" "$(pm_routes 198.51.100.7)" 0
 stop
 same "the host's route for it stays after pingmock exits" "$(host_route -4 192.168.77.0/24)" 1
 

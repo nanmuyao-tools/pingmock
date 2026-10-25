@@ -3,6 +3,7 @@ package tun
 import (
 	"fmt"
 	"net/netip"
+	"sort"
 	"strings"
 )
 
@@ -57,4 +58,41 @@ func halves(p netip.Prefix) (lo, hi netip.Prefix) {
 	b[(bits-1)/8] |= 0x80 >> ((bits - 1) % 8)
 	upper, _ := netip.AddrFromSlice(b)
 	return lo, netip.PrefixFrom(upper, bits)
+}
+
+// unneeded returns, of the targets routed (each with the routes planRoutes
+// made for it), those not in want, and the routes to remove for them: all
+// of theirs but those a wanted target also uses, as the same half of a
+// split network can be. Both are sorted.
+func unneeded(routed map[netip.Prefix][]netip.Prefix, want []netip.Prefix) (targets, routes []netip.Prefix) {
+	keep := map[netip.Prefix]bool{}
+	for _, p := range want {
+		keep[p.Masked()] = true
+	}
+	inUse := map[netip.Prefix]bool{}
+	for p, plan := range routed {
+		if keep[p] {
+			for _, q := range plan {
+				inUse[q] = true
+			}
+		}
+	}
+	for p, plan := range routed {
+		if keep[p] {
+			continue
+		}
+		targets = append(targets, p)
+		for _, q := range plan {
+			if !inUse[q] {
+				routes = append(routes, q)
+				inUse[q] = true // removed once
+			}
+		}
+	}
+	less := func(s []netip.Prefix) func(i, j int) bool {
+		return func(i, j int) bool { return s[i].String() < s[j].String() }
+	}
+	sort.Slice(targets, less(targets))
+	sort.Slice(routes, less(routes))
+	return targets, routes
 }

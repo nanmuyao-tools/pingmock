@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -61,18 +62,19 @@ func IP(args ...string) error {
 }
 
 // Router adds routes for targets outside the device subnets, so that real
-// addresses can be mocked too. Routes vanish with the device on exit.
+// addresses can be mocked too, and removes them when no rule needs them
+// any more. Routes vanish with the device on exit.
 type Router struct {
 	mu      sync.Mutex
 	dev     string
 	subnets []netip.Prefix
-	routed  map[netip.Prefix]bool
+	routed  map[netip.Prefix][]netip.Prefix // each target's routes, as planRoutes made them
 }
 
 // NewRouter returns a router for targets of the device dev, whose own
 // subnets (at most one per address family) are already routed to it.
 func NewRouter(dev string, subnets ...netip.Prefix) *Router {
-	r := &Router{dev: dev, routed: map[netip.Prefix]bool{}}
+	r := &Router{dev: dev, routed: map[netip.Prefix][]netip.Prefix{}}
 	for _, s := range subnets {
 		r.subnets = append(r.subnets, s.Masked())
 	}
@@ -82,6 +84,7 @@ func NewRouter(dev string, subnets ...netip.Prefix) *Router {
 // Ensure routes p through the device unless it is already. It fails for an
 // IPv6 target when the device has no IPv6 subnet.
 func (r *Router) Ensure(p netip.Prefix) error {
+	p = p.Masked()
 	family := false
 	for _, s := range r.subnets {
 		if s.Addr().Is4() != p.Addr().Is4() {
@@ -97,7 +100,7 @@ func (r *Router) Ensure(p netip.Prefix) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.routed[p] {
+	if _, ok := r.routed[p]; ok {
 		return nil
 	}
 	plan, kept, err := planRoutes(p, r.existing)
@@ -109,18 +112,58 @@ func (r *Router) Ensure(p netip.Prefix) error {
 			return err
 		}
 	}
-	r.routed[p] = true
+	r.routed[p] = plan
 	if len(kept) == 0 {
-		log.Printf("routing %s through %s (hijacked: real traffic to it is mocked until exit)", p, r.dev)
+		log.Printf("routing %s through %s (hijacked: real traffic to it is mocked while a rule needs it)", p, r.dev)
 	} else {
 		parts := make([]string, len(plan))
 		for i, q := range plan {
 			parts[i] = q.String()
 		}
-		log.Printf("routing %s through %s as %s, leaving the host's %s in place (hijacked: real traffic to it is mocked until exit)",
+		log.Printf("routing %s through %s as %s, leaving the host's %s in place (hijacked: real traffic to it is mocked while a rule needs it)",
 			p, r.dev, strings.Join(parts, " and "), strings.Join(kept, " and "))
 	}
 	return nil
+}
+
+// Sync routes every prefix of want through the device, and removes the
+// routes it added for any other prefix, so that real traffic to a target
+// no rule mocks any more goes where it did before. It only ever removes
+// its own routes: the host's are never replaced in the first place, and a
+// route two targets share stays while one of them needs it.
+func (r *Router) Sync(want []netip.Prefix) error {
+	for _, p := range want {
+		if err := r.Ensure(p); err != nil {
+			return err
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	targets, routes := unneeded(r.routed, want)
+	var first error
+	for _, q := range routes {
+		if err := IP("route", "del", q.String(), "dev", r.dev); err != nil && first == nil {
+			first = err
+		}
+	}
+	for _, p := range targets {
+		delete(r.routed, p)
+		log.Printf("no longer routing %s through %s: no rule needs it", p, r.dev)
+	}
+	return first
+}
+
+// Routes returns the targets routed through the device besides its own
+// subnets, sorted.
+func (r *Router) Routes() []netip.Prefix {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]netip.Prefix, 0, len(r.routed))
+	for p := range r.routed {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
 }
 
 // existing describes the routes of the main table for exactly p that do not

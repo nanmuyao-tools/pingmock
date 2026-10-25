@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -30,13 +31,6 @@ func newAPIFixture(t *testing.T) *apiFixture {
 	def, _ := rule.ParseScenario("0ms")
 	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	f.rs = engine.NewRuleSet(def, 5, engine.WithClock(func() time.Time { return clock }))
-	ensure := func(p netip.Prefix) error {
-		if f.fail {
-			return errors.New("ip route failed")
-		}
-		f.routed = append(f.routed, p)
-		return nil
-	}
 	dnsTarget := func(name string) (string, error) {
 		if name == "in-hosts.example" {
 			return "", errors.New("in the command's /etc/hosts")
@@ -46,9 +40,42 @@ func newAPIFixture(t *testing.T) *apiFixture {
 		}
 		return strings.ToLower(name), nil
 	}
-	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, ensure, "v0.0.0-test", dnsTarget, nil))
+	f.srv = httptest.NewServer(NewHandler(f.rs, f.hist, &fakeRoutes{f: f, set: map[netip.Prefix]bool{}}, "v0.0.0-test", dnsTarget, nil))
 	t.Cleanup(f.srv.Close)
 	return f
+}
+
+// fakeRoutes stands in for the device's routes: it records what was
+// routed, and fails when f.fail is set.
+type fakeRoutes struct {
+	f   *apiFixture
+	set map[netip.Prefix]bool
+}
+
+func (r *fakeRoutes) Ensure(p netip.Prefix) error {
+	if r.f.fail {
+		return errors.New("ip route failed")
+	}
+	r.f.routed = append(r.f.routed, p)
+	r.set[p] = true
+	return nil
+}
+
+func (r *fakeRoutes) Sync(want []netip.Prefix) error {
+	r.set = map[netip.Prefix]bool{}
+	for _, p := range want {
+		r.set[p] = true
+	}
+	return nil
+}
+
+func (r *fakeRoutes) Routes() []netip.Prefix {
+	var out []netip.Prefix
+	for p := range r.set {
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].String() < out[j].String() })
+	return out
 }
 
 // do sends a request and decodes a JSON response body into out (if non-nil).
@@ -344,4 +371,61 @@ func TestAPIDNS(t *testing.T) {
 	if code := f.do("GET", "/history?target=not%20a%20name", "", nil); code != 400 {
 		t.Errorf("history with a bad target: %d", code)
 	}
+}
+
+// Routes follow the rules: GET /rules lists what is routed, a delete keeps
+// what another rule still needs, a replaced path drops its old hops, and
+// a reset brings back the routes of the startup rules.
+func TestAPIRoutesFollowRules(t *testing.T) {
+	f := newAPIFixture(t)
+	routes := func() string {
+		var st struct {
+			Routes []string `json:"routes"`
+		}
+		if code := f.do("GET", "/rules", "", &st); code != 200 || st.Routes == nil {
+			t.Fatalf("GET /rules: %d, routes %v (must be a list)", code, st.Routes)
+		}
+		return strings.Join(st.Routes, " ")
+	}
+	if r := routes(); r != "" {
+		t.Errorf("at start: routes %q", r)
+	}
+	f.rs.Set(netip.MustParsePrefix("192.0.2.9/32"), mustScenario(t, "1ms"))
+	f.rs.SaveBaseline() // a startup rule
+	for _, req := range [][3]string{
+		{"PUT", "/rules/8.8.8.8", "5ms"}, {"PUT", "/tcp/8.8.8.8:443", "refuse"},
+		{"PUT", "/paths/9.9.9.9", "192.0.2.1@1ms > 192.0.2.2@2ms"},
+	} {
+		if code := f.do(req[0], req[1], req[2], nil); code != 200 {
+			t.Fatalf("%s %s: %d", req[0], req[1], code)
+		}
+	}
+	if r := routes(); r != "192.0.2.1/32 192.0.2.2/32 192.0.2.9/32 8.8.8.8/32 9.9.9.9/32" {
+		t.Errorf("after PUTs: routes %q", r)
+	}
+	steps := []struct{ method, path, body, want string }{
+		{"DELETE", "/rules/8.8.8.8", "", "192.0.2.1/32 192.0.2.2/32 192.0.2.9/32 8.8.8.8/32 9.9.9.9/32"}, // the TCP rule needs it
+		{"DELETE", "/tcp/8.8.8.8:443", "", "192.0.2.1/32 192.0.2.2/32 192.0.2.9/32 9.9.9.9/32"},
+		{"PUT", "/paths/9.9.9.9", "192.0.2.5@1ms", "192.0.2.5/32 192.0.2.9/32 9.9.9.9/32"},
+		{"DELETE", "/paths/9.9.9.9", "", "192.0.2.9/32"},
+		{"DELETE", "/rules/192.0.2.9", "", ""},
+		{"POST", "/reset", "", "192.0.2.9/32"},
+	}
+	for _, s := range steps {
+		if code := f.do(s.method, s.path, s.body, nil); code >= 300 {
+			t.Fatalf("%s %s: %d", s.method, s.path, code)
+		}
+		if r := routes(); r != s.want {
+			t.Errorf("after %s %s: routes %q, want %q", s.method, s.path, r, s.want)
+		}
+	}
+}
+
+func mustScenario(t *testing.T, s string) rule.Scenario {
+	t.Helper()
+	sc, err := rule.ParseScenario(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sc
 }
