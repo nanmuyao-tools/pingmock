@@ -191,11 +191,20 @@ connect() { # url, time limit: prints "exit time_connect"
   echo "$status ${out:-0}"
 }
 ms() { awk -v s="$1" 'BEGIN { printf "%.1f", s * 1000 }'; }
+# The fastest of three connections, for the reason the ping checks take the
+# shortest round trip: a busy machine makes a connection late, never early.
+fastest() { # url, time limit: prints the shortest time_connect
+  local best="" took
+  for _ in 1 2 3; do
+    read -r _ took <<<"$(connect "$1" "$2")"
+    best=$(awk -v a="$took" -v b="${best:-$took}" 'BEGIN { print (a < b ? a : b) }')
+  done
+  echo "$best"
+}
 start -seed 1 -tcp 10.99.0.21:80=200ms -tcp 10.99.0.22:80=refuse -tcp 10.99.0.23:80=timeout \
   -tcp 10.99.0.24:80=unreachable -tcp '10.99.0.25:80=timeout for 1 requests; 10ms' \
   -tcp '10.99.0.26:80=refuse for 1 requests; 10ms'
-read -r status took <<<"$(connect http://10.99.0.21/ 0.5)"
-near "TCP: the connection is accepted after the rule's delay" "$(ms "$took")" 200 10
+near "TCP: the connection is accepted after the rule's delay" "$(ms "$(fastest http://10.99.0.21/ 0.5)")" 200 10
 read -r _ took <<<"$(connect http://10.99.0.21:81/ 0.5)"
 same "TCP: a port without a rule is not answered (no connection)" "$(ms "$took")" 0.0
 # ...but the history shows that the program tried.
@@ -325,8 +334,7 @@ read -r status _ <<<"$(connect http://10.99.0.21/ 2)"
 same "TCP: a rule set through the API takes effect" "$status" 7
 if [ -e /proc/net/if_inet6 ]; then
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::21%5D:80' -d 30ms >/dev/null
-  read -r status took <<<"$(connect 'http://[fd99::21]/' 0.5)"
-  near "TCP over IPv6: accepted after the delay" "$(ms "$took")" 30 5
+  near "TCP over IPv6: accepted after the delay" "$(ms "$(fastest 'http://[fd99::21]/' 0.5)")" 30 5
   curl -sf -X PUT 'localhost:9100/tcp/%5Bfd99::22%5D:80' -d refuse >/dev/null
   read -r status _ <<<"$(connect 'http://[fd99::22]/' 2)"
   same "TCP over IPv6: refused" "$status" 7

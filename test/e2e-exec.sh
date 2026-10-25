@@ -126,9 +126,12 @@ same "no temporary file is left behind" "$leftover" 0
 
 # TCP rules inside exec: a connection to an address is accepted after the
 # delay, one to a name is refused, and a port without a rule is not
-# answered. curl's time_connect is 0 for a connection never made.
+# answered. curl's time_connect is 0 for a connection never made; the
+# delay is the fastest of three connections, as in e2e.sh.
 tcp=$(run -tcp 10.99.0.1:5432=30ms -tcp db.example.com:5432=refuse -- bash -c "
-  curl -s -o /dev/null --connect-timeout 0.5 -m 0.5 -w '%{time_connect}\n' http://10.99.0.1:5432/ || true
+  for _ in 1 2 3; do
+    curl -s -o /dev/null --connect-timeout 0.5 -m 0.5 -w '%{time_connect}\n' http://10.99.0.1:5432/ || true
+  done | sort -n | head -1
   timeout 3 bash -c ': <>/dev/tcp/db.example.com/5432' 2>&1 | sed -n 's/.*connect: //p'
   curl -s -o /dev/null --connect-timeout 0.5 -m 0.5 -w '%{time_connect}\n' http://10.99.0.1:5433/ || true")
 near "TCP inside exec: accepted after the rule's delay" "$(echo "$tcp" | sed -n 1p | awk '{printf "%.1f", $1 * 1000}')" 30 5
