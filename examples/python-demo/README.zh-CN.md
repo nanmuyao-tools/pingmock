@@ -14,6 +14,8 @@
 | `degraded`（不稳定） | 有回复，但都太慢或丢包太多 | 1 |
 | `offline`（离线） | 都没有回复 | 2 |
 
+`reach(name, port)` 用同样的思路判断服务为什么连不上：`no such name`（名字不存在）、`refused`（连接被拒）、`timed out`（连接超时），或者 `reachable`（能连上）。
+
 被测代码 ping 的是**真实的公网地址**。在 `pingmock exec` 里，模拟 8.8.8.8 只影响被测程序，机器上的其他程序照常访问真实的 8.8.8.8。
 
 ## 运行测试
@@ -41,12 +43,16 @@ pingmock exec -config pingmock.yaml -- python3 -m pytest -v
 | `test_offline_when_nothing_answers` | 两台都没有响应 | `timeout` |
 | `test_notices_when_the_connection_drops` | 回复 3 次之后断开 | [场景](../../README.zh-CN.md#场景随时间变化的规则)：`15ms for 3 pings; timeout` |
 | `test_pings_each_host_the_given_number_of_times` | — | 用[请求历史](../../README.zh-CN.md#运行时控制-api)检查被测代码实际发了几个 ping |
+| `test_reaches_the_api` | `api.example.com` 能解析、能连上 | 配置文件里的[域名](../../README.zh-CN.md#域名)和 [TCP 规则](../../README.zh-CN.md#tcp-连接) |
+| `test_tells_a_missing_name` | 名字不存在 | [DNS 规则](../../README.zh-CN.md#dns-故障)：`nxdomain` |
+| `test_tells_a_refused_connection` | 服务宕机，连接立即被拒 | TCP 规则：`refuse` |
+| `test_tells_a_connection_that_hangs` | 连接始终建立不起来 | TCP 规则 `timeout`，再用历史检查被测代码只试了一次 |
 
 "不可达"和"超时"的区别值得留意：两者都导致离线，但不可达的错误会立即返回，所以第 5 个测试还检查了整个检测在 1 秒内完成。
 
 ## 测试的辅助工具
 
-[`conftest.py`](conftest.py) 里有一个 pytest fixture `pingmock`，是一个只用标准库写成的小客户端，可以直接复制到自己的项目里用。它只包含这些测试用到的部分：ping 规则、历史和 `reset`；其他接口（`/tcp/`、`/dns/`、`/paths/`）照同样几行代码加一个方法即可：
+[`conftest.py`](conftest.py) 里有一个 pytest fixture `pingmock`，是一个只用标准库写成的小客户端，可以直接复制到自己的项目里用。它只包含这些测试用到的部分：ping、TCP 和 DNS 规则、历史和 `reset`；其他接口（`/udp/`、`/paths/`）照同样几行代码加一个方法即可：
 
 ```python
 def test_something(pingmock):
@@ -54,6 +60,8 @@ def test_something(pingmock):
     ...
     events = pingmock.history("8.8.8.8")       # 被测代码发出的 ping
 ```
+
+API 只接受地址，不接受名字，所以 [`pingmock.yaml`](pingmock.yaml) 用 `hosts:` 给 `api.example.com` 固定一个地址，测试改的是 `10.99.0.10:443` 的 TCP 规则。它的 DNS 规则 `0ms` 照常回答，一开始就设上，是为了让测试能改变解析结果。
 
 每个测试开始前它会调用 `POST /reset`，所以**每个测试都从配置文件里的规则出发**，统计和历史也是空的，不管前面的测试改过什么。被测代码 ping 的地址是固定的，配置文件已经为它们设置了规则；reset 会把这些规则放回去，而直接删除改过的规则只会让它们变成默认规则。
 

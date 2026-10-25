@@ -82,3 +82,27 @@ def test_pings_each_host_the_given_number_of_times(pingmock):
         events = pingmock.history(host)
         assert [e["seq"] for e in events] == [1, 2, 3, 4]
         assert all(e["result"] == "reply" for e in events)
+
+
+def test_reaches_the_api(pingmock):
+    assert netcheck.reach("api.example.com", 443) == netcheck.REACHABLE
+
+
+def test_tells_a_missing_name(pingmock):
+    pingmock.set_dns("api.example.com", "nxdomain")
+    assert netcheck.reach("api.example.com", 443) == netcheck.NO_SUCH_NAME
+
+
+def test_tells_a_refused_connection(pingmock):
+    pingmock.set_tcp("10.99.0.10:443", "refuse")  # api.example.com (pingmock.yaml)
+    start = time.monotonic()
+    assert netcheck.reach("api.example.com", 443) == netcheck.REFUSED
+    assert time.monotonic() - start < 0.5  # a reset comes back at once
+
+
+def test_tells_a_connection_that_hangs(pingmock):
+    pingmock.set_tcp("10.99.0.10:443", "timeout")
+    assert netcheck.reach("api.example.com", 443, timeout=0.3) == netcheck.TIMED_OUT
+    # Each attempt is in the history, however often the kernel sent its SYN.
+    attempts = [e for e in pingmock.history("10.99.0.10") if e.get("probe") == "tcp" and not e.get("repeat")]
+    assert [(e["port"], e["result"]) for e in attempts] == [(443, "drop")]

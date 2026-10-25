@@ -13,6 +13,7 @@ This example shows how to test Go code that **makes decisions from ping latency*
 | `Measure` | pings one server a few times and works out the average latency, the loss and the "unreachable" errors |
 | `Pick` | measures several servers at once and returns the fastest usable one (losing at most 25% of the pings) |
 | `Selector.Check` | keeps the current server while it stays good, and picks again otherwise |
+| `Connect` | opens a TCP connection to the first of the servers that accepts one, moving on when a connection is refused or times out |
 
 [`cmd/fastest`](cmd/fastest/main.go) is a command that uses it.
 
@@ -39,6 +40,8 @@ Outside pingmock (a plain `go test ./...`, say), the tests skip themselves inste
 | `TestSwitchesWhenCurrentServerSlowsDown` | the current server slows down in the middle of the test | changing a rule while running, with the client |
 | `TestSwitchesWhenCurrentServerGoesDown` | a server answers 3 pings, then goes down | a [scenario](../../README.md#scenarios-rules-that-change-over-time): `15ms for 3 pings; timeout` |
 | `TestSendsConfiguredNumberOfPings` | — | the [request history](../../README.md#runtime-control-api), to check how many pings the code under test really sent |
+| `TestConnectFailsOverWhenTheConnectionTimesOut` | a database never answers the connection, so `connect` waits its timeout | a [TCP rule](../../README.md#tcp-connections): `timeout` |
+| `TestConnectFailsOverAtOnceWhenRefused` | a database is down and refuses the connection at once | a TCP rule, `refuse`, and the history, to check that the code tried once |
 
 The tests do not get in each other's way: each uses its own addresses and removes the rules it added with `t.Cleanup`.
 
@@ -76,7 +79,7 @@ fastest: 10.99.0.3
 ## Using it in your own project
 
 1. In the tests, connect to pingmock with `client.FromEnv()` and `t.Skip` on error, as the `pingmock` function in [`fastest_test.go`](fastest_test.go) does
-2. Write a configuration file with the network the tests start from; add what each test needs with `SetRule` and remove it with `t.Cleanup`
+2. Write a configuration file with the network the tests start from; add what each test needs with `SetRule` (`SetTCP` for connections) and remove it with `t.Cleanup`
 3. Run the tests with `go test -exec 'pingmock exec -config pingmock.yaml --' ./...`, in CI as well. [`examples/github-actions`](../github-actions/) is a workflow ready to copy
 
 The configuration sets `seed: 42`, so even random loss and jitter give the same results on every run.

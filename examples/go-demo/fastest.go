@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -149,6 +150,23 @@ func (s *Selector) Check(ctx context.Context) (changed bool, err error) {
 	changed = best != s.current
 	s.current = best
 	return changed, nil
+}
+
+// Connect opens a TCP connection to port on the first of servers that
+// accepts one, trying them in order, as from Pick, and waiting at most
+// timeout for each. It returns the connection, the server, and why each
+// server before it failed.
+func Connect(ctx context.Context, servers []string, port string, timeout time.Duration) (net.Conn, string, []error, error) {
+	var failed []error
+	for _, s := range servers {
+		d := net.Dialer{Timeout: timeout}
+		conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(s, port))
+		if err == nil {
+			return conn, s, failed, nil
+		}
+		failed = append(failed, err)
+	}
+	return nil, "", failed, ErrNoServer
 }
 
 func (r Result) String() string {

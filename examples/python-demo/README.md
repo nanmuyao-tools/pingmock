@@ -14,6 +14,8 @@ This example shows how to test Python code that **depends on ping results** with
 | `degraded` | they answer, but only too slowly or with too much loss | 1 |
 | `offline` | neither answers | 2 |
 
+`reach(name, port)` tells, in the same spirit, why a service cannot be reached: `no such name`, `refused`, `timed out`, or `reachable`.
+
 The code pings **real public addresses**. Inside `pingmock exec`, mocking 8.8.8.8 affects only the program under test; everything else on the machine still reaches the real 8.8.8.8.
 
 ## Running the tests
@@ -41,12 +43,16 @@ Outside pingmock (a plain `python3 -m pytest`, say), the tests skip themselves i
 | `test_offline_when_nothing_answers` | neither answers | `timeout` |
 | `test_notices_when_the_connection_drops` | they answer 3 pings, then go silent | a [scenario](../../README.md#scenarios-rules-that-change-over-time): `15ms for 3 pings; timeout` |
 | `test_pings_each_host_the_given_number_of_times` | — | the [request history](../../README.md#runtime-control-api), to check how many pings the code really sent |
+| `test_reaches_the_api` | `api.example.com` resolves and accepts connections | a [name](../../README.md#names) and a [TCP rule](../../README.md#tcp-connections) in the configuration file |
+| `test_tells_a_missing_name` | the name does not exist | a [DNS rule](../../README.md#dns-faults): `nxdomain` |
+| `test_tells_a_refused_connection` | the service is down: the connection is refused, at once | a TCP rule: `refuse` |
+| `test_tells_a_connection_that_hangs` | the connection never completes | a TCP rule, `timeout`, and the history, to check that the code tried once |
 
 Note the difference between unreachable and timeout: both mean offline, but an unreachable error comes back at once, so the fifth test also checks that the whole check takes less than a second.
 
 ## The test helper
 
-[`conftest.py`](conftest.py) has a pytest fixture, `pingmock`: a small client written with the standard library alone, ready to copy into your own project. It covers what these tests use, ping rules, the history and `reset`; the other endpoints (`/tcp/`, `/dns/`, `/paths/`) take a method of the same few lines:
+[`conftest.py`](conftest.py) has a pytest fixture, `pingmock`: a small client written with the standard library alone, ready to copy into your own project. It covers what these tests use, ping, TCP and DNS rules, the history and `reset`; the other endpoints (`/udp/`, `/paths/`) take a method of the same few lines:
 
 ```python
 def test_something(pingmock):
@@ -54,6 +60,8 @@ def test_something(pingmock):
     ...
     events = pingmock.history("8.8.8.8")       # the pings the code under test sent
 ```
+
+The API takes addresses, not names, so [`pingmock.yaml`](pingmock.yaml) gives `api.example.com` a fixed address with `hosts:`, and the tests change the TCP rule of `10.99.0.10:443`. Its DNS rule, `0ms`, answers as usual and is there from the start so that a test can change the answers.
 
 Before each test it calls `POST /reset`, so **every test starts from the rules in the configuration file**, with no statistics or history, whatever the tests before it changed. The code under test pings fixed addresses that the configuration file has rules for; a reset puts those rules back, where deleting a changed rule would leave the default in its place.
 

@@ -7,3 +7,14 @@ seed: 42   # random loss and jitter are the same on every run
 rules:
   8.8.8.8: 15ms
   1.1.1.1: 20ms
+
+# An API the tests connect to by name. The name resolves to 10.99.0.10,
+# whose port 443 accepts connections after 10ms. The DNS rule answers as
+# usual; it is there so that tests can change the answers. The API takes
+# addresses only, so the tests change the TCP rule of 10.99.0.10:443.
+hosts:
+  api.example.com: 10.99.0.10
+tcp:
+  api.example.com:443: 10ms
+dns:
+  api.example.com: 0ms

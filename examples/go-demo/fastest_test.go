@@ -3,6 +3,8 @@ package fastest_test
 import (
 	"context"
 	"errors"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 
@@ -167,5 +169,68 @@ func TestSendsConfiguredNumberOfPings(t *testing.T) {
 		if int(e.Seq) != i+1 || e.Result != "reply" {
 			t.Errorf("ping %d: seq %d, %s", i+1, e.Seq, e.Result)
 		}
+	}
+}
+
+// tcp sets a TCP rule for the duration of the test.
+func tcp(t *testing.T, pm *client.Client, target, r string) {
+	t.Helper()
+	if err := pm.SetTCP(context.Background(), target, r); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pm.DeleteTCP(context.Background(), target) })
+}
+
+func TestConnectFailsOverWhenTheConnectionTimesOut(t *testing.T) {
+	pm := pingmock(t)
+	tcp(t, pm, "10.99.0.81:5432", "timeout") // this database hangs
+
+	start := time.Now()
+	conn, server, failed, err := fastest.Connect(context.Background(), []string{"10.99.0.81", "10.99.0.3"}, "5432", 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if server != "10.99.0.3" {
+		t.Errorf("connected to %s, want 10.99.0.3", server)
+	}
+	var ne net.Error
+	if len(failed) != 1 || !errors.As(failed[0], &ne) || !ne.Timeout() {
+		t.Errorf("failures %v, want one timeout", failed)
+	}
+	// 300ms waiting for the first, then 50ms to connect to the second
+	// (pingmock.yaml), and a little time for the program itself.
+	if d := time.Since(start); d < 350*time.Millisecond || d > 400*time.Millisecond {
+		t.Errorf("time to connect: %v, want 350ms to 400ms", d)
+	}
+}
+
+func TestConnectFailsOverAtOnceWhenRefused(t *testing.T) {
+	pm := pingmock(t)
+	ctx := context.Background()
+	if err := pm.ClearHistory(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tcp(t, pm, "10.99.0.82:5432", "refuse") // this one is down: a reset at once
+
+	start := time.Now()
+	conn, server, failed, err := fastest.Connect(ctx, []string{"10.99.0.82", "10.99.0.3"}, "5432", 300*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if server != "10.99.0.3" || len(failed) != 1 || !errors.Is(failed[0], syscall.ECONNREFUSED) {
+		t.Errorf("connected to %s after %v, want 10.99.0.3 after one refusal", server, failed)
+	}
+	near(t, "time to connect", time.Since(start), 50*time.Millisecond)
+
+	// pingmock's history shows what the code under test did: one attempt,
+	// refused, and no retry.
+	events, err := pm.History(ctx, "10.99.0.82", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Probe != "tcp" || events[0].Port != 5432 || events[0].Result != "refused" {
+		t.Errorf("history of 10.99.0.82: %+v, want one refused connection to port 5432", events)
 	}
 }

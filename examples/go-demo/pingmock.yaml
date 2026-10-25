@@ -8,3 +8,10 @@ rules:
   10.99.0.1: 80ms   # a distant server
   10.99.0.2: 20ms   # the nearest one
   10.99.0.3: 50ms
+
+# Each server's database: connections are accepted after these delays.
+# The tests add databases that fail, on addresses of their own.
+tcp:
+  10.99.0.1:5432: 80ms
+  10.99.0.2:5432: 20ms
+  10.99.0.3:5432: 50ms

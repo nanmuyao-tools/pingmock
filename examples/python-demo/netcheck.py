@@ -6,9 +6,13 @@ pingmock and runs the system's ping command, as many tools do;
 test_netcheck.py tests it against pingmock.
 
     python3 netcheck.py 8.8.8.8 1.1.1.1
+
+reach() tells, in the same way, why a service cannot be reached: its name
+does not resolve, or the connection is refused or times out.
 """
 
 import re
+import socket
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -84,6 +88,25 @@ def check(hosts, count=3, slow_ms=200, max_loss=0.2):
         return Status(DEGRADED, f"best is {best.host}: {best.avg_ms:.0f}ms, {best.loss:.0%} lost", results)
     errors = sum(r.errors for r in results)
     return Status(OFFLINE, f"no host answers ({errors} unreachable errors)", results)
+
+
+REACHABLE, NO_SUCH_NAME, REFUSED, TIMED_OUT = "reachable", "no such name", "refused", "timed out"
+
+
+def reach(name, port, timeout=1.0):
+    """Resolve name and connect to port, and tell how that went: REACHABLE,
+    NO_SUCH_NAME, REFUSED or TIMED_OUT."""
+    try:
+        addr = socket.getaddrinfo(name, port, type=socket.SOCK_STREAM)[0][4]
+    except socket.gaierror:
+        return NO_SUCH_NAME
+    try:
+        socket.create_connection(addr[:2], timeout=timeout).close()
+    except ConnectionRefusedError:
+        return REFUSED
+    except TimeoutError:
+        return TIMED_OUT
+    return REACHABLE
 
 
 def main(argv):

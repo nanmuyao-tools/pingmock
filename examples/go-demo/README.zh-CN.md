@@ -13,6 +13,7 @@
 | `Measure` | 对一台服务器 ping 几次，统计平均延迟、丢包率和"不可达"错误 |
 | `Pick` | 同时测量多台服务器，返回最快且可用的一台（丢包不超过 25%） |
 | `Selector.Check` | 当前服务器依然良好时继续使用，否则重新挑选 |
+| `Connect` | 依次连接各台服务器，返回第一个接受 TCP 连接的；连接被拒或超时就换下一台 |
 
 [`cmd/fastest`](cmd/fastest/main.go) 是一个调用它的命令行程序。
 
@@ -39,6 +40,8 @@ go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 | `TestSwitchesWhenCurrentServerSlowsDown` | 测试进行到一半，当前服务器变慢 | 用客户端在运行中修改规则 |
 | `TestSwitchesWhenCurrentServerGoesDown` | 服务器回复 3 次之后断开 | [场景](../../README.zh-CN.md#场景随时间变化的规则)：`15ms for 3 pings; timeout` |
 | `TestSendsConfiguredNumberOfPings` | — | 用[请求历史](../../README.zh-CN.md#运行时控制-api)检查被测代码实际发了几个 ping |
+| `TestConnectFailsOverWhenTheConnectionTimesOut` | 一台数据库对连接始终不回应，`connect` 要等到超时 | [TCP 规则](../../README.zh-CN.md#tcp-连接)：`timeout` |
+| `TestConnectFailsOverAtOnceWhenRefused` | 一台数据库宕机，立即拒绝连接 | TCP 规则 `refuse`，再用历史检查被测代码只试了一次 |
 
 测试之间互不干扰：每个测试使用不同的地址，并在结束时用 `t.Cleanup` 删除自己添加的规则。
 
@@ -76,7 +79,7 @@ fastest: 10.99.0.3
 ## 用到自己的项目里
 
 1. 在测试中用 `client.FromEnv()` 连接 pingmock，出错时 `t.Skip`，参考 [`fastest_test.go`](fastest_test.go) 中的 `pingmock` 函数
-2. 写一个配置文件，列出测试开始时的网络状况；每个测试需要的额外状况，用 `SetRule` 添加，用 `t.Cleanup` 删除
+2. 写一个配置文件，列出测试开始时的网络状况；每个测试需要的额外状况，用 `SetRule`（连接用 `SetTCP`）添加，用 `t.Cleanup` 删除
 3. 用 `go test -exec 'pingmock exec -config pingmock.yaml --' ./...` 运行测试；在 CI 中也这样运行。[`examples/github-actions`](../github-actions/README.zh-CN.md) 是一份可以直接复制的配置
 
 配置文件里设置了 `seed: 42`，所以即使用了随机的丢包和抖动，每次运行的结果也都一样。

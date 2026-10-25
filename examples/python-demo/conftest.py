@@ -36,6 +36,14 @@ class Pingmock:
         """Install a rule for target until the end of the test."""
         self._call("PUT", f"/rules/{target}", rule)
 
+    def set_tcp(self, target, rule):
+        """Install a TCP rule for target, an address and port such as "10.99.0.10:443", until the end of the test."""
+        self._call("PUT", "/tcp/" + urllib.parse.quote(target, safe=":[]"), rule)
+
+    def set_dns(self, name, rule):
+        """Set how the tests' DNS queries for name are answered, such as "nxdomain"."""
+        self._call("PUT", "/dns/" + urllib.parse.quote(name), rule)
+
     def history(self, target):
         """The requests pingmock received for target, oldest first."""
         return self._call("GET", "/history?target=" + urllib.parse.quote(target))["events"]

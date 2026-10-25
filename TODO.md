@@ -370,7 +370,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 - [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI（原属 v0.6）
 - [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装（原属 v0.8）
 - [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈（原属 v0.8）
-- [ ] 示例里用上 TCP 和 DNS 规则（文档审查发现，2026-10-21）：README 开头就有 `-tcp`、`-dns`，但没有一个示例用到。候选：go-demo 加一个连接超时后切换的测试，python-demo 加一个连接被拒绝或 NXDOMAIN 的测试；python-demo 的 fixture 也补上 `set_tcp`、`set_dns`
+- [x] 示例里用上 TCP 和 DNS 规则（文档审查发现，2026-10-21；2026-10-25 完成：go-demo 加 `Connect`，连接超时或被拒时换下一台，两个测试；python-demo 加 `reach`，分出名字不存在、连接被拒、连接超时，四个测试，fixture 补上 `set_tcp`、`set_dns`。开发容器里都通过；变异：超时当成被拒、去掉 DNS 规则、不换下一台，各自让测试失败。顺带看到 API 不接受名字作 TCP 目标，示例用 `hosts:` 固定地址，并在 README 里写明）：README 开头就有 `-tcp`、`-dns`，但没有一个示例用到。候选：go-demo 加一个连接超时后切换的测试，python-demo 加一个连接被拒绝或 NXDOMAIN 的测试；python-demo 的 fixture 也补上 `set_tcp`、`set_dns`
 - [ ] 用 Java、Node.js 客户端验证 TCP 规则（含 `after=`）：现在验证过的是 curl、bash `/dev/tcp`、Go `net`、Python `socket`
 
 ### 推广帖子，由作者本人发布
