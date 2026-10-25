@@ -18,6 +18,7 @@ The common protocols are now supported, and the documentation stage is done. The
 | v0.14 | Cleanup before the freeze: exit status 125, DNS event fields, fuzzing |
 | v0.15 | `pingmock exec -outside`: the host's network and loopback ports for the command; v0.15.1: routes follow the rules |
 | v0.16 | Connections to ports without a rule recorded as `ignored` in the history |
+| v0.17 | Netlink instead of the `ip` command: no programs needed at runtime |
 
 ## The stages
 
@@ -30,7 +31,7 @@ flowchart LR
 
 ### Done: netlink instead of the `ip` command
 
-pingmock sets its addresses and routes over netlink itself, with the standard library alone, so it needs no other programs at runtime: it used to fail to start where iproute2 was missing, as in a plain Ubuntu container. The Docker image no longer installs iproute2. Not released yet.
+pingmock sets its addresses and routes over netlink itself, with the standard library alone, so it needs no other programs at runtime: it used to fail to start where iproute2 was missing, as in a plain Ubuntu container. The Docker image no longer installs iproute2. Released in [v0.17.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.17.0).
 
 ### Done: connections without a rule in the history
 

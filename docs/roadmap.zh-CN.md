@@ -18,6 +18,7 @@ pingmock 处在什么位置、接下来做什么、为什么，截至 2026 年 1
 | v0.14 | 冻结前的整理：退出码 125、DNS 事件字段、fuzz 测试 |
 | v0.15 | `pingmock exec -outside`：让命令使用宿主机的网络和本机端口；v0.15.1：路由跟着规则走 |
 | v0.16 | 连到没有规则的端口，以 `ignored` 记进历史 |
+| v0.17 | 用 netlink 替代 `ip` 命令：运行时不需要别的程序 |
 
 ## 几个阶段
 
@@ -30,7 +31,7 @@ flowchart LR
 
 ### 已完成：用 netlink 替代 `ip` 命令
 
-pingmock 自己通过 netlink 设置地址和路由，只用标准库，所以运行时不再需要别的程序；以前在没装 iproute2 的地方，比如一个普通的 Ubuntu 容器里，它起不来。Docker 镜像不再安装 iproute2。还没有发布。
+pingmock 自己通过 netlink 设置地址和路由，只用标准库，所以运行时不再需要别的程序；以前在没装 iproute2 的地方，比如一个普通的 Ubuntu 容器里，它起不来。Docker 镜像不再安装 iproute2。随 [v0.17.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.17.0) 发布。
 
 ### 已完成：没有规则的连接记进历史
 
