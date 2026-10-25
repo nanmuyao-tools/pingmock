@@ -148,8 +148,11 @@ func (r *Responder) decide(pkt []byte) plan {
 		return pl
 	}
 	d := r.Rules.DecideProbe(req)
-	if d.Rule == "none" {
-		return plan{} // a UDP or TCP packet to a target without a path: not ours
+	if d.Outcome == rule.Ignored {
+		// A UDP or TCP packet to a port no rule covers: not answered, as
+		// without pingmock, but recorded.
+		r.record(req, d, false)
+		return plan{}
 	}
 	var answer []byte
 	switch d.Outcome {

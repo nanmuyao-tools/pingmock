@@ -27,6 +27,10 @@ flowchart LR
     N["Not planned"]
 ```
 
+### Done: connections without a rule in the history
+
+Round eight found that a connection to a mocked address on a port without a rule left no trace. Now the history records it, and each UDP datagram to such a port, with the result `ignored`; an empty history returns `[]` rather than `null`. Not released yet.
+
 ### Done: routes follow the rules
 
 Round eight found that a deleted rule left its address routed to pingmock until exit, so under `-outside` a real address mocked once could no longer be reached. Since [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1), deletes and `POST /reset` remove the routes no rule needs, and `GET /rules` lists the routes.
@@ -55,7 +59,6 @@ These are ordered by the number of users they would serve, but none starts witho
 | Testcontainers module | application developers | Useful only when the code under test runs in a container |
 | Replace the `ip` command with netlink | everyone | Removes the runtime dependency on iproute2 |
 | ICMP Packet Too Big, DNS in root mode, replaying recorded latency, IPv6 for outside access | — | No evidence of users yet |
-| Connections to a mocked address without a rule, in the history | application developers | Found in round eight: they leave no event |
 
 ### v1.0: the compatibility promise, deferred
 

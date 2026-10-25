@@ -25,6 +25,9 @@ const (
 	// For DNS rules:
 	NXDomain // the name does not exist
 	ServFail // the server failed
+	// For a TCP or UDP probe to a mocked address on a port that no rule
+	// covers, and no path: pingmock does not answer, but records it.
+	Ignored
 )
 
 func (o Outcome) String() string {
@@ -51,6 +54,8 @@ func (o Outcome) String() string {
 		return "nxdomain"
 	case ServFail:
 		return "servfail"
+	case Ignored:
+		return "ignored"
 	}
 	return "reply"
 }

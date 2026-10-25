@@ -68,7 +68,7 @@ func (rs *RuleSet) DecideProbe(p icmp.Probe) Decision {
 			}
 		}
 		if kind != icmp.Echo {
-			return Decision{Outcome: rule.Drop, Rule: "none"}
+			return rs.ignored(p)
 		}
 		d := rs.Decide(dst)
 		d.From = dst

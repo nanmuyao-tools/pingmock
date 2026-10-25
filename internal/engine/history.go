@@ -80,7 +80,7 @@ func (h *History) events(match func(Event) bool, limit int) ([]Event, uint64) {
 		ordered = append(ordered, h.buf[h.next:]...)
 	}
 	ordered = append(ordered, h.buf[:h.next]...)
-	out := ordered[:0:0]
+	out := []Event{} // [] rather than null in JSON when nothing matches
 	for _, e := range ordered {
 		if match(e) {
 			out = append(out, e)

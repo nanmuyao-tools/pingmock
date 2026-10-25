@@ -420,7 +420,7 @@ As with ping rules, a TCP rule for a real address in root mode routes **all** tr
 
 ### After the connection opens
 
-An accepted connection is held open, and unless the rule [sends data](#sending-data) nothing is sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. Ports without a TCP rule are not answered, as before, unless the address has a [path](#paths-traceroute-and-mtr), whose target accepts every port.
+An accepted connection is held open, and unless the rule [sends data](#sending-data) nothing is sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. Ports without a TCP rule are not answered, as before, unless the address has a [path](#paths-traceroute-and-mtr), whose target accepts every port. The history still records each attempt on them, and each UDP datagram to a port without a UDP rule, with the result `ignored`, so a test can see that its program tried: `GET /history?target=10.99.0.1` lists the port and, for a SYN sent again, `repeat`.
 
 The same rule tests a **TLS handshake timeout**: the connection opens, the client sends its ClientHello and never gets an answer. `pingmock exec -tcp api.example.com:443=5ms -- ./my-app` makes every HTTPS request to that name hang in the handshake: Python's `ssl` reports "The handshake operation timed out", curl gives up with exit 28, and Go's `http.Transport` fails after its `TLSHandshakeTimeout`.
 
@@ -785,7 +785,7 @@ All the fields an event can have:
 |---|---|---|
 | `time`, `src`, `dst`, `rule`, `phase`, `reply` | always | `reply` is true for echo replies only; DNS queries have empty `src` and `dst`, since they never reach the virtual device; `phase` is 0 for an answer from a path's hop, which has no phases |
 | `id`, `seq` | pings, DNS | the identifier and sequence number of the echo request; for a DNS query, `id` is the query's ID |
-| `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `sent`, `closed`, `reset`; UDP rules: `refused`, `unreachable`, `drop`; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
+| `result` | always | pings: `reply`, `drop`, `unreachable`; paths: `time-exceeded`, `port-unreachable`, `syn-ack`; TCP rules: `syn-ack`, `refused`, `drop`, `unreachable`, `sent`, `closed`, `reset`; UDP rules: `refused`, `unreachable`, `drop`; TCP and UDP to a port no rule or path covers: `ignored`, which is not answered; DNS rules: `answer`, `nxdomain`, `servfail`, `drop` |
 | `code` | unreachable answers | `host`, `net` or `admin` |
 | `delay` | anything answered | such as `40ms` |
 | `probe` | anything but a ping | `udp`, `tcp` or `dns` |

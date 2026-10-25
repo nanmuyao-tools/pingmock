@@ -351,7 +351,7 @@ type Event struct {
 	Dst    string    `json:"dst"`
 	ID     uint16    `json:"id"`
 	Seq    uint16    `json:"seq"`
-	Result string    `json:"result"` // "reply", "drop", "unreachable"; with a path also "time-exceeded", "port-unreachable", "syn-ack"; for TCP rules "syn-ack", "refused", "drop", "unreachable", "closed", "reset"; for DNS rules "answer", "nxdomain", "servfail", "drop"
+	Result string    `json:"result"` // "reply", "drop", "unreachable"; with a path also "time-exceeded", "port-unreachable", "syn-ack"; for TCP rules "syn-ack", "refused", "drop", "unreachable", "sent", "closed", "reset"; for UDP rules "refused", "unreachable", "drop"; "ignored" for TCP and UDP to a port no rule covers; for DNS rules "answer", "nxdomain", "servfail", "drop"
 	Code   string    `json:"code"`   // for "unreachable": "host", "net" or "admin"
 	Reply  bool      `json:"reply"`
 	Delay  string    `json:"delay"` // empty for drops

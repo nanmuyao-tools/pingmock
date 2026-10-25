@@ -2,6 +2,8 @@ package responder
 
 import (
 	"encoding/binary"
+	"fmt"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -61,15 +63,20 @@ func TestHandleTCPRules(t *testing.T) {
 	if answer, _ := r.handle(tcpSYN([4]byte{10, 99, 0, 2}, 40002, 5432, 10)); answer != nil {
 		t.Fatalf("timeout phase answered %x", answer)
 	}
-	// A port without a rule, on a target without a path: ignored, not recorded.
+	// A port without a rule, on a target without a path: not answered, but
+	// recorded as ignored.
 	if answer, _ := r.handle(tcpSYN([4]byte{10, 99, 0, 1}, 40003, 80, 1)); answer != nil {
 		t.Fatalf("port without a rule answered %x", answer)
 	}
 
 	events, _ := hist.Events(nil, 0)
-	if len(events) != 4 {
+	if len(events) != 5 {
 		t.Fatalf("%d events: %+v", len(events), events)
 	}
+	if e := events[4]; e.Result != "ignored" || e.Rule != "none" || e.Probe != "tcp" || e.Port != 80 || e.Delay != "" || e.Phase != 0 {
+		t.Errorf("ignored event: %+v", e)
+	}
+	events = events[:4]
 	want := []struct {
 		result string
 		repeat bool
@@ -300,8 +307,41 @@ func TestHandleUDPRules(t *testing.T) {
 	if a, _ := r.handle(udpDatagram([4]byte{10, 99, 0, 3}, 9)); a != nil {
 		t.Errorf("timeout answered % x", a)
 	}
+	// A port without a rule: not answered, recorded as ignored.
+	if a, _ := r.handle(udpDatagram([4]byte{10, 99, 0, 1}, 9999)); a != nil {
+		t.Errorf("a port without a rule answered % x", a)
+	}
 	events, _ := hist.Events(nil, 0)
-	if len(events) != 3 || events[0].Probe != "udp" || events[0].Port != 514 || events[0].Result != "refused" || events[2].Result != "drop" {
+	if len(events) != 4 || events[0].Probe != "udp" || events[0].Port != 514 || events[0].Result != "refused" || events[2].Result != "drop" ||
+		events[3].Result != "ignored" || events[3].Port != 9999 || events[3].Probe != "udp" || events[3].Rule != "none" {
 		t.Errorf("events %+v", events)
+	}
+}
+
+// Ignored probes leave a target's state alone: its ping replies, phases
+// and random sequence are those of a run without them.
+func TestIgnoredProbesKeepSeededResults(t *testing.T) {
+	run := func(withIgnored bool) string {
+		sc, err := rule.ParseScenario("delay=5ms,jitter=4ms,loss=40% for 6 pings; 1ms")
+		if err != nil {
+			t.Fatal(err)
+		}
+		def, _ := rule.ParseScenario("0ms")
+		rs := engine.NewRuleSet(def, 7)
+		rs.Set(netip.MustParsePrefix("10.99.0.1/32"), sc)
+		r := &Responder{Rules: rs, History: engine.NewHistory(100)}
+		var out []string
+		for i := 0; i < 10; i++ {
+			if withIgnored {
+				r.handle(tcpSYN([4]byte{10, 99, 0, 1}, uint16(40000+i), 5432, uint32(i)))
+				r.handle(udpDatagram([4]byte{10, 99, 0, 1}, 9999))
+			}
+			a, delay := r.handle(icmp.BuildEchoRequest(netip.MustParseAddr("10.99.0.254"), netip.MustParseAddr("10.99.0.1"), 1, uint16(i), nil))
+			out = append(out, fmt.Sprint(a != nil, delay))
+		}
+		return strings.Join(out, " ")
+	}
+	if a, b := run(false), run(true); a != b {
+		t.Errorf("ping results changed by ignored probes:\n without %s\n with    %s", a, b)
 	}
 }

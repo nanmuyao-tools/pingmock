@@ -79,7 +79,7 @@ func TestDecideProbeWithoutPath(t *testing.T) {
 		t.Errorf("echo with ttl 1: %+v", d)
 	}
 	for _, kind := range []icmp.Kind{icmp.UDP, icmp.TCP} {
-		if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 64, Kind: kind}); d.Outcome != rule.Drop {
+		if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 64, Kind: kind}); d.Outcome != rule.Ignored || d.Rule != "none" {
 			t.Errorf("%v without a path: %+v", kind, d)
 		}
 	}

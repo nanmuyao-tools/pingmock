@@ -420,7 +420,7 @@ pingmock exec \
 
 ### 连接建立之后
 
-接受的连接会保持打开，除非规则[发送数据](#发送数据)，否则不会发送任何东西：程序读取时会遇到读取超时，可以和连接超时区分开。没有 TCP 规则的端口和以前一样不回应，除非这个地址设了[路径](#路径traceroute-和-mtr)，路径的目标接受任何端口的连接。
+接受的连接会保持打开，除非规则[发送数据](#发送数据)，否则不会发送任何东西：程序读取时会遇到读取超时，可以和连接超时区分开。没有 TCP 规则的端口和以前一样不回应，除非这个地址设了[路径](#路径traceroute-和-mtr)，路径的目标接受任何端口的连接。不过历史仍会记下每次对这些端口的连接尝试，以及发往没有 UDP 规则的端口的每个 UDP 数据报，结果是 `ignored`，这样测试能看到程序确实尝试过：`GET /history?target=10.99.0.1` 会列出端口，再次发送的 SYN 带 `repeat`。
 
 同样的规则可以测试 **TLS 握手超时**：连接建立了，客户端发出 ClientHello，却一直等不到回应。`pingmock exec -tcp api.example.com:443=5ms -- ./my-app` 让发往这个域名的每个 HTTPS 请求都卡在握手：Python 的 `ssl` 报 "The handshake operation timed out"，curl 以退出码 28 放弃，Go 的 `http.Transport` 在 `TLSHandshakeTimeout` 之后失败。
 
@@ -783,7 +783,7 @@ curl localhost:9100/version
 |---|---|---|
 | `time`、`src`、`dst`、`rule`、`phase`、`reply` | 总是有 | `reply` 只在回显应答时为 true；DNS 查询的 `src` 和 `dst` 为空，因为它们不经过虚拟网卡；路径上某一跳的回应没有阶段，`phase` 为 0 |
 | `id`、`seq` | ping、DNS | 回显请求的标识和序号；DNS 查询的 `id` 是查询报文的 ID |
-| `result` | 总是有 | ping：`reply`、`drop`、`unreachable`；路径：`time-exceeded`、`port-unreachable`、`syn-ack`；TCP 规则：`syn-ack`、`refused`、`drop`、`unreachable`、`sent`、`closed`、`reset`；UDP 规则：`refused`、`unreachable`、`drop`；DNS 规则：`answer`、`nxdomain`、`servfail`、`drop` |
+| `result` | 总是有 | ping：`reply`、`drop`、`unreachable`；路径：`time-exceeded`、`port-unreachable`、`syn-ack`；TCP 规则：`syn-ack`、`refused`、`drop`、`unreachable`、`sent`、`closed`、`reset`；UDP 规则：`refused`、`unreachable`、`drop`；发往没有规则也没有路径的端口的 TCP 和 UDP：`ignored`，不会被回应；DNS 规则：`answer`、`nxdomain`、`servfail`、`drop` |
 | `code` | 不可达的回应 | `host`、`net` 或 `admin` |
 | `delay` | 有回应时 | 比如 `40ms` |
 | `probe` | ping 以外的请求 | `udp`、`tcp` 或 `dns` |

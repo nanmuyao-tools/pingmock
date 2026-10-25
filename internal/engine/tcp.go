@@ -108,7 +108,8 @@ type tcpState struct {
 	targets map[netip.AddrPort]*tcpTarget
 	seen    map[attempt]answered
 	conns   map[conn]*connState
-	inserts int // since the last pruning of seen and conns
+	ignored map[attempt]time.Time // SYNs to ports without a rule, for Repeat
+	inserts int                   // since the last pruning of seen, conns and ignored
 }
 
 func newTCPState() tcpState {
@@ -117,7 +118,33 @@ func newTCPState() tcpState {
 		targets: map[netip.AddrPort]*tcpTarget{},
 		seen:    map[attempt]answered{},
 		conns:   map[conn]*connState{},
+		ignored: map[attempt]time.Time{},
 	}
+}
+
+// ignored is the decision for a TCP or UDP probe that no rule or path
+// covers: no answer, as before pingmock, but an event in the history, so a
+// test sees that its program tried. A SYN sent again is marked Repeat, as
+// for ports with a rule. It touches no target's state or random sequence.
+func (rs *RuleSet) ignored(p icmp.Probe) Decision {
+	d := Decision{Outcome: rule.Ignored, Rule: "none"}
+	if p.Kind != icmp.TCP {
+		return d
+	}
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	now := rs.now()
+	at := attempt{p.Src, p.Dst, p.SrcPort, p.DstPort, p.TCPSeq}
+	if prev, ok := rs.tcp.ignored[at]; ok && now.Sub(prev) < repeatWindow {
+		d.Repeat = true
+		return d
+	}
+	rs.tcp.ignored[at] = now
+	if rs.tcp.inserts++; rs.tcp.inserts >= 256 {
+		rs.tcp.inserts = 0
+		rs.pruneTCP(now)
+	}
+	return d
 }
 
 // SetTCP installs the TCP rule for prefix p and port, 0 meaning every
@@ -234,18 +261,29 @@ func (rs *RuleSet) DecideTCP(p icmp.Probe) (Decision, bool) {
 	rs.tcp.seen[at] = answered{d, now}
 	if rs.tcp.inserts++; rs.tcp.inserts >= 256 {
 		rs.tcp.inserts = 0
-		for a, s := range rs.tcp.seen {
-			if now.Sub(s.at) >= repeatWindow {
-				delete(rs.tcp.seen, a)
-			}
-		}
-		for c, cs := range rs.tcp.conns {
-			if now.Sub(cs.at) >= idleWindow {
-				delete(rs.tcp.conns, c)
-			}
-		}
+		rs.pruneTCP(now)
 	}
 	return d, true
+}
+
+// pruneTCP forgets attempts too old to be sent again and idle connections;
+// the caller holds rs.mu.
+func (rs *RuleSet) pruneTCP(now time.Time) {
+	for a, s := range rs.tcp.seen {
+		if now.Sub(s.at) >= repeatWindow {
+			delete(rs.tcp.seen, a)
+		}
+	}
+	for a, at := range rs.tcp.ignored {
+		if now.Sub(at) >= repeatWindow {
+			delete(rs.tcp.ignored, a)
+		}
+	}
+	for c, cs := range rs.tcp.conns {
+		if now.Sub(cs.at) >= idleWindow {
+			delete(rs.tcp.conns, c)
+		}
+	}
 }
 
 // TCPSegment is a segment pingmock sends on a connection, with data or

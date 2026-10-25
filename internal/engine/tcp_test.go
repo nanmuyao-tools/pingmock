@@ -51,9 +51,17 @@ func TestTCPRuleOutcomes(t *testing.T) {
 			t.Errorf("%s: %+v, want %v after %v", c.dst, d, c.out, c.delay)
 		}
 	}
-	// No TCP rule and no path: ignored, as before TCP rules existed.
-	if d := rs.DecideProbe(syn("10.99.0.1", 80, 41000, 1)); d.Outcome != rule.Drop || d.Rule != "none" {
+	// No TCP rule and no path: not answered, as before TCP rules existed,
+	// but ignored, which the history records; the same SYN again is a
+	// repeat, and a new attempt is not.
+	if d := rs.DecideProbe(syn("10.99.0.1", 80, 41000, 1)); d.Outcome != rule.Ignored || d.Rule != "none" || d.Repeat {
 		t.Errorf("port without a rule: %+v", d)
+	}
+	if d := rs.DecideProbe(syn("10.99.0.1", 80, 41000, 1)); d.Outcome != rule.Ignored || !d.Repeat {
+		t.Errorf("the same SYN again: %+v, want a repeat", d)
+	}
+	if d := rs.DecideProbe(syn("10.99.0.1", 80, 41001, 1)); d.Repeat {
+		t.Errorf("a new attempt: %+v, want no repeat", d)
 	}
 }
 

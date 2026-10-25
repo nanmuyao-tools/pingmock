@@ -196,6 +196,9 @@ read -r status took <<<"$(connect http://10.99.0.21/ 0.5)"
 near "TCP: the connection is accepted after the rule's delay" "$(ms "$took")" 200 10
 read -r _ took <<<"$(connect http://10.99.0.21:81/ 0.5)"
 same "TCP: a port without a rule is not answered (no connection)" "$(ms "$took")" 0.0
+# ...but the history shows that the program tried.
+ignored() { curl -sf "localhost:9100/history?target=$1" | python3 -c "import json, sys; print(' '.join(f\"{e['probe']}:{e['port']}\" for e in json.load(sys.stdin)['events'] if e['result'] == 'ignored' and not e.get('repeat')))"; }
+same "TCP: the history records the attempt on a port without a rule as ignored" "$(ignored 10.99.0.21)" "tcp:81"
 read -r status _ <<<"$(connect http://10.99.0.22/ 2)"
 same "TCP: refuse refuses the connection (curl exit 7)" "$status" 7
 # bash's /dev/tcp prints the system's error, which tells the two apart.
@@ -311,6 +314,7 @@ same "UDP: unreachable=admin is no route to host" "$(udp 10.99.0.34 123)" "OSErr
 same "UDP: unreachable (host) is not reported to a plain socket" "$(udp 10.99.0.36 123 | cut -d' ' -f1)" TimeoutError
 same "UDP: timeout leaves the datagram unanswered, then the next phase refuses" "$(udp 10.99.0.35 53 | cut -d' ' -f1) $(udp 10.99.0.35 53 | cut -d' ' -f1)" "TimeoutError ConnectionRefusedError"
 same "UDP: a port without a rule is not answered" "$(udp 10.99.0.33 515 | cut -d' ' -f1)" TimeoutError
+same "UDP: the history records the datagram as ignored" "$(ignored 10.99.0.33)" "udp:515"
 stats=$(curl -sf localhost:9100/rules | tr -d ' \n' | grep -o '"10.99.0.35:53":{[^}]*}')
 echo "$stats" | grep -q '"requests":2,"refused":1,"dropped":1' && pass "UDP: statistics count datagrams" || fail "UDP: stats: $stats"
 # Rules change while running, through the API.

@@ -429,3 +429,20 @@ func mustScenario(t *testing.T, s string) rule.Scenario {
 	}
 	return sc
 }
+
+// Lists are [] when empty, never null, so that a client can loop over
+// them without a check: an empty history, and the rules of a fresh start.
+func TestAPIEmptyListsAreNotNull(t *testing.T) {
+	f := newAPIFixture(t)
+	for _, path := range []string{"/history", "/history?target=10.99.0.1", "/history?target=api.example.com", "/rules"} {
+		var raw map[string]json.RawMessage
+		if code := f.do("GET", path, "", &raw); code != 200 {
+			t.Fatalf("GET %s: %d", path, code)
+		}
+		for k, v := range raw {
+			if string(v) == "null" {
+				t.Errorf("GET %s: %q is null", path, k)
+			}
+		}
+	}
+}
