@@ -81,37 +81,44 @@ func (rs *RuleSet) DecideProbe(p icmp.Probe) Decision {
 		t = &target{}
 		rs.targets[dst] = t
 	}
+	if int(ttl) <= len(path) {
+		// A probe for a hop, as traceroute and mtr send: it has a random
+		// stream of its own and is not a request to the target, so that
+		// tracing the route never changes what pings to the target get.
+		// Every hop before it may lose it; the hop may not answer.
+		if t.hops == nil {
+			t.hops = rs.hopRNG(dst)
+		}
+		d := Decision{Outcome: rule.Drop, Rule: "path"}
+		for i := 0; i < int(ttl)-1; i++ {
+			if path[i].Cuts(t.hops) {
+				d.Hop, d.From = i+1, path[i].Addr
+				rs.mu.Unlock()
+				return d
+			}
+		}
+		hop := path[ttl-1]
+		answered, delay := hop.DecideHop(t.hops)
+		d.Hop, d.From = int(ttl), hop.Addr
+		if answered {
+			t.stats.Hops++
+			d.Outcome, d.Delay, d.TTL = rule.TimeExceeded, delay, hop.EffectiveTTL()
+		}
+		rs.mu.Unlock()
+		return d
+	}
+	// A probe for the target: every hop may lose it on the way, from the
+	// target's own random stream.
 	if t.rng == nil {
 		t.rng = rs.rngFor(dst)
 	}
-	// On the way: every hop before the one that answers may lose the
-	// probe. The last hop's cut applies to probes going past it too.
-	last := len(path) // hops the probe passes through before being answered
-	if int(ttl) <= len(path) {
-		last = int(ttl) - 1
-	}
-	for i := 0; i < last; i++ {
+	for i := range path {
 		if path[i].Cuts(t.rng) {
 			t.stats.Requests++
 			t.stats.Dropped++
 			rs.mu.Unlock()
 			return Decision{Outcome: rule.Drop, Rule: "path", Hop: i + 1, From: path[i].Addr}
 		}
-	}
-	if int(ttl) <= len(path) {
-		hop := path[ttl-1]
-		answered, delay := hop.DecideHop(t.rng)
-		t.stats.Requests++
-		d := Decision{Rule: "path", Hop: int(ttl), From: hop.Addr, Delay: delay, TTL: hop.EffectiveTTL()}
-		if answered {
-			t.stats.Hops++
-			d.Outcome = rule.TimeExceeded
-		} else {
-			t.stats.Dropped++
-			d.Outcome = rule.Drop
-		}
-		rs.mu.Unlock()
-		return d
 	}
 	rs.mu.Unlock()
 

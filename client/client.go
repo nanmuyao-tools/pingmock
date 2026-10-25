@@ -212,7 +212,7 @@ type TargetStats struct {
 	Replied     uint64 `json:"replied"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
-	Hops        uint64 `json:"hops"`  // probes answered by a hop of the target's path
+	Hops        uint64 `json:"hops"`  // probes for a hop of the target's path that it answered; not counted in Requests
 	Rule        string `json:"rule"`  // matching prefix, or "default"
 	Phase       int    `json:"phase"` // current phase, 1-based
 }

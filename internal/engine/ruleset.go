@@ -19,7 +19,7 @@ type Stats struct {
 	Replied     uint64 `json:"replied"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
-	Hops        uint64 `json:"hops,omitempty"` // probes answered by a hop of the path
+	Hops        uint64 `json:"hops,omitempty"` // probes for a hop of the path that it answered; not requests
 }
 
 // entry is a scenario installed for a prefix (or as the default). Every
@@ -45,6 +45,7 @@ type position struct {
 type target struct {
 	position
 	stats Stats
+	hops  *rand.Rand // the random stream of probes for the hops of its path
 }
 
 // Decision is the outcome for one echo request.
@@ -261,6 +262,17 @@ func (rs *RuleSet) rngFor(a netip.Addr) *rand.Rand {
 		b := a.As16()
 		h.Write(b[:])
 	}
+	return rand.New(rand.NewPCG(rs.seed, h.Sum64()))
+}
+
+// hopRNG returns the random stream of the probes for the hops of a's path,
+// apart from a's own, so that tracing the route never changes what pings
+// to a get.
+func (rs *RuleSet) hopRNG(a netip.Addr) *rand.Rand {
+	h := fnv.New64a()
+	h.Write([]byte("hops"))
+	b := a.As16()
+	h.Write(b[:])
 	return rand.New(rand.NewPCG(rs.seed, h.Sum64()))
 }
 

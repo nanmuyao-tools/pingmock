@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"net/netip"
 	"testing"
 	"time"
@@ -55,8 +56,9 @@ func TestDecideProbeWalksThePath(t *testing.T) {
 		t.Errorf("ping: %+v", d)
 	}
 	st := rs.Snapshot()["stats"].(map[string]TargetState)[target.String()]
-	// 4 probes answered by hops or lost there, 4 answered by the destination.
-	if st.Requests != 8 || st.Hops != 3 || st.Dropped != 1 || st.Replied != 4 || st.Unreachable != 0 {
+	// 4 requests answered by the destination; of the 4 probes for hops, 3
+	// answered, and none of them is a request to the target.
+	if st.Requests != 4 || st.Hops != 3 || st.Dropped != 0 || st.Replied != 4 || st.Unreachable != 0 {
 		t.Errorf("stats = %+v", st)
 	}
 	// A rule that drops or rejects applies to UDP and TCP probes too.
@@ -111,6 +113,33 @@ func TestPathCutLosesPacketsBeyondTheHop(t *testing.T) {
 	}
 	if d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 2, Kind: icmp.UDP}); d.Outcome != rule.TimeExceeded || d.Hop != 2 {
 		t.Errorf("lossy hop, ttl 2: %+v", d)
+	}
+}
+
+func TestTracingDoesNotChangePings(t *testing.T) {
+	pings := func(trace bool) string {
+		rs, _ := newTestRuleSet(t, "0ms", 7)
+		target := addr("8.8.8.8")
+		rs.Set(netip.MustParsePrefix("8.8.8.8/32"), mustScenario(t, "delay=20ms,jitter=10ms,loss=30% for 10 pings; timeout"))
+		rs.SetPath(target, mustPath(t, "10.0.0.1@1ms,jitter=1ms,loss=20%,cut=10% > 10.0.0.2@delay=5ms,jitter=2ms,loss=40%"))
+		out := ""
+		for i := range 12 {
+			if trace {
+				// A traceroute between pings: its probes for the hops.
+				for ttl := uint8(1); ttl <= 2; ttl++ {
+					rs.DecideProbe(icmp.Probe{Dst: target, TTL: ttl, Kind: icmp.UDP})
+				}
+			}
+			d := rs.DecideProbe(icmp.Probe{Dst: target, TTL: 64, Kind: icmp.Echo, Seq: uint16(i)})
+			out += fmt.Sprintf("%v/%v/%d ", d.Outcome, d.Delay, d.Phase)
+		}
+		if st := rs.Snapshot()["stats"].(map[string]TargetState)[target.String()]; st.Requests != 12 {
+			t.Errorf("trace=%v: %d requests, want the 12 pings", trace, st.Requests)
+		}
+		return out
+	}
+	if a, b := pings(false), pings(true); a != b {
+		t.Errorf("tracing the route changed the pings:\n without %s\n with    %s", a, b)
 	}
 }
 

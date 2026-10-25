@@ -29,6 +29,10 @@ flowchart LR
     N["不做"]
 ```
 
+### 已完成：跑 traceroute 不再影响 ping
+
+发给路径各跳的探测以前和目标共用一条随机序列，也算目标的请求，所以测试中途跑一次 traceroute，会改变 ping 的随机结果和统计。现在它们有自己的随机序列，只计进 `hops`。还没有发布。
+
 ### 已完成：用 netlink 替代 `ip` 命令
 
 pingmock 自己通过 netlink 设置地址和路由，只用标准库，所以运行时不再需要别的程序；以前在没装 iproute2 的地方，比如一个普通的 Ubuntu 容器里，它起不来。Docker 镜像不再安装 iproute2。随 [v0.17.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.17.0) 发布。

@@ -29,6 +29,10 @@ flowchart LR
     N["Not planned"]
 ```
 
+### Done: tracing a route leaves the pings alone
+
+The probes for a path's hops shared the target's random stream and counted as its requests, so a traceroute in the middle of a test changed the pings' random results and statistics. They now have a stream of their own and count only under `hops`. Not released yet.
+
 ### Done: netlink instead of the `ip` command
 
 pingmock sets its addresses and routes over netlink itself, with the standard library alone, so it needs no other programs at runtime: it used to fail to start where iproute2 was missing, as in a plain Ubuntu container. The Docker image no longer installs iproute2. Released in [v0.17.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.17.0).

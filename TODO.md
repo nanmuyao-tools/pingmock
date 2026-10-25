@@ -311,6 +311,9 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
   - 实现：`internal/tun/netlink_linux.go`：`LinkUp`、`AddAddr`、`replaceRoute`、`deleteRoute`、`mainRoutes`（列出路由表，按地址族、前缀长度、目的地址、main 表挑出，跳过缓存的路由，多下一跳的路由列出每个网卡）；错误用 `%w` 包装，`explain` 只按 EPERM 判断，不再匹配 `ip` 的英文输出；Docker 镜像去掉 iproute2。开发容器和 CI 仍装 iproute2，因为测试脚本自己要用
   - 验证（开发容器）：单元测试（路由表解析：宿主机路由、pingmock 自己的、半个网段、其他表、unreachable、多下一跳、缓存的路由、IPv6；消息编码；`explain` 对包装的 EPERM）；e2e 每次都以 `PATH=/nonexistent` 启动 pingmock，91 项全过；exec 加一项空 PATH 的检查，免 root 和 root 共 103 项全过；`ip monitor` 看到的地址和路由与原来的 `ip` 命令一致。变异：v0.16.0 发布版在空 PATH 下以 125 退出；`explain` 改回字符串匹配、不跳过缓存的路由、删除时 scope 用 0，各自让单元测试或 e2e 失败。同 seed 结果与 v0.16.0 发布版一致
   - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/40175714985) 全部通过：Ubuntu 24.04 和 26.04 上 e2e 都以空 PATH 启动 pingmock，exec 的空 PATH 检查在免 root 和 root 下都跑了（30.2ms，规则 30ms）；不装 iproute2 的 Docker 镜像 6 项检查全过。[v0.17.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.17.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在没有 `ip` 的 Ubuntu 26.04 容器里：网卡启用，8.8.8.8 的路由加上，10.99.0.1:80 和 8.8.8.8:53 的连接被拒，删掉规则后路由撤掉；发布的镜像里没有 iproute2 包
+- [x] **11. 路径的中间跳和 ping 分开**（2026-10-25 实现，未发布）。第八轮顺带发现：设了路径的目标，发给各跳的探测和 ping 共用一条随机序列，也计进 `requests`，测试中途跑一次 traceroute 就会改变之后 ping 的随机结果和统计。细读后更正：最后一跳用目标的规则、计进场景，是 README 写明的行为（mtr 的 ICMP 模式下也和 ping 分不开），不改。维护者决定：中间跳单独一条随机序列（seed 加 `hops` 和地址派生），回应了才计进 `hops`，不计进 `requests`；在某一跳丢掉的探测只在历史里。改变了设了路径、且中间跳有 `loss`、`jitter` 或 `cut` 的目标的 seed 序列，没有路径的目标不变
+  - 验证：单元测试（中途插入 traceroute 时 12 个 ping 的结果、延迟、阶段和请求数都和不插入时一样；路径统计改为 4 个请求、3 个 hops）。变异：中间跳改回用目标的随机序列、中间跳又计进 `requests`，各自让测试失败。`make e2e-all` 全过；没有路径的 seed 结果与 v0.17.0 发布版一致
+  - [ ] 推送后看 CI；发布
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文。**暂缓**（维护者，2026-10-23）：「不用考虑兼容性，项目还是内部开发阶段」。在那之前改动不必保持兼容，也不用为冻结做决定；镜像 API 的默认地址因此不再是 v1.0 前必须定的事，只在文档里提醒
 
 **维护者的决定**（括号里是当时 agent 的推荐；结果写在每项后面）：
