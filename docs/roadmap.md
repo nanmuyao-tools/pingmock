@@ -19,6 +19,7 @@ The common protocols are now supported, and the documentation stage is done. The
 | v0.15 | `pingmock exec -outside`: the host's network and loopback ports for the command; v0.15.1: routes follow the rules |
 | v0.16 | Connections to ports without a rule recorded as `ignored` in the history |
 | v0.17 | Netlink instead of the `ip` command: no programs needed at runtime |
+| v0.18 | Probes for a path's hops leave the pings alone |
 
 ## The stages
 
@@ -29,9 +30,9 @@ flowchart LR
     N["Not planned"]
 ```
 
-### Done: tracing a route leaves the pings alone
+### Done: probes for a path's hops leave the pings alone
 
-The probes for a path's hops shared the target's random stream and counted as its requests, so a traceroute in the middle of a test changed the pings' random results and statistics. They now have a stream of their own and count only under `hops`. Not released yet.
+The probes for a path's hops shared the target's random stream and counted as its requests, so a traceroute in the middle of a test changed the pings' random results and statistics. They now have a stream of their own and count only under `hops`; probes that reach the target are still its requests. Released in [v0.18.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.18.0).
 
 ### Done: netlink instead of the `ip` command
 

@@ -1,7 +1,7 @@
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/nanmuyao/pingmock v0.17.0 h1:jyPHNKtzvn3PFA6pLuW/v/k6zdZZG3dfgMLRyZMi8C4=
-github.com/nanmuyao/pingmock v0.17.0/go.mod h1:nSONETHtmrIg/NGRsNB26vsavMpl54Q2c7GNG5UhaQA=
+github.com/nanmuyao/pingmock v0.18.0 h1:+NYI5WSMbjwAN8l63AYPbPJVcmlOOiTAnl6RlclnFME=
+github.com/nanmuyao/pingmock v0.18.0/go.mod h1:nSONETHtmrIg/NGRsNB26vsavMpl54Q2c7GNG5UhaQA=
 github.com/prometheus-community/pro-bing v0.9.1 h1:kpuAr6AU2oRtzGihJSUcetHtjc7ku7h6PxeuW9RVrQw=
 github.com/prometheus-community/pro-bing v0.9.1/go.mod h1:z79wYTxAOf6FpTng0QdIhZ3j/Nd5l3+gnFSCIT+SiSQ=
 golang.org/x/net v0.56.0 h1:Rw8j/hFzGvJUZwNBXnAtf5sVDVt+65SK2C7IxCxZt5o=
