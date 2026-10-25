@@ -2,7 +2,7 @@
 
 English | [中文](roadmap.zh-CN.md)
 
-Where pingmock stands after v0.14.0, what comes next, and why, as of 23 October 2026. The steps, with what was verified at each one, are tracked in [TODO.md](../TODO.md#通往-v10) (in Chinese). The evidence behind this page, including the competitor analysis, is in [planning, round seven](planning.md#a-seventh-round-competitors-and-direction-after-v10-23-october-2026).
+Where pingmock stands, what comes next, and why, as of 25 October 2026. The steps, with what was verified at each one, are tracked in [TODO.md](../TODO.md#通往-v10) (in Chinese). The evidence behind this page, including the competitor analysis, is in [planning, round seven](planning.md#a-seventh-round-competitors-and-direction-after-v10-23-october-2026), and the later ones in [round eight](planning.md#an-eighth-round-what-next-after-v0150-25-october-2026).
 
 The common protocols are now supported, and the documentation stage is done. The v1.0 compatibility promise is deferred: the project is still in internal development, so changes need not stay compatible (the maintainer, 23 October 2026). A new feature waits until a user asks for it, and features are ordered by the number of users they serve. Of the 34 competitors studied, none keeps all four [core values](../CONTRIBUTING.md#design-principles): transparent, per target, reproducible, and controllable and observable.
 
@@ -16,6 +16,7 @@ The common protocols are now supported, and the documentation stage is done. The
 | v0.12 | Fixed bytes on TCP connections: `send=`, `reply=`, `limit=`, `wait=` |
 | v0.13 | `-udp`: port unreachable, other unreachable errors, timeout |
 | v0.14 | Cleanup before the freeze: exit status 125, DNS event fields, fuzzing |
+| v0.15 | `pingmock exec -outside`: the host's network and loopback ports for the command; v0.15.1: routes follow the rules |
 
 ## The stages
 
@@ -25,6 +26,10 @@ flowchart LR
     C --> B["v1.0, deferred<br/>compatibility promise"]
     N["Not planned"]
 ```
+
+### Done: routes follow the rules
+
+Round eight found that a deleted rule left its address routed to pingmock until exit, so under `-outside` a real address mocked once could no longer be reached. Since [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1), deletes and `POST /reset` remove the routes no rule needs, and `GET /rules` lists the routes.
 
 ### Done: outside access for `exec`
 
@@ -46,10 +51,11 @@ These are ordered by the number of users they would serve, but none starts witho
 | Direction | For | State |
 |---|---|---|
 | Rules per interface or source address (multi-WAN, mwan3) | operations staff | Designed. The experiment works, also without root inside `exec`. Medium cost: `rule`, `engine`, `tun`, `app`, `api`, `client` |
-| Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages. Lowest priority: the API may still change |
+| Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages, and toxiproxy-python 25,000 downloads a month. Round eight recommended it next; the maintainer keeps it at lowest priority |
 | Testcontainers module | application developers | Useful only when the code under test runs in a container |
 | Replace the `ip` command with netlink | everyone | Removes the runtime dependency on iproute2 |
-| ICMP Packet Too Big, DNS in root mode, records other than A/AAAA, replaying recorded latency | — | No evidence of users yet |
+| ICMP Packet Too Big, DNS in root mode, replaying recorded latency, IPv6 for outside access | — | No evidence of users yet |
+| Connections to a mocked address without a rule, in the history | application developers | Found in round eight: they leave no event |
 
 ### v1.0: the compatibility promise, deferred
 
@@ -71,6 +77,7 @@ What the promise would cover:
 | QUIC falling back to TCP | pingmock takes over the whole address, so it cannot fail UDP while TCP reaches the real server |
 | A GitHub Action | None exists for netem either; [the workflow example](../examples/github-actions) is enough |
 | IPv6 extension headers, an `LD_PRELOAD` shim | No evidence; a C library is against the dependency policy |
+| DNS records other than A/AAAA | MX, SRV, TXT, HTTPS and CNAME already get "no record", the correct answer: nothing to build |
 
 ## How the competitors compare
 

@@ -274,6 +274,45 @@ Kubernetes 混沌平台：[Chaos Mesh](https://github.com/chaos-mesh/chaos-mesh)
 
 dnsmasq 的技巧、基于 pasta 的测试框架、在命名空间里运行 tc 和 netem 的测试辅助工具，以及 Discussions。issue 只看了每个项目按反应数排序的前 10 个，不是完整列表。
 
+## exec 访问外网：技术选型，2026 年 10 月 23 日
+
+在等用户提出的几项里，维护者先选了 `pingmock exec` 访问外网，因为它服务的应用开发者人数最多。[`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent 在容器里（Ubuntu 24.04 和 26.04、Alpine 3.20、Debian 12）做了 15 个实验比较各种机制，提出的设计由 [v0.15.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.0) 实现。标了*已核对*的行人工重跑过。
+
+| 机制 | 结果 | 结论 |
+|---|---|---|
+| [pasta](https://passt.top)，接到命令的命名空间上 | 模拟的目标仍按规则回应：100ms 的规则测得 100.4–101.4ms，同时 `https://github.com` 返回 200；`-T 5432` 能访问宿主机的 `127.0.0.1:5432`（*已核对*：Ubuntu 24.04，普通用户；不挂 pasta 时域名解析不了、端口连不上） | **选定**：唯一不改程序就能访问宿主机本机端口的 |
+| slirp4netns | 普通用户和 root 都能用，但只能通过 10.0.2.2 访问宿主机本机；作者考虑弃用（[#361](https://github.com/rootless-containers/slirp4netns/issues/361)） | 不用 |
+| gvisor-tap-vsock | 文档只有虚拟机模式 | 不用 |
+| root 下的 veth 加 NAT | 打开转发后能用，但改了宿主机，命令结束后留下了 NAT 规则 | 不用 |
+| pingmock 内部的中继 | 可行，但要 `nft` 程序，约 400–800 行，不支持 ICMP 和 UDP | 不用；外网流量要进历史只能走这条路 |
+
+实验发现、设计采纳的几点：
+- pasta 默认会把命令监听的端口暴露到宿主机上，包括没有认证的 API（在 Ubuntu 24.04 的 pasta 上*已核对*；Debian 12 的不会），所以 pingmock 传 `-t none -u none`，只转发指定的端口。
+- pasta 必须在 pingmock 加路由之前接上，否则网段重叠时它的路由优先：子进程在管道上等。
+- 以 root 运行时，pasta 会降权成 `nobody`，打不开命名空间；给命令一个把所有 ID 映射成自身的用户命名空间，再加 `--runas 0`，在 Ubuntu 24.04 和 26.04 上可行。
+- 宿主机的解析器如果在 `127.0.0.53`（systemd-resolved 就是这样），命令访问不到，所以有外网时总是启动命令自己的 DNS 服务。
+- Docker 默认的 seccomp 配置挡住 pasta 沙箱的 `pivot_root`，在 Docker Desktop 上即使给了 `SYS_ADMIN` 也一样（*已核对*）；Debian 12 的 pasta 在命名空间消失后不退出（*已核对*），所以由 pingmock 停掉它。
+- GitHub 的 Ubuntu runner 本来就装了 pasta（*在 CI 里核对过*）。
+
+需求证据：没有来自用户的。最接近的是 AI agent 沙箱想访问宿主机本机的服务（[anthropics/sandbox-runtime#165](https://github.com/anthropics/sandbox-runtime/issues/165)，21 个反应）。
+
+## 第八轮：v0.15.0 之后做什么，2026 年 10 月 25 日
+
+同一个 agent，约十分钟，做了两个实验。
+
+- **反馈**：没有。pingmock 没有 issue、pull request 和星标，Discussions 页面没有帖子；跟踪的 14 个外部 issue 在 10 月 23 日之后都没有变化。
+- **一个 bug**（*已核对：复现了*）。在 `pingmock exec -outside` 下，真实的 1.1.1.1 返回 301；加了 `refuse` 规则后 curl 退出码 7；`DELETE`（204）之后退出码 28，`1.1.1.1 dev pingmock0` 的路由还在。`POST /reset` 也一样。路由器只加不撤（`internal/tun/tun_linux.go`）。已在 [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1) 修复：路由跟着规则走。
+- **客户端的间接需求**，10 月 25 日各软件包仓库的数据：`toxiproxy-python` 上个月下载 25,613 次，`toxiproxy-node-client` 413,313 次，`@testcontainers/toxiproxy` 约 322,000 次。这些是竞品客户端的用户，不是 pingmock 的。
+
+| 候选 | 用户 | 证据 | 结论 |
+|---|---|---|---|
+| 路由跟着规则走 | 所有通过 API 模拟真实地址的人 | 上面的 bug | **已做**，v0.15.1 |
+| Python 客户端包，只用标准库，附带 pytest fixture | ① | 上面的间接需求；`examples/python-demo/conftest.py` 只支持 ping 规则 | agent 推荐排第二；维护者决定仍放在最低优先级 |
+| 按网卡区分的规则 | ③ | 没有来自用户的（第七轮有设计） | 等 |
+| Testcontainers 模块、用 netlink 替代 `ip`、Packet Too Big、root 模式的 DNS、回放延迟、外网访问的 IPv6、Java 和 Node 客户端 | — | 没有 | 等 |
+| 连到模拟地址、却没有规则的连接记进历史 | ① | 实验里发现：这样的连接不留任何事件 | 等，单独决定 |
+| A/AAAA 以外的 DNS 记录 | — | MX、SRV、TXT、HTTPS、CNAME 现在就回「没有记录」，这本身是正确的回答 | **去掉**：没有要做的 |
+
 ## 下一次规划时
 
 1. **先看用户的反馈**：[Discussions](https://github.com/nanmuyao/pingmock/discussions) 和 issue 中的真实需求，优先于任何调研

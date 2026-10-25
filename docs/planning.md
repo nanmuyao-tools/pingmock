@@ -274,6 +274,45 @@ The first try used the `flower` classifier, which the linuxkit kernel lacks; tha
 
 dnsmasq tricks, test harnesses built on pasta, test helpers that run tc and netem in a namespace, and Discussions. Issue mining used the ten issues with the most reactions per project, not the full lists.
 
+## Outside access for exec: technical selection, 23 October 2026
+
+The maintainer chose outside access for `pingmock exec` first among the items that wait for users, since it serves application developers, the largest group. The [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent compared the mechanisms with fifteen experiments in containers (Ubuntu 24.04 and 26.04, Alpine 3.20, Debian 12) and proposed the design that [v0.15.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.0) implements. The rows marked *checked* were rerun by hand.
+
+| Mechanism | Result | Decision |
+|---|---|---|
+| [pasta](https://passt.top), attached to the command's namespaces | Mocked targets keep their rules; a 100ms rule measured 100.4–101.4ms while `https://github.com` returned 200; `-T 5432` reaches the host's `127.0.0.1:5432` *(checked: Ubuntu 24.04, rootless; without pasta, names do not resolve and the port is unreachable)* | **chosen**: the only one that reaches the host's loopback without changing the program |
+| slirp4netns | works rootless and as root, but the host's loopback only at 10.0.2.2; its author considers deprecating it ([#361](https://github.com/rootless-containers/slirp4netns/issues/361)) | rejected |
+| gvisor-tap-vsock | documents virtual machine modes only | rejected |
+| veth and NAT, as root | works with forwarding on, but changes the host and left NAT rules behind | rejected |
+| A relay inside pingmock | feasible, but needs the `nft` program, about 400–800 lines, no ICMP or UDP | rejected; the only route to outside traffic in the history |
+
+What the experiments found, and the design took in:
+- pasta's defaults publish the command's ports on the host, the unauthenticated API included *(checked on Ubuntu 24.04's pasta; Debian 12's does not)*, so pingmock passes `-t none -u none` and forwards only the ports asked for.
+- pasta must attach before pingmock adds its routes, or its route wins for an overlapping prefix: the child waits on a pipe.
+- As root, pasta drops to `nobody` and cannot open the namespaces; a user namespace mapping every ID to itself, with `--runas 0`, works on Ubuntu 24.04 and 26.04.
+- A host resolver on `127.0.0.53`, as systemd-resolved runs it, is out of reach, so outside access always starts the command's DNS server.
+- Docker's default seccomp profile refuses the `pivot_root` of pasta's sandbox, on Docker Desktop even with `SYS_ADMIN` *(checked)*; Debian 12's pasta does not quit when the namespaces go *(checked)*, so pingmock stops it.
+- GitHub's Ubuntu runners already have pasta *(checked in CI)*.
+
+Evidence of demand: none from users. The nearest is sandboxes for AI agents that want services on the host's loopback ([anthropics/sandbox-runtime#165](https://github.com/anthropics/sandbox-runtime/issues/165), 21 reactions).
+
+## An eighth round: what next after v0.15.0, 25 October 2026
+
+The same agent, for about ten minutes, with two experiments.
+
+- **Feedback**: none. pingmock has no issues, pull requests or stars, and the Discussions page has no threads. None of the fourteen tracked external issues changed after 23 October.
+- **A bug** *(checked: reproduced)*. Under `pingmock exec -outside`, the real 1.1.1.1 answered 301; with a `refuse` rule, curl exited 7; after `DELETE` (204), it exited 28 and `1.1.1.1 dev pingmock0` was still routed. `POST /reset` did the same. The router only ever added routes (`internal/tun/tun_linux.go`). Fixed in [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1): routes follow the rules.
+- **Proxy demand** for the clients, from the package registries on 25 October: `toxiproxy-python` 25,613 downloads in the last month, `toxiproxy-node-client` 413,313, `@testcontainers/toxiproxy` about 322,000. These count users of a competitor's clients, not pingmock's.
+
+| Candidate | Users | Evidence | Decision |
+|---|---|---|---|
+| Routes follow the rules | everyone using the API on real addresses | the bug above | **built**, v0.15.1 |
+| Python client package, standard library only, with a pytest fixture | ① | the proxy demand above; `examples/python-demo/conftest.py` covers ping rules only | recommended second; the maintainer keeps it at lowest priority |
+| Rules per interface | ③ | none from users (round 7 has the design) | waits |
+| Testcontainers module, netlink instead of `ip`, Packet Too Big, DNS in root mode, replaying latency, IPv6 outside access, Java and Node clients | — | none | wait |
+| Connections to a mocked address without a rule, in the history | ① | found in the experiments: they leave no event | waits, a separate decision |
+| DNS records other than A/AAAA | — | MX, SRV, TXT, HTTPS and CNAME already get "no record", which is correct | **dropped**: nothing to build |
+
 ## Next time
 
 1. **Start from users' feedback**: real needs in [Discussions](https://github.com/nanmuyao/pingmock/discussions) and issues come before any research

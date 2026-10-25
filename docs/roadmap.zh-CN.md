@@ -2,7 +2,7 @@
 
 [English](roadmap.md) | 中文
 
-v0.14.0 之后 pingmock 处在什么位置、接下来做什么、为什么，截至 2026 年 10 月 23 日。每一步的进度和验证记录在 [TODO.md](../TODO.md#通往-v10)。这一页依据的证据，包括竞品分析，见[规划的第七轮](planning.zh-CN.md#第七轮竞品和-v10-之后的方向2026-年-10-月-23-日)。
+pingmock 处在什么位置、接下来做什么、为什么，截至 2026 年 10 月 25 日。每一步的进度和验证记录在 [TODO.md](../TODO.md#通往-v10)。这一页依据的证据，包括竞品分析，见[规划的第七轮](planning.zh-CN.md#第七轮竞品和-v10-之后的方向2026-年-10-月-23-日)，之后的见[第八轮](planning.zh-CN.md#第八轮v0150-之后做什么2026-年-10-月-25-日)。
 
 常用协议已经支持完整，补文档的阶段也做完了。v1.0 的兼容性承诺暂缓：项目还在内部开发阶段，改动不必保持兼容（维护者，2026 年 10 月 23 日）。新功能都要等用户提出需求再做，并按用户数量排序。调研的 34 个竞品里，没有一个能同时满足四个[核心价值](../CONTRIBUTING.md#design-principles)：透明、按目标、可复现、可控制且可观察。
 
@@ -16,6 +16,7 @@ v0.14.0 之后 pingmock 处在什么位置、接下来做什么、为什么，�
 | v0.12 | 在 TCP 连接上发送固定的字节：`send=`、`reply=`、`limit=`、`wait=` |
 | v0.13 | `-udp`：端口不可达、其他不可达错误、超时 |
 | v0.14 | 冻结前的整理：退出码 125、DNS 事件字段、fuzz 测试 |
+| v0.15 | `pingmock exec -outside`：让命令使用宿主机的网络和本机端口；v0.15.1：路由跟着规则走 |
 
 ## 几个阶段
 
@@ -25,6 +26,10 @@ flowchart LR
     C --> B["v1.0，暂缓<br/>兼容性承诺"]
     N["不做"]
 ```
+
+### 已完成：路由跟着规则走
+
+第八轮发现：删掉规则后，它的地址一直被路由到 pingmock，直到退出，所以在 `-outside` 下，模拟过一次的真实地址就再也连不上了。从 [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1) 起，删除和 `POST /reset` 会撤掉不再有规则需要的路由，`GET /rules` 列出路由。
 
 ### 已完成：`exec` 访问外网
 
@@ -46,10 +51,11 @@ flowchart LR
 | 方向 | 用户 | 状况 |
 |---|---|---|
 | 按网卡或源地址区分的规则（多 WAN、mwan3） | 运维人员 | 设计已有。实验可行，在 `exec` 里不需要 root 也行。工作量中等：`rule`、`engine`、`tun`、`app`、`api`、`client` |
-| Python 客户端，只用标准库，附带 pytest fixture | 应用开发者 | Toxiproxy 有 10 种语言的客户端。优先级最低：API 还可能改 |
+| Python 客户端，只用标准库，附带 pytest fixture | 应用开发者 | Toxiproxy 有 10 种语言的客户端，toxiproxy-python 每月下载 25,000 次。第八轮推荐接着做；维护者决定仍放在最低优先级 |
 | Testcontainers 模块 | 应用开发者 | 只在被测代码运行在容器里时有用 |
 | 用 netlink 替代 `ip` 命令 | 所有人 | 去掉运行时对 iproute2 的依赖 |
-| ICMP Packet Too Big、root 模式下的 DNS、A/AAAA 以外的记录、回放录下的延迟 | — | 还没有用户的证据 |
+| ICMP Packet Too Big、root 模式下的 DNS、回放录下的延迟、外网访问的 IPv6 | — | 还没有用户的证据 |
+| 连到模拟地址、却没有规则的连接记进历史 | 应用开发者 | 第八轮发现：这样的连接不留任何事件 |
 
 ### v1.0：兼容性承诺，暂缓
 
@@ -71,6 +77,7 @@ flowchart LR
 | QUIC 回退到 TCP | pingmock 接管整个地址，没法只让 UDP 失败、TCP 通向真实服务器 |
 | GitHub Action | netem 也没有；[workflow 示例](../examples/github-actions)已经够用 |
 | IPv6 扩展头、`LD_PRELOAD` 垫片 | 没有证据；C 库违反依赖原则 |
+| A/AAAA 以外的 DNS 记录 | MX、SRV、TXT、HTTPS、CNAME 现在就回「没有记录」，这是正确的回答，没有要做的 |
 
 ## 和竞品比较
 
