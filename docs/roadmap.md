@@ -17,6 +17,7 @@ The common protocols are now supported, and the documentation stage is done. The
 | v0.13 | `-udp`: port unreachable, other unreachable errors, timeout |
 | v0.14 | Cleanup before the freeze: exit status 125, DNS event fields, fuzzing |
 | v0.15 | `pingmock exec -outside`: the host's network and loopback ports for the command; v0.15.1: routes follow the rules |
+| v0.16 | Connections to ports without a rule recorded as `ignored` in the history |
 
 ## The stages
 
@@ -29,7 +30,7 @@ flowchart LR
 
 ### Done: connections without a rule in the history
 
-Round eight found that a connection to a mocked address on a port without a rule left no trace. Now the history records it, and each UDP datagram to such a port, with the result `ignored`; an empty history returns `[]` rather than `null`. Not released yet.
+Round eight found that a connection to a mocked address on a port without a rule left no trace. Now the history records it, and each UDP datagram to such a port, with the result `ignored`; an empty history returns `[]` rather than `null`. Released in [v0.16.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.16.0).
 
 ### Done: routes follow the rules
 
@@ -54,7 +55,7 @@ These are ordered by the number of users they would serve, but none starts witho
 
 | Direction | For | State |
 |---|---|---|
-| Rules per interface or source address (multi-WAN, mwan3) | operations staff | Designed. The experiment works, also without root inside `exec`. Medium cost: `rule`, `engine`, `tun`, `app`, `api`, `client` |
+| Rules per interface or source address (multi-WAN, mwan3) | operations staff | Designed and tried by experiment, also without root inside `exec`. Postponed by the maintainer on 2026-10-25 as too complex for a need no user has raised. Medium cost: `rule`, `engine`, `tun`, `app`, `api`, `client` |
 | Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages, and toxiproxy-python 25,000 downloads a month. Round eight recommended it next; the maintainer keeps it at lowest priority |
 | Testcontainers module | application developers | Useful only when the code under test runs in a container |
 | Replace the `ip` command with netlink | everyone | Removes the runtime dependency on iproute2 |
