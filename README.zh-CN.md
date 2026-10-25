@@ -85,7 +85,7 @@ pingmock 做的每一件事，都同时满足这四点：
 
 ## 安装
 
-运行时需要 `ip` 命令（iproute2）。
+pingmock 是一个静态链接的程序，运行时不需要别的程序。
 
 **下载编译好的程序**（不需要安装 Go）：在 [Releases](https://github.com/nanmuyao/pingmock/releases) 页面下载对应架构的文件，例如：
 

@@ -113,18 +113,16 @@ func start(s *settings) (*instance, error) {
 // returns the IPv6 prefix in use, which is invalid if IPv6 is off or, when
 // it was not asked for explicitly, unavailable.
 func configureDevice(ifName string, s *settings) (netip.Prefix, error) {
-	if err := tun.IP("addr", "add", s.addr.String(), "dev", ifName); err != nil {
+	if err := tun.AddAddr(ifName, s.addr); err != nil {
 		return netip.Prefix{}, err
 	}
-	if err := tun.IP("link", "set", ifName, "up"); err != nil {
+	if err := tun.LinkUp(ifName); err != nil {
 		return netip.Prefix{}, err
 	}
 	if !s.addr6.IsValid() {
 		return netip.Prefix{}, nil
 	}
-	// nodad: the address is usable at once instead of after duplicate
-	// address detection, which is pointless on a private TUN device.
-	if err := tun.IP("-6", "addr", "add", s.addr6.String(), "dev", ifName, "nodad"); err != nil {
+	if err := tun.AddAddr(ifName, s.addr6); err != nil {
 		if s.addr6Explicit {
 			return netip.Prefix{}, fmt.Errorf("setting up IPv6: %w", err)
 		}

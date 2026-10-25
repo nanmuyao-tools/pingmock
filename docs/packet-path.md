@@ -36,11 +36,11 @@ Return (the reply)
 
 ## Setting up: what pingmock does at startup
 
-What pingmock does to the system at startup comes down to **creating a TUN device in code and running a few `ip` commands for you**.
+What pingmock does to the system at startup comes down to **creating a TUN device in code and doing what a few `ip` commands would do for you**.
 
-### The commands it runs
+### The commands it stands for
 
-Recording the processes pingmock starts with `strace` shows every command it runs. For `pingmock -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms`:
+pingmock runs no programs: it sends these changes to the kernel over netlink, the interface the `ip` program uses itself. Written as the `ip` commands that do the same, for `pingmock -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms`:
 
 ```bash
 ip addr add 10.99.0.254/24 dev pingmock0          # ① give the device its address and network
@@ -56,7 +56,7 @@ ip route replace 8.8.8.8/32 dev pingmock0         # ⑤ a route for a real addre
 | ③ | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr6`, `fd99::fe/64` by default. If the kernel has no IPv6, this command fails and pingmock says so and continues with IPv4 only |
 | ④ ⑤ | [`Router.Ensure`](../internal/tun/tun_linux.go) | Only for targets **outside the network**. 10.99.0.1 is in 10.99.0.0/24, for which the kernel already added a route after command ①, so nothing is run for it. ④ asks whether the host has a route for exactly that prefix: if it does, pingmock routes the prefix as two halves instead (`/25` and `/25` for a `/24`), so that the host's own route stays, or refuses a single address ([Mocking real addresses](../README.md#mocking-real-addresses)). The hops of a path get routes the same way |
 
-Every command runs the system's `ip` program (from iproute2): the changes through [`tun.IP`](../internal/tun/tun_linux.go), the query ④ from `Router.existing`.
+Each command is one netlink message, in [`netlink_linux.go`](../internal/tun/netlink_linux.go): ① `AddAddr`, ② `LinkUp`, ③ `AddAddr` again, ④ `mainRoutes`, which lists the routes and picks those for exactly the prefix, ⑤ `replaceRoute`. When no rule needs a route any more, `deleteRoute` removes it, as `ip route del` would. To watch them, run `ip monitor` in another terminal while pingmock starts.
 
 Under `pingmock exec`, one more command comes first:
 

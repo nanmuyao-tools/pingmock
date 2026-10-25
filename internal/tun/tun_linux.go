@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/netip"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -50,15 +49,6 @@ func Open(name string) (*os.File, string, error) {
 	}
 	actual := strings.TrimRight(string(req.name[:]), "\x00")
 	return os.NewFile(uintptr(fd), "/dev/net/tun"), actual, nil
-}
-
-// IP runs an iproute2 command.
-func IP(args ...string) error {
-	out, err := exec.Command("ip", args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("ip %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 // Router adds routes for targets outside the device subnets, so that real
@@ -108,7 +98,7 @@ func (r *Router) Ensure(p netip.Prefix) error {
 		return err
 	}
 	for _, q := range plan {
-		if err := IP("route", "replace", q.String(), "dev", r.dev); err != nil {
+		if err := replaceRoute(q, r.dev); err != nil {
 			return err
 		}
 	}
@@ -142,7 +132,7 @@ func (r *Router) Sync(want []netip.Prefix) error {
 	targets, routes := unneeded(r.routed, want)
 	var first error
 	for _, q := range routes {
-		if err := IP("route", "del", q.String(), "dev", r.dev); err != nil && first == nil {
+		if err := deleteRoute(q, r.dev); err != nil && first == nil {
 			first = err
 		}
 	}
@@ -169,30 +159,12 @@ func (r *Router) Routes() []netip.Prefix {
 // existing describes the routes of the main table for exactly p that do not
 // go through the device; see existingRoutes.
 func (r *Router) existing(p netip.Prefix) ([]string, error) {
-	args := []string{"-o", "-4"}
-	if p.Addr().Is6() {
-		args[1] = "-6"
-	}
-	args = append(args, "route", "show", "exact", p.String(), "table", "main")
-	out, err := exec.Command("ip", args...).CombinedOutput()
+	routes, err := mainRoutes(p)
 	if err != nil {
-		return nil, fmt.Errorf("ip %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+		return nil, err
 	}
 	var others []string
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		f := strings.Fields(line)
-		if len(f) == 0 {
-			continue
-		}
-		// "192.168.20.0/24 dev vlan20 proto kernel ..." or, for a route of a
-		// type without a device, "unreachable 172.31.0.0/16".
-		route := "type " + f[0]
-		for i := 0; i+1 < len(f); i++ {
-			if f[i] == "dev" {
-				route = "dev " + f[i+1]
-				break
-			}
-		}
+	for _, route := range routes {
 		if route != "dev "+r.dev {
 			others = append(others, route)
 		}

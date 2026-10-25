@@ -17,7 +17,7 @@ A second rule decides what to build at all: *test applications, not protocols*. 
 
 ## Development
 
-You need Linux, Go 1.22 or later, and iproute2. The end-to-end checks also need root, `ping` and `curl`; with traceroute, mtr and nscd installed they run more checks, and skip those without them.
+You need Linux and Go 1.22 or later. The end-to-end checks also need root, iproute2, `ping` and `curl`; with traceroute, mtr and nscd installed they run more checks, and skip those without them.
 
 Without Linux at hand, for example on a Mac, use the [development container](.devcontainer/README.md): it has all of it, and runs the checks the way CI does.
 

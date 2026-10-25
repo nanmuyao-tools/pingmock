@@ -28,6 +28,10 @@ flowchart LR
     N["Not planned"]
 ```
 
+### Done: netlink instead of the `ip` command
+
+pingmock sets its addresses and routes over netlink itself, with the standard library alone, so it needs no other programs at runtime: it used to fail to start where iproute2 was missing, as in a plain Ubuntu container. The Docker image no longer installs iproute2. Not released yet.
+
 ### Done: connections without a rule in the history
 
 Round eight found that a connection to a mocked address on a port without a rule left no trace. Now the history records it, and each UDP datagram to such a port, with the result `ignored`; an empty history returns `[]` rather than `null`. Released in [v0.16.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.16.0).
@@ -58,7 +62,6 @@ These are ordered by the number of users they would serve, but none starts witho
 | Rules per interface or source address (multi-WAN, mwan3) | operations staff | Designed and tried by experiment, also without root inside `exec`. Postponed by the maintainer on 2026-10-25 as too complex for a need no user has raised. Medium cost: `rule`, `engine`, `tun`, `app`, `api`, `client` |
 | Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages, and toxiproxy-python 25,000 downloads a month. Round eight recommended it next; the maintainer keeps it at lowest priority |
 | Testcontainers module | application developers | Useful only when the code under test runs in a container |
-| Replace the `ip` command with netlink | everyone | Removes the runtime dependency on iproute2 |
 | ICMP Packet Too Big, DNS in root mode, replaying recorded latency, IPv6 for outside access | — | No evidence of users yet |
 
 ### v1.0: the compatibility promise, deferred

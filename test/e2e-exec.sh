@@ -29,6 +29,12 @@ if [ "$(id -u)" = 0 ]; then echo "running as root"; else echo "running as $(id -
 rtt=$(run -rule 10.99.0.1=45ms -- sh -c "ping -c 3 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
 near "ping inside exec" "$rtt" 45 5
 
+# pingmock exec needs no programs either: with an empty PATH it still sets
+# up the namespace, and only the command needs a full path.
+ping=$(command -v ping)
+rtt=$(env PATH=/nonexistent "$PM" exec -addr6 "" -rule 10.99.0.1=30ms -- "$ping" -c 3 -i 0.2 10.99.0.1 2>>"$LOG" | awk -F'[ /=]+' '/^rtt/ {print $6}')
+near "pingmock exec without ip on the PATH" "$rtt" 30 5
+
 status=0
 run -- sh -c 'exit 7' || status=$?
 same "exit status of the command is passed on" "$status" 7

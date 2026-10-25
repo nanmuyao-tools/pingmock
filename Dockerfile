@@ -14,8 +14,8 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o /out/pingmock .
 
 FROM alpine:3.22
-# iproute2 for the device setup, iputils for a ping that supports IPv6.
-RUN apk add --no-cache iproute2 iputils
+# iputils for a ping that supports IPv6; pingmock itself needs nothing.
+RUN apk add --no-cache iputils
 COPY --from=build /out/pingmock /usr/local/bin/pingmock
 LABEL org.opencontainers.image.title="pingmock" \
       org.opencontainers.image.description="Mock ping (ICMP and ICMPv6 echo) with per-target delay, jitter, loss and unreachable errors" \

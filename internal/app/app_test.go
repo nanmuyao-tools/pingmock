@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -123,7 +124,8 @@ func TestExplain(t *testing.T) {
 	if msg := explain(eacces, true).Error(); !strings.Contains(msg, "chmod 0666 /dev/net/tun") || !errors.Is(explain(eacces, true), syscall.EACCES) {
 		t.Errorf("EACCES advice: %s", msg)
 	}
-	if msg := explain(errors.New("RTNETLINK answers: Operation not permitted"), true).Error(); !strings.Contains(msg, "apparmor_restrict_unprivileged_userns") {
+	eperm := fmt.Errorf("link set lo up: %w", syscall.EPERM)
+	if msg := explain(eperm, true).Error(); !strings.Contains(msg, "apparmor_restrict_unprivileged_userns") {
 		t.Errorf("EPERM advice: %s", msg)
 	}
 }

@@ -85,7 +85,7 @@ Four things hold for everything pingmock does:
 
 ## Installation
 
-The `ip` command (iproute2) must be available at runtime.
+pingmock is a single static binary and needs no other programs at runtime.
 
 **Download a prebuilt binary** (no Go required) from the [Releases](https://github.com/nanmuyao/pingmock/releases) page, for example:
 

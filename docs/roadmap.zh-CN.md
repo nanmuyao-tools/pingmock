@@ -28,6 +28,10 @@ flowchart LR
     N["不做"]
 ```
 
+### 已完成：用 netlink 替代 `ip` 命令
+
+pingmock 自己通过 netlink 设置地址和路由，只用标准库，所以运行时不再需要别的程序；以前在没装 iproute2 的地方，比如一个普通的 Ubuntu 容器里，它起不来。Docker 镜像不再安装 iproute2。还没有发布。
+
 ### 已完成：没有规则的连接记进历史
 
 第八轮发现：连到模拟地址、端口上却没有规则的连接，不留任何痕迹。现在历史会记下它，以及发往这种端口的每个 UDP 数据报，结果是 `ignored`；空历史返回 `[]`，不再是 `null`。随 [v0.16.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.16.0) 发布。
@@ -58,7 +62,6 @@ flowchart LR
 | 按网卡或源地址区分的规则（多 WAN、mwan3） | 运维人员 | 设计已有，实验可行，在 `exec` 里不需要 root 也行。维护者 2026 年 10 月 25 日决定暂缓：太复杂，也没有用户提过。工作量中等：`rule`、`engine`、`tun`、`app`、`api`、`client` |
 | Python 客户端，只用标准库，附带 pytest fixture | 应用开发者 | Toxiproxy 有 10 种语言的客户端，toxiproxy-python 每月下载 25,000 次。第八轮推荐接着做；维护者决定仍放在最低优先级 |
 | Testcontainers 模块 | 应用开发者 | 只在被测代码运行在容器里时有用 |
-| 用 netlink 替代 `ip` 命令 | 所有人 | 去掉运行时对 iproute2 的依赖 |
 | ICMP Packet Too Big、root 模式下的 DNS、回放录下的延迟、外网访问的 IPv6 | — | 还没有用户的证据 |
 
 ### v1.0：兼容性承诺，暂缓

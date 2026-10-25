@@ -36,11 +36,11 @@ pingmock 内部
 
 ## 准备：pingmock 启动时做了什么
 
-pingmock 启动时对系统做的事情，本质上就是**用代码创建一块 TUN 网卡，再替你执行几条 `ip` 命令**。
+pingmock 启动时对系统做的事情，本质上就是**用代码创建一块 TUN 网卡，再替你做几条 `ip` 命令会做的事**。
 
-### 实际执行的命令
+### 相当于哪些命令
 
-用 `strace` 记录 pingmock 启动的子进程，可以看到它实际执行的全部命令。以 `pingmock -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms` 为例：
+pingmock 不运行任何程序：它通过 netlink 把这些修改交给内核，`ip` 程序自己用的也是这个接口。写成效果相同的 `ip` 命令，以 `pingmock -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms` 为例：
 
 ```bash
 ip addr add 10.99.0.254/24 dev pingmock0          # ① 给网卡设置地址和网段
@@ -56,7 +56,7 @@ ip route replace 8.8.8.8/32 dev pingmock0         # ⑤ 为网段之外的真实
 | ③ | [`configureDevice`](../internal/app/instance.go) | 地址来自 `-addr6`，默认 `fd99::fe/64`。如果内核没有启用 IPv6，这条命令会失败，pingmock 打印提示后只用 IPv4 继续运行 |
 | ④ ⑤ | [`Router.Ensure`](../internal/tun/tun_linux.go) | 只为**网段之外**的目标执行。10.99.0.1 本来就在 10.99.0.0/24 里，第 ① 条命令之后内核已经自动生成了路由，所以没有为它执行。④ 查询宿主机是否已经有这个网段本身的路由：有的话，pingmock 改为把它拆成两半来路由（`/24` 拆成两个 `/25`），保留宿主机原有的路由；如果是单个地址则拒绝（见[模拟真实地址](../README.zh-CN.md#模拟真实地址)）。路径上的每一跳也这样添加路由 |
 
-所有命令都是运行系统里的 `ip` 程序（来自 iproute2）：修改通过 [`tun.IP`](../internal/tun/tun_linux.go)，第 ④ 条查询来自 `Router.existing`。
+每条命令对应一条 netlink 消息，代码在 [`netlink_linux.go`](../internal/tun/netlink_linux.go)：① `AddAddr`，② `LinkUp`，③ 还是 `AddAddr`，④ `mainRoutes`，列出路由后挑出这个网段本身的，⑤ `replaceRoute`。规则不再需要某条路由时，`deleteRoute` 删掉它，相当于 `ip route del`。想亲眼看到这些修改，可以在 pingmock 启动时，在另一个终端里运行 `ip monitor`。
 
 用 `pingmock exec` 运行时，开头会多一条：
 

@@ -208,7 +208,7 @@ func runExecChild(args []string) int {
 	}
 	// The new namespace starts with loopback down; the API and the DNS
 	// server listen on it.
-	if err := tun.IP("link", "set", "lo", "up"); err != nil {
+	if err := tun.LinkUp("lo"); err != nil {
 		log.Print(explain(err, rootless))
 		return execFailed
 	}
@@ -304,7 +304,7 @@ func explain(err error, rootless bool) error {
 	case errors.Is(err, syscall.EACCES) && strings.Contains(msg, "/dev/net/tun"):
 		return fmt.Errorf("%w\n/dev/net/tun cannot be opened without root on this system. Most distributions make it\n"+
 			"readable and writable by everyone (crw-rw-rw-); run pingmock exec with sudo, or: sudo chmod 0666 /dev/net/tun", err)
-	case errors.Is(err, syscall.EPERM) || strings.Contains(msg, "Operation not permitted"):
+	case errors.Is(err, syscall.EPERM):
 		return fmt.Errorf("%w\nThe user namespace has no network privileges. On Ubuntu 23.10 and later, AppArmor restricts\n"+
 			"unprivileged user namespaces. Either run pingmock exec with sudo, or let pingmock use them with the\n"+
 			"AppArmor profile in contrib/apparmor/pingmock (see the README), or lift the restriction for all\n"+

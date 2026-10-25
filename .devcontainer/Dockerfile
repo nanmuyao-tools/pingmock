@@ -9,8 +9,8 @@
 # Pinned, like every dependency, to a release more than two weeks old.
 FROM golang:1.27.0-bookworm
 
-# What pingmock uses at run time (iproute2, the TUN device), what the
-# end-to-end and compatibility checks run (ping, curl, traceroute, mtr,
+# What pingmock uses at run time (the TUN device), what the end-to-end
+# and compatibility checks run (iproute2, ping, curl, traceroute, mtr,
 # fping, Python), and what make lint needs (shellcheck). sudo is for the
 # checks that need root; the rest of the time the container runs as the
 # unprivileged user dev, like pingmock exec's users.

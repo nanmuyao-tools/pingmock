@@ -7,8 +7,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PM=""
+# pingmock runs with an empty PATH: it needs no programs, not even ip, to
+# set up its device and routes.
 start() { # args passed to pingmock
-  ./pingmock "$@" >/tmp/pingmock-e2e.log 2>&1 &
+  env PATH=/nonexistent ./pingmock "$@" >/tmp/pingmock-e2e.log 2>&1 &
   PM=$!
   for _ in $(seq 50); do curl -sf localhost:9100/rules >/dev/null && return; sleep 0.1; done
   echo "FAIL pingmock did not start:"; cat /tmp/pingmock-e2e.log; exit 1
