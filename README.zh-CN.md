@@ -715,6 +715,53 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 不带参数时，镜像运行 `pingmock -api 0.0.0.0:9100`，所以 API 可以用 `-p 9100:9100` 映射出来。API 没有认证，能访问到它的人都能改规则，所以除非是你自己的网络，只映射到本机地址：`-p 127.0.0.1:9100:9100`；给了参数就会替换这个默认值，要映射 API 的话请在参数里加上 `-api 0.0.0.0:9100`。镜像为它所在的网络命名空间运行 pingmock，就像 `sudo pingmock` 为整台机器运行一样，所以那里不能用域名、`-host` 和 `-dns`，请写地址。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
 
+## 其他系统：WireGuard 网关
+
+pingmock 运行在 Linux 上，但被测程序不必：在 macOS、Windows 或手机上，它可以通过一条 [WireGuard](https://www.wireguard.com/) 隧道，把发往模拟地址的 ping 和连接送到一台运行 pingmock 的 Linux 机器上。pingmock 不需要为此做任何改动：这台机器把隧道里出来的报文转发给 pingmock 的网卡，回应沿原路回去。这里只测过两端都是 Linux 的情况；其他系统的 WireGuard 应用读的是同样的配置文件。
+
+在这台 Linux 机器（网关）上，为它和设备各生成一对密钥（`wg genkey | tee gateway.key | wg pubkey > gateway.pub`，`device` 同理），写好 `/etc/wireguard/wg0.conf`：
+
+```ini
+[Interface]
+Address = 10.13.13.1/24
+ListenPort = 51820
+PrivateKey = <gateway.key>
+
+[Peer]
+PublicKey = <device.pub>
+AllowedIPs = 10.13.13.2/32
+```
+
+然后启动隧道和 pingmock：
+
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo wg-quick up wg0
+sudo pingmock -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -tcp 10.99.0.1:80=refuse
+```
+
+设备在 WireGuard 应用里导入这个文件（`qrencode -t ansiutf8 < device.conf` 把它显示成二维码，方便手机扫）：
+
+```ini
+[Interface]
+Address = 10.13.13.2/32
+PrivateKey = <device.key>
+
+[Peer]
+PublicKey = <gateway.pub>
+Endpoint = <网关的地址>:51820
+AllowedIPs = 10.99.0.0/24, 8.8.8.8/32, 10.13.13.1/32
+```
+
+之后在设备上 `ping 10.99.0.1` 得到 50ms，8.8.8.8 不可达，80 端口拒绝连接，网关上的历史把设备的隧道地址记作 `src`。需要知道的几点：
+
+- **只有模拟的地址走隧道。** `AllowedIPs` 列出 pingmock 的子网和有规则的真实地址，设备发出的其他流量照旧走原来的路，所以网关不需要 NAT。之后通过 API 给一个地址加规则，要把它也加进 `AllowedIPs`，流量才会到网关。如果让所有流量都走隧道，网关就要做 NAT，这时连接跟踪会丢掉 traceroute 同时发出的一部分 ICMP 探测：要么让模拟的地址不做连接跟踪（`notrack`），要么让隧道只走模拟的地址。
+- **网关自己算一跳。** traceroute 第一跳显示网关的隧道地址，[路径](#路径traceroute-和-mtr)的各跳都往后挪一位，回应的 TTL 也少 1；历史里记的是 pingmock 收到时的 TTL。要用 traceroute，还要把 `10.13.13.1/32` 和各跳的地址加进 `AllowedIPs`：WireGuard 会丢掉来自不在其中的地址的回应，这些跳就显示成 `*`。
+- **延迟包含隧道。** 在两个容器之间，50ms 的规则测得 51–54ms；手机经 Wi-Fi 连网关时，还要加上它到网关的往返时间。seed 决定的是 pingmock 的结果，不是网络的延迟。所有设备共用每个目标的随机序列。
+- **要允许转发。** 如果网关的防火墙丢弃转发的报文（装了 Docker 的机器就是这样），放行隧道和 pingmock 之间的报文：`sudo iptables -I FORWARD -i wg0 -o pingmock0 -j ACCEPT` 和 `sudo iptables -I FORWARD -i pingmock0 -o wg0 -j ACCEPT`。
+- **请写地址。** `sudo pingmock` 不接受域名、`-host` 和 `-dns`，和 [Docker](#docker) 里一样。
+- 设备这边：Windows 的 WireGuard 应用只允许管理员导入配置，Android 同一时间只能运行一个 VPN。
+
 ## 运行时控制 API
 
 测试过程中可以通过 HTTP 随时修改规则，修改立即生效。请求体可以是和 `-rule` 相同的文本格式，也可以是 JSON。
@@ -917,7 +964,7 @@ make e2e-docker   # 容器镜像和 Compose 示例
 - 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外：回应它的 ping，TCP 探测只在有 TCP 规则的端口上回应，UDP 探测一概不回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，任何端口都是，除非这个端口有 TCP 规则另作规定。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
 - 不支持分片的请求（例如 `ping -s 2000`）和带扩展头的 IPv6 请求，这类请求会被忽略。
-- 只支持 Linux。普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。
+- 只支持 Linux；其他系统上的程序可以通过 [WireGuard 网关](#其他系统wireguard-网关)使用它。普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。
 
 ## 许可证
 

@@ -318,7 +318,12 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
   - 验证：单元测试（`CapEff` 解析：宿主机的 root、容器里的 root、只加一项、两项都加、普通用户；各情况下的建议）；开发容器里 `make test`、`make lint`、`make e2e-exec` 全过（103 项）；`make e2e-docker` 新增 5 项，本机手工跑过：没有权限的 root 41.6ms（规则 40ms），加上两项权限 41.5ms，默认 seccomp 下退出码 125 并提示 `--cap-add`，缺 TUN 设备时提示 `--device`；没有权限的 root 加 `-outside` 也能 ping 到模拟目标、访问 github。变异：按 root 身份选路时容器检查失败（得到 v0.18.0 的报错），只查 `CAP_SYS_ADMIN` 时单元测试失败。Ubuntu 宿主机上 Docker 自己的 AppArmor 配置没有另外拦截（见下面的 CI）
   - [x] [CI](https://github.com/nanmuyao/pingmock/actions/runs/40278097194) 全部通过（两个 Ubuntu 版本上 10 项），docker 任务里新增的 5 项在 24.04 和 26.04 上都跑了、都通过：没有权限的 root 40.3ms 和 40.4ms，加上两项权限 40.4ms 和 40.3ms，默认 seccomp 下退出码 125 并提示两项权限，缺 TUN 设备时提示 `--device`
   - [x] [v0.19.0 已发布](https://github.com/nanmuyao/pingmock/releases/tag/v0.19.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 24.04 容器里（`seccomp=unconfined`、`--device /dev/net/tun`、不加权限）：root 和普通用户 ping 模拟的 www.google.com 都得到 50ms 的规则（52.0ms、50.9ms）；默认 seccomp 下 root 的报错提示 `--cap-add SYS_ADMIN --cap-add NET_ADMIN`
-  - 没有解决：Docker 默认 seccomp 下仍然用不了，要靠在系统调用层拦截之类的别的路线，见与维护者的讨论（2026-10-26），尚未调研
+  - 没有解决：Docker 默认 seccomp 下仍然用不了，要靠在系统调用层拦截之类的别的路线。2026-10-26 调研过（见第 13 项）：机制可用，成本很高，等用户证据
+- [x] **13. 其他系统：WireGuard 网关**（2026-10-26，只改文档）。维护者问能不能让 ping 不用 root、在 Linux 以外也能被模拟，又问能不能把 pingmock 当代理（HTTP、SOCKS 代理带不了 ICMP），于是调研网关/VPN 和系统调用拦截两条路（planning agent，报告不在仓库里）。维护者按推荐决定：现在只写文档，网关不做 NAT、只让模拟的地址走隧道；一跳的偏移只写进文档，不做补偿；内置用户态 WireGuard 和系统调用拦截都等用户证据
+  - 需求：pingmock 0 个 issue；Toxiproxy 600 条、pro-bing 233 条 issue/PR 和 GitHub 搜索里，没人要在 macOS、Windows、手机上按目标模拟 ping，也没人要在无权限的 CI 容器里模拟。移动端已有整机的工具（Network Link Conditioner），不按目标、没有 seed
+  - 网关（实测，Docker Desktop 的 arm64 虚拟机，两端都是 Linux 容器，v0.19.0 发布版不改代码）：设备经 WireGuard 发来的 ping 50ms 的规则测得 51.0–53.6ms，`unreachable` 的 8.8.8.8 得到主机不可达，80 端口 `refuse` 得到 `ECONNREFUSED`，历史的 `src` 是设备的隧道地址 10.13.13.2；traceroute 的 UDP 和 ICMP 模式都先显示网关 10.13.13.1，再是路径的各跳和目标（往后挪一跳），回应的 TTL 是 63。网关把 FORWARD 设为 DROP 时 ping 全丢，放行 wg0 和 pingmock0 之间的转发后恢复。agent 另外测到：中间跳的地址不在设备的 AllowedIPs 里时显示 `*`；网关做 NAT 时连接跟踪丢掉并行的 ICMP 探测（`traceroute -I` 6 次全错，加 `notrack` 后 6 次全对，不做 NAT 时 4 次全对，我重跑的不做 NAT 的那次也对）
+  - 没有测：真实的 macOS、iOS、Android、Windows 客户端，手机经 Wi-Fi 连 Docker Desktop 发布的 51820/udp，amd64 和真实的 Linux 宿主机
+  - 等用户要了再做：pingmock 内置用户态 WireGuard（wireguard-go 原型在没有任何权限、Docker 默认 seccomp 的容器里回答了 ping，50ms 测得 50.4–58.3ms；接 `Responder.Serve(io.ReadWriter)`；代价是 wireguard-go、x/crypto、x/net、x/sys 四个依赖，二进制多约 0.46MB，`go` 要升到 1.23.1，wireguard-go 的 tag 没有 `v` 前缀只能用伪版本；入口、客户端配置的生成、网关下的 DNS、多台设备的随机序列都要先和维护者定）。系统调用拦截（Docker 默认 seccomp 下 ptrace、seccomp 用户通知、`ADDFD`、`process_vm_readv` 可用，`unshare`、`pidfd_getfd`、io_uring 被拒；seccomp 用户通知必须设 no_new_privs，于是 setcap 的 ping 拿不到 `CAP_NET_RAW`；每次拦截约 51µs；要在用户态模拟大半个套接字层，端到端的 ping 原型没做完）
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文。**暂缓**（维护者，2026-10-23）：「不用考虑兼容性，项目还是内部开发阶段」。在那之前改动不必保持兼容，也不用为冻结做决定；镜像 API 的默认地址因此不再是 v1.0 前必须定的事，只在文档里提醒
 
 **维护者的决定**（括号里是当时 agent 的推荐；结果写在每项后面）：
@@ -339,7 +344,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 |---|---|
 | 更多异常行为 | 重复回复（`DUP!`）、损坏的回复：没有找到明确的需求 |
 | Testcontainers 模块 | 只适用于被测代码运行在容器里的情况：pingmock 的容器影响不了宿主机上的测试进程 |
-| 分片重组、其他系统（macOS 等） | 使用场景少，或者工作量大（`exec` 依赖 Linux 命名空间） |
+| 分片重组、在其他系统（macOS 等）上运行 pingmock | 使用场景少，或者工作量大（`exec` 依赖 Linux 命名空间）。其他系统上的被测程序已经可以经 WireGuard 网关测试（第 13 项），不必移植 |
 
 ### 不做
 

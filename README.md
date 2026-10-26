@@ -715,6 +715,53 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 Without arguments, the image runs `pingmock -api 0.0.0.0:9100`, so the API can be published with `-p 9100:9100`. The API has no authentication and anyone who reaches it can change the rules, so publish it on the loopback address only, `-p 127.0.0.1:9100:9100`, unless the network is your own; arguments replace that default, so add `-api 0.0.0.0:9100` to them to publish the API. The image runs pingmock for its network namespace, as `sudo pingmock` does for a machine, so names, `-host` and `-dns` are refused there: use addresses. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
 
+## Other systems: a WireGuard gateway
+
+pingmock runs on Linux, but the program under test does not have to: on macOS, Windows or a phone, it can send its pings and connections to the mocked addresses through a [WireGuard](https://www.wireguard.com/) tunnel to a Linux machine running pingmock. pingmock needs no changes for this; the machine forwards what comes out of the tunnel to pingmock's device, and its answers go back the same way. This was tested with Linux at both ends; the WireGuard apps for the other systems read the same configuration file.
+
+On the Linux machine, the gateway, make a key pair for it and one for the device (`wg genkey | tee gateway.key | wg pubkey > gateway.pub`, the same for `device`), write `/etc/wireguard/wg0.conf`:
+
+```ini
+[Interface]
+Address = 10.13.13.1/24
+ListenPort = 51820
+PrivateKey = <gateway.key>
+
+[Peer]
+PublicKey = <device.pub>
+AllowedIPs = 10.13.13.2/32
+```
+
+and start the tunnel and pingmock:
+
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo wg-quick up wg0
+sudo pingmock -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -tcp 10.99.0.1:80=refuse
+```
+
+The device imports this file into its WireGuard app (`qrencode -t ansiutf8 < device.conf` shows it as a QR code for a phone):
+
+```ini
+[Interface]
+Address = 10.13.13.2/32
+PrivateKey = <device.key>
+
+[Peer]
+PublicKey = <gateway.pub>
+Endpoint = <the gateway's address>:51820
+AllowedIPs = 10.99.0.0/24, 8.8.8.8/32, 10.13.13.1/32
+```
+
+Then `ping 10.99.0.1` on the device gets 50ms, 8.8.8.8 is unreachable and port 80 refuses connections, and the history on the gateway records the device's tunnel address as `src`. What to know:
+
+- **Only the mocked addresses go through the tunnel.** `AllowedIPs` lists pingmock's subnets and the real addresses with rules; everything else the device sends goes where it always did, so the gateway needs no NAT. An address given a rule later through the API reaches the gateway only once it is in `AllowedIPs` too. Sending all traffic through the tunnel needs NAT on the gateway, and then connection tracking loses some of traceroute's ICMP probes sent at the same time: exempt the mocked addresses from it (`notrack`), or keep the tunnel to the mocked addresses.
+- **The gateway is a hop.** traceroute shows the gateway's tunnel address first and the [path](#paths-traceroute-and-mtr)'s hops one place later, and replies arrive with a TTL one lower; the history records TTLs as pingmock received them. For traceroute, also put `10.13.13.1/32` and the hops' addresses in `AllowedIPs`: WireGuard drops answers from addresses that are not there, and those hops show as `*`.
+- **The delay includes the tunnel.** A 50ms rule measured 51–54ms between two containers; over Wi-Fi to a phone, add its round trip to the gateway. The seed decides pingmock's results, not the network's delay. Every device shares each target's random sequence.
+- **Forwarding must be allowed.** If the gateway's firewall drops forwarded packets, as it does where Docker is installed, allow them between the tunnel and pingmock: `sudo iptables -I FORWARD -i wg0 -o pingmock0 -j ACCEPT` and `sudo iptables -I FORWARD -i pingmock0 -o wg0 -j ACCEPT`.
+- **Use addresses.** `sudo pingmock` refuses names, `-host` and `-dns`, as in [Docker](#docker).
+- On the device: the WireGuard app for Windows imports configurations only for an administrator, and Android runs one VPN at a time.
+
 ## Runtime control API
 
 Rules can be changed over HTTP at any time during a test, and changes take effect immediately. The request body may use the same text format as `-rule`, or JSON.
@@ -919,7 +966,7 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 - Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr: its pings are answered, its TCP probes only on ports with a TCP rule, and its UDP probes not at all. With a path, UDP and TCP probes get the answers that mean "reached", on every port, unless a TCP rule for the port decides otherwise.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.
-- Linux only. `pingmock exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).
+- Linux only; programs on other systems can reach it through a [WireGuard gateway](#other-systems-a-wireguard-gateway). `pingmock exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).
 
 ## License
 
