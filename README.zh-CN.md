@@ -569,7 +569,7 @@ pingmock exec [参数] -- 命令 [参数...]
 pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
 ```
 
-- **不需要 root。** 普通用户运行时，pingmock 还会创建一个用户命名空间，在其中设置网络；以 root 运行时，只创建网络命名空间。
+- **不需要 root。** 普通用户运行时，pingmock 还会创建一个用户命名空间，在其中设置网络；以 root 运行时，只创建网络命名空间；但如果 root 没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`（比如在容器里），也会创建用户命名空间，见[系统要求](#系统要求)。
 - **不影响宿主机网络。** 模拟 `8.8.8.8` 只对这个命令生效；多次运行可以同时进行，各自拥有独立的规则、网卡和 API 端口。
 - **准备就绪后才启动命令。** 命令开始运行时，ping 已经可以被回复，API 也已经在监听。命令可以从环境变量 `$PINGMOCK_API` 获取 API 地址。
 - **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`，无法执行时返回 `126`。pingmock exec 自己失败时（参数或规则写错、网络建不起来），和 `docker run` 一样返回 `125`，以免和命令自己的退出码混淆。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
@@ -677,6 +677,12 @@ DNS 规则只用于 `pingmock exec`：为整台机器模拟时，pingmock 无法
 ### 系统要求
 
 普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间，并且 `/dev/net/tun` 允许所有人打开（`crw-rw-rw-`），大多数发行版默认如此。如果条件不满足，pingmock 会说明缺少什么以及如何解决。
+
+**在容器里**，root 通常没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`，所以 `pingmock exec` 会像普通用户一样创建用户命名空间。Docker 默认的 seccomp 配置禁止这样做：要么给容器这两项权限，要么给它一份允许用户命名空间的 seccomp 配置，两种情况下都要把 TUN 设备传进去：
+
+```bash
+docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun 镜像 pingmock exec ...
+```
 
 **Ubuntu 23.10 及以后的版本**会通过 AppArmor 限制非特权用户命名空间。建议不要为所有程序解除这个限制，而是用 [`contrib/apparmor/pingmock`](contrib/apparmor/pingmock) 中的配置只为 pingmock 放行，Ubuntu 对其他需要这项功能的程序也是这样处理的。如果 pingmock 没有安装在 `/usr/local/bin/pingmock`，先修改配置中的路径，然后：
 

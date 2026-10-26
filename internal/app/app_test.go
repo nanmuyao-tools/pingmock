@@ -117,16 +117,47 @@ func TestExitStatus(t *testing.T) {
 
 func TestExplain(t *testing.T) {
 	tunErr := errors.New("x")
-	if explain(tunErr, false) != tunErr {
+	if explain(tunErr, privileged) != tunErr {
 		t.Error("explain changed an error for root")
 	}
 	eacces := &os.PathError{Op: "open", Path: "/dev/net/tun", Err: syscall.EACCES}
-	if msg := explain(eacces, true).Error(); !strings.Contains(msg, "chmod 0666 /dev/net/tun") || !errors.Is(explain(eacces, true), syscall.EACCES) {
+	if msg := explain(eacces, unprivileged).Error(); !strings.Contains(msg, "chmod 0666 /dev/net/tun") || !errors.Is(explain(eacces, unprivileged), syscall.EACCES) {
 		t.Errorf("EACCES advice: %s", msg)
 	}
 	eperm := fmt.Errorf("link set lo up: %w", syscall.EPERM)
-	if msg := explain(eperm, true).Error(); !strings.Contains(msg, "apparmor_restrict_unprivileged_userns") {
+	if msg := explain(eperm, unprivileged).Error(); !strings.Contains(msg, "apparmor_restrict_unprivileged_userns") {
 		t.Errorf("EPERM advice: %s", msg)
+	}
+	if msg := explain(eperm, capless).Error(); !strings.Contains(msg, "--cap-add SYS_ADMIN") || strings.Contains(msg, "sudo") {
+		t.Errorf("EPERM advice for root without capabilities: %s", msg)
+	}
+	enoent := fmt.Errorf("open /dev/net/tun: %w", syscall.ENOENT)
+	for _, who := range []privileges{privileged, unprivileged, capless} {
+		if msg := explain(enoent, who).Error(); !strings.Contains(msg, "--device /dev/net/tun") {
+			t.Errorf("missing TUN device advice (%d): %s", who, msg)
+		}
+	}
+}
+
+func TestHasNamespaceCaps(t *testing.T) {
+	for _, c := range []struct {
+		capEff string
+		want   bool
+	}{
+		{"000001ffffffffff", true},  // root on a host
+		{"00000000a80425fb", false}, // root in a Docker container
+		{"00000000a82425fb", false}, // with --cap-add SYS_ADMIN only
+		{"00000000a80435fb", false}, // with --cap-add NET_ADMIN only
+		{"00000000a82435fb", true},  // with both
+		{"0000000000000000", false}, // another user
+	} {
+		status := "Name:\tpingmock\nCapInh:\t0000000000000000\nCapEff:\t" + c.capEff + "\nCapBnd:\t000001ffffffffff\n"
+		if got := hasNamespaceCaps(status); got != c.want {
+			t.Errorf("CapEff %s: %v, want %v", c.capEff, got, c.want)
+		}
+	}
+	if hasNamespaceCaps("Name:\tpingmock\n") {
+		t.Error("no CapEff line: true")
 	}
 }
 

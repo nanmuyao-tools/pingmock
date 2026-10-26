@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -21,9 +22,56 @@ import (
 // namespaces. It is not meant to be typed by users.
 const execChildArg = "__pingmock-exec-child"
 
-// envRootless tells the child that it runs in a user namespace created by
-// an unprivileged user, so errors can explain what to do about it.
+// envRootless tells the child that it runs in a user namespace, and why
+// (a privileges value), so errors can explain what to do about it.
 const envRootless = "PINGMOCK_EXEC_ROOTLESS"
+
+// privileges says how pingmock exec gets to set up the command's network.
+type privileges int
+
+const (
+	// privileged is root with CAP_SYS_ADMIN and CAP_NET_ADMIN: a network
+	// namespace is enough.
+	privileged privileges = iota
+	// unprivileged is any other user, who needs a user namespace too.
+	unprivileged
+	// capless is root without those capabilities, as in a container that
+	// was not given them: it needs a user namespace too, as other users do.
+	capless
+)
+
+// Capability bits, from linux/capability.h.
+const (
+	capNetAdmin = 12
+	capSysAdmin = 21
+)
+
+// currentPrivileges decides from the effective user and capabilities, not
+// from the user alone: root in a container usually lacks CAP_SYS_ADMIN.
+func currentPrivileges() privileges {
+	if os.Geteuid() != 0 {
+		return unprivileged
+	}
+	status, _ := os.ReadFile("/proc/self/status")
+	if hasNamespaceCaps(string(status)) {
+		return privileged
+	}
+	return capless
+}
+
+// hasNamespaceCaps reports whether the CapEff line of a /proc/PID/status
+// grants both CAP_SYS_ADMIN and CAP_NET_ADMIN.
+func hasNamespaceCaps(status string) bool {
+	for _, line := range strings.Split(status, "\n") {
+		hex, ok := strings.CutPrefix(line, "CapEff:")
+		if !ok {
+			continue
+		}
+		caps, err := strconv.ParseUint(strings.TrimSpace(hex), 16, 64)
+		return err == nil && caps&(1<<capSysAdmin) != 0 && caps&(1<<capNetAdmin) != 0
+	}
+	return false
+}
 
 // envAPI is set in the environment of the command run by pingmock exec.
 const envAPI = "PINGMOCK_API"
@@ -34,10 +82,11 @@ func execUsage(w io.Writer, fs *flag.FlagSet) {
 Runs CMD in a private network namespace with pingmock answering pings,
 TCP connections and UDP datagrams there, and DNS queries for names with
 a -dns rule.
-Root is not needed: as an unprivileged user, pingmock creates a user
-namespace too. The host network is not touched, several runs can happen
-at once, and pingmock exits with CMD's exit status, or 125 if it fails
-itself. When CMD exits, any processes it left running are stopped.
+Root is not needed: as an unprivileged user, or as root without
+CAP_SYS_ADMIN and CAP_NET_ADMIN, pingmock creates a user namespace too.
+The host network is not touched, several runs can happen at once, and
+pingmock exits with CMD's exit status, or 125 if it fails itself. When
+CMD exits, any processes it left running are stopped.
 
 CMD can reach the control API at the address in $PINGMOCK_API. It has no
 network access other than the mocked targets, unless -outside gives it the
@@ -141,14 +190,14 @@ func runExec(args []string) int {
 		defer outsideWrite.Close()
 		child.ExtraFiles = append(child.ExtraFiles, outsideRead)
 	}
-	rootless := os.Geteuid() != 0
+	who := currentPrivileges()
 	switch {
-	case rootless:
+	case who != privileged:
 		attr.Cloneflags |= syscall.CLONE_NEWUSER
 		attr.UidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Geteuid(), Size: 1}}
 		attr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getegid(), Size: 1}}
 		attr.GidMappingsEnableSetgroups = false
-		child.Env = append(child.Env, envRootless+"=1")
+		child.Env = append(child.Env, envRootless+"="+strconv.Itoa(int(who)))
 	case s.outside:
 		attr.Cloneflags |= syscall.CLONE_NEWUSER
 		attr.UidMappings, attr.GidMappings = allIDs(), allIDs()
@@ -163,17 +212,24 @@ func runExec(args []string) int {
 		outsideRead.Close()
 	}
 	if err != nil {
-		if rootless {
+		switch who {
+		case unprivileged:
 			log.Printf("pingmock exec: cannot create a user namespace: %v\n"+
 				"Unprivileged user namespaces seem to be disabled on this system. Run pingmock exec with sudo,\n"+
 				"or enable them (for example sysctl kernel.unprivileged_userns_clone=1 or user.max_user_namespaces).", err)
-		} else {
+		case capless:
+			log.Printf("pingmock exec: cannot create a user namespace: %v\n"+
+				"Root here lacks CAP_SYS_ADMIN and CAP_NET_ADMIN, as in a container, so pingmock exec needs a user\n"+
+				"namespace, which is not allowed here either (Docker's default seccomp profile forbids them). Give the\n"+
+				"container the capabilities (docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN), or a seccomp\n"+
+				"profile that allows user namespaces.", err)
+		default:
 			log.Printf("pingmock exec: cannot create a network namespace: %v", err)
 		}
 		return execFailed
 	}
 	if s.outside {
-		stopPasta, err := attachPasta(pasta, s.outsidePorts, !rootless, child.Process.Pid)
+		stopPasta, err := attachPasta(pasta, s.outsidePorts, os.Geteuid() == 0, child.Process.Pid)
 		if err != nil {
 			log.Printf("pingmock exec: %v", err)
 			child.Process.Kill()
@@ -192,7 +248,8 @@ func runExec(args []string) int {
 // command, and cleans up when the command exits.
 func runExecChild(args []string) int {
 	log.SetPrefix("[pingmock] ")
-	rootless := os.Getenv(envRootless) == "1"
+	n, _ := strconv.Atoi(os.Getenv(envRootless))
+	who := privileges(n)
 	os.Unsetenv(envRootless)
 	s, cmdArgs, err := parseSettings("pingmock exec", args, execUsage, io.Discard)
 	if err != nil {
@@ -202,14 +259,14 @@ func runExecChild(args []string) int {
 	s.exec = true
 	if s.names() {
 		if err := setupNames(s.hostsFile(), s.dnsNames()); err != nil {
-			log.Print(explain(err, rootless))
+			log.Print(explain(err, who))
 			return execFailed
 		}
 	}
 	// The new namespace starts with loopback down; the API and the DNS
 	// server listen on it.
 	if err := tun.LinkUp("lo"); err != nil {
-		log.Print(explain(err, rootless))
+		log.Print(explain(err, who))
 		return execFailed
 	}
 	if s.outside {
@@ -220,13 +277,13 @@ func runExecChild(args []string) int {
 	}
 	in, err := start(s)
 	if err != nil {
-		log.Print(explain(err, rootless))
+		log.Print(explain(err, who))
 		return execFailed
 	}
 	defer in.Close()
 	if s.names() {
 		if err := serveDNS(s.hosts, in.rules, in.history, s.verbose); err != nil {
-			log.Print(explain(err, rootless))
+			log.Print(explain(err, who))
 			return execFailed
 		}
 	}
@@ -294,13 +351,19 @@ func exitStatus(err error) int {
 	return execFailed
 }
 
-// explain adds advice to errors that unprivileged users commonly hit.
-func explain(err error, rootless bool) error {
-	if !rootless {
-		return err
-	}
+// explain adds advice to errors that unprivileged users and containers
+// commonly hit.
+func explain(err error, who privileges) error {
 	msg := err.Error()
 	switch {
+	case errors.Is(err, syscall.ENOENT) && strings.Contains(msg, "/dev/net/tun"):
+		return fmt.Errorf("%w\nThere is no TUN device. In a container, pass it in: docker run --device /dev/net/tun", err)
+	case who == privileged:
+		return err
+	case who == capless && errors.Is(err, syscall.EPERM):
+		return fmt.Errorf("%w\nRoot here lacks CAP_SYS_ADMIN and CAP_NET_ADMIN, as in a container, and the user namespace\n"+
+			"pingmock exec created instead has no network privileges either. Give the container the\n"+
+			"capabilities: docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN", err)
 	case errors.Is(err, syscall.EACCES) && strings.Contains(msg, "/dev/net/tun"):
 		return fmt.Errorf("%w\n/dev/net/tun cannot be opened without root on this system. Most distributions make it\n"+
 			"readable and writable by everyone (crw-rw-rw-); run pingmock exec with sudo, or: sudo chmod 0666 /dev/net/tun", err)

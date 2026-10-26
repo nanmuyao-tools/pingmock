@@ -569,7 +569,7 @@ runs `CMD` in a **private network namespace** in which pingmock answers pings an
 pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
 ```
 
-- **No root needed.** As an unprivileged user, pingmock also creates a user namespace in which it may set up the network. As root, it creates only the network namespace.
+- **No root needed.** As an unprivileged user, pingmock also creates a user namespace in which it may set up the network. As root, it creates only the network namespace, unless root lacks `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`, as in a container: then it creates a user namespace too, see [Requirements](#requirements).
 - **The host network is not touched.** Mocking `8.8.8.8` affects only `CMD`, and several runs can happen at once, each with its own rules, device and API port.
 - **Ready before CMD starts.** Pings are answered and the API listens as soon as `CMD` runs. `CMD` finds the API address in `$PINGMOCK_API`.
 - **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, `127` if it was not found and `126` if it could not be run. When pingmock exec itself fails, with a bad flag or rule or a network it cannot set up, it exits with `125`, as `docker run` does, so that it is not taken for the command's own status. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
@@ -677,6 +677,12 @@ DNS rules are for `pingmock exec` only: for the whole machine, pingmock cannot g
 ### Requirements
 
 `pingmock exec` without root needs unprivileged user namespaces and a `/dev/net/tun` that everyone may open (`crw-rw-rw-`), which is the default on most distributions. If something is missing, pingmock says what and how to fix it.
+
+**In a container**, root usually lacks `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`, so `pingmock exec` creates a user namespace there as other users do. Docker's default seccomp profile forbids it: give the container the two capabilities, or a seccomp profile that allows user namespaces, and the TUN device either way:
+
+```bash
+docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun IMAGE pingmock exec ...
+```
 
 **Ubuntu 23.10 and later** restrict unprivileged user namespaces with AppArmor. Rather than lifting the restriction for every program, allow it for pingmock alone with the profile in [`contrib/apparmor/pingmock`](contrib/apparmor/pingmock), the way Ubuntu does for other programs that need it. Edit the path in it if pingmock is not installed as `/usr/local/bin/pingmock`, then:
 

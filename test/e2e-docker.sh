@@ -46,6 +46,24 @@ seed=$(peer wget -q -O - http://127.0.0.1:9100/rules | grep -c '"seed"' || true)
 same "the API is reachable from the sharing container" "$seed" 1
 docker rm -f "$NAME" >/dev/null
 
+# pingmock exec as the image's root, which lacks CAP_SYS_ADMIN and
+# CAP_NET_ADMIN unless the container is given them: it then creates a user
+# namespace, as other users do. Docker's default seccomp profile forbids
+# that too, and pingmock exec says what the container needs.
+inside() { docker run --rm "$@" --entrypoint pingmock "$IMAGE" exec -rule 10.99.0.1=40ms -- ping -c 3 -i 0.2 10.99.0.1; }
+avg=$(inside --security-opt seccomp=unconfined --device /dev/net/tun 2>/dev/null | awk -F/ '/^rtt/ {print $5}')
+near "pingmock exec as root without the capabilities" "$avg" 40 5
+avg=$(inside --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun 2>/dev/null | awk -F/ '/^rtt/ {print $5}')
+near "pingmock exec as root with the capabilities" "$avg" 40 5
+status=0
+msg=$(inside --device /dev/net/tun 2>&1) || status=$?
+same "pingmock exec under the default seccomp profile exits with" "$status" 125
+grep -q -- '--cap-add SYS_ADMIN --cap-add NET_ADMIN' <<<"$msg" && pass "pingmock exec names the capabilities to add" ||
+  fail "no advice under the default seccomp profile: $msg"
+msg=$(inside --cap-add SYS_ADMIN --cap-add NET_ADMIN 2>&1) || true
+grep -q -- '--device /dev/net/tun' <<<"$msg" && pass "pingmock exec asks for the TUN device" ||
+  fail "no advice without the TUN device: $msg"
+
 # The Compose example, with the image just built.
 status=0
 PINGMOCK_IMAGE=$IMAGE docker compose -f examples/docker-compose.yml up \
