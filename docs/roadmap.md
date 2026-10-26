@@ -20,6 +20,7 @@ The common protocols are now supported, and the documentation stage is done. The
 | v0.16 | Connections to ports without a rule recorded as `ignored` in the history |
 | v0.17 | Netlink instead of the `ip` command: no programs needed at runtime |
 | v0.18 | Probes for a path's hops leave the pings alone |
+| v0.19 | `pingmock exec` as root in a container without capabilities |
 
 ## The stages
 
