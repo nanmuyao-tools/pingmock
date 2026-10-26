@@ -334,7 +334,6 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 |---|---|
 | 更多异常行为 | 重复回复（`DUP!`）、损坏的回复：没有找到明确的需求 |
 | Testcontainers 模块 | 只适用于被测代码运行在容器里的情况：pingmock 的容器影响不了宿主机上的测试进程 |
-| 用 netlink 替代 `ip` 命令 | 去掉运行时对 iproute2 的依赖；fakert 用的 vishvananda/netlink 可以参考 |
 | 分片重组、其他系统（macOS 等） | 使用场景少，或者工作量大（`exec` 依赖 Linux 命名空间） |
 
 ### 不做
