@@ -80,7 +80,7 @@ demo_en=$(readme_demo README.md)
 demo_zh=$(readme_demo README.zh-CN.md)
 [ -n "$demo_en" ] || fail "no <!-- docker-demo --> block in README.md"
 same "the Docker demo command is the same in both READMEs" "$demo_zh" "$demo_en"
-for image in "$IMAGE" ghcr.io/nanmuyao/pingmock; do
+for image in "$IMAGE" ghcr.io/nanmuyao-tools/pingmock; do
   cmd=${demo_en//ghcr.io\/nanmuyao\/pingmock/$image}
   # The demo ends with a ping to an unreachable host, so it exits with
   # ping's status 1; what it shows is what is checked.

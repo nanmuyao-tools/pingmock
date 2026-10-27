@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
   - name: Question or idea to discuss
-    url: https://github.com/nanmuyao/pingmock/discussions
+    url: https://github.com/nanmuyao-tools/pingmock/discussions
     about: How to test something with pingmock, whether it fits your case, or anything that is not a bug or a concrete feature. English or 中文.

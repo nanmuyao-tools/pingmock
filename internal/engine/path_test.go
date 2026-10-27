@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/icmp"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/icmp"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 func mustPath(t *testing.T, s string) rule.Path {

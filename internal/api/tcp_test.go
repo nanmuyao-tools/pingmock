@@ -5,8 +5,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/nanmuyao/pingmock/internal/engine"
-	"github.com/nanmuyao/pingmock/internal/icmp"
+	"github.com/nanmuyao-tools/pingmock/internal/engine"
+	"github.com/nanmuyao-tools/pingmock/internal/icmp"
 )
 
 func TestTCPRulesAPI(t *testing.T) {

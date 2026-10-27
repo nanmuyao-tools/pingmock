@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nanmuyao/pingmock/internal/engine"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/engine"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // Routes are the routes that bring traffic for mocked targets to pingmock.

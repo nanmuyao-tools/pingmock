@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // query builds a query for name of the given type, as a stub resolver

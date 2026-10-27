@@ -1,6 +1,6 @@
 # pingmock
 
-[![CI](https://github.com/nanmuyao/pingmock/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao/pingmock/actions/workflows/ci.yml)
+[![CI](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml)
 
 [English](README.md) | 中文
 
@@ -24,7 +24,7 @@ pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
 
 <!-- docker-demo -->
 ```bash
-docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao/pingmock -c '
+docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao-tools/pingmock -c '
   pingmock -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
   until wget -q -O /dev/null 127.0.0.1:9100/rules 2>/dev/null; do kill -0 $! 2>/dev/null || exit 1; sleep 0.1; done
   ping -c 6 -i 0.5 10.99.0.1; ping -c 2 -i 0.5 10.99.0.2'
@@ -87,29 +87,29 @@ pingmock 做的每一件事，都同时满足这四点：
 
 pingmock 是一个静态链接的程序，运行时不需要别的程序。
 
-**下载编译好的程序**（不需要安装 Go）：在 [Releases](https://github.com/nanmuyao/pingmock/releases) 页面下载对应架构的文件，例如：
+**下载编译好的程序**（不需要安装 Go）：在 [Releases](https://github.com/nanmuyao-tools/pingmock/releases) 页面下载对应架构的文件，例如：
 
 ```bash
-curl -L -o pingmock https://github.com/nanmuyao/pingmock/releases/latest/download/pingmock-linux-amd64
+curl -L -o pingmock https://github.com/nanmuyao-tools/pingmock/releases/latest/download/pingmock-linux-amd64
 chmod +x pingmock
 ```
 
 **用 Go 安装**（需要 Go 1.22+）：
 
 ```bash
-go install github.com/nanmuyao/pingmock@latest
+go install github.com/nanmuyao-tools/pingmock@latest
 ```
 
 **容器镜像**（amd64 和 arm64），参见 [Docker](#docker)：
 
 ```bash
-docker pull ghcr.io/nanmuyao/pingmock
+docker pull ghcr.io/nanmuyao-tools/pingmock
 ```
 
 **从源码构建：**
 
 ```bash
-git clone https://github.com/nanmuyao/pingmock.git
+git clone https://github.com/nanmuyao-tools/pingmock.git
 cd pingmock
 go build -o pingmock .
 ```
@@ -697,11 +697,11 @@ sudo apparmor_parser -r /etc/apparmor.d/pingmock
 
 ## Docker
 
-镜像 `ghcr.io/nanmuyao/pingmock` 需要 `NET_ADMIN` 权限和 TUN 设备。与它共享网络的容器发出的 ping 和连接都会被模拟，并且可以通过 `127.0.0.1:9100` 访问 API：
+镜像 `ghcr.io/nanmuyao-tools/pingmock` 需要 `NET_ADMIN` 权限和 TUN 设备。与它共享网络的容器发出的 ping 和连接都会被模拟，并且可以通过 `127.0.0.1:9100` 访问 API：
 
 ```bash
 docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
-  ghcr.io/nanmuyao/pingmock -rule 10.99.0.1=50ms
+  ghcr.io/nanmuyao-tools/pingmock -rule 10.99.0.1=50ms
 docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
 ```
 
@@ -866,14 +866,14 @@ CI 会在 Ubuntu 24.04 和 26.04 上，用 [`test/e2e-compat.sh`](test/e2e-compa
 
 ### Go
 
-用 `go test -exec` 让测试程序运行在 pingmock 里，在测试中通过 [`client`](https://pkg.go.dev/github.com/nanmuyao/pingmock/client) 包控制 pingmock：
+用 `go test -exec` 让测试程序运行在 pingmock 里，在测试中通过 [`client`](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client) 包控制 pingmock：
 
 ```bash
 go test -exec 'pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
 ```
 
 ```go
-import "github.com/nanmuyao/pingmock/client"
+import "github.com/nanmuyao-tools/pingmock/client"
 
 func TestPicksFastestServer(t *testing.T) {
 	pm, err := client.FromEnv()
@@ -905,7 +905,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-客户端覆盖了全部 API：规则（`SetRule`、`DeleteRule`、`SetDefault`）、路径（`SetPath`、`DeletePath`）、TCP、UDP 和 DNS 规则（`SetTCP`、`DeleteTCP`、`SetUDP`、`DeleteUDP`、`SetDNS`、`DeleteDNS`）、统计（`State`、`Stats`、`TCPStats`、`UDPStats`、`DNSStats`、`ResetStats`）、历史（`History`、`ClearHistory`）、把一切恢复成启动时样子的 `Reset`（适合放在每个测试的开头）和 `Version`；用 `New`、`FromEnv`、`URL` 连接，`IsNotFound` 用来区分「规则不存在」和其他错误。详见它的[文档](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)。[`examples/go-demo`](examples/go-demo/README.zh-CN.md) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
+客户端覆盖了全部 API：规则（`SetRule`、`DeleteRule`、`SetDefault`）、路径（`SetPath`、`DeletePath`）、TCP、UDP 和 DNS 规则（`SetTCP`、`DeleteTCP`、`SetUDP`、`DeleteUDP`、`SetDNS`、`DeleteDNS`）、统计（`State`、`Stats`、`TCPStats`、`UDPStats`、`DNSStats`、`ResetStats`）、历史（`History`、`ClearHistory`）、把一切恢复成启动时样子的 `Reset`（适合放在每个测试的开头）和 `Version`；用 `New`、`FromEnv`、`URL` 连接，`IsNotFound` 用来区分「规则不存在」和其他错误。详见它的[文档](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client)。[`examples/go-demo`](examples/go-demo/README.zh-CN.md) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
 
 ### 其他语言
 

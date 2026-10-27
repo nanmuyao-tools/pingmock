@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nanmuyao/pingmock/internal/config"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/config"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 type ruleFlags []string

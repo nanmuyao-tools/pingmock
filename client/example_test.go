@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/nanmuyao/pingmock/client"
+	"github.com/nanmuyao-tools/pingmock/client"
 )
 
 // Change network conditions in the middle of a test and inspect what the

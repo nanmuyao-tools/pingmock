@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 func TestParseEchoRequest(t *testing.T) {

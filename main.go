@@ -14,7 +14,7 @@ package main
 import (
 	"os"
 
-	"github.com/nanmuyao/pingmock/internal/app"
+	"github.com/nanmuyao-tools/pingmock/internal/app"
 )
 
 // version is set at build time with -ldflags "-X main.version=v0.1.0".

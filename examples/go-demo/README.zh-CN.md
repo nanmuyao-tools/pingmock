@@ -25,7 +25,7 @@
 go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 ```
 
-`go test -exec` 会把编译好的测试程序交给 `pingmock exec` 运行，于是测试运行在 pingmock 的独立网络里：[`pingmock.yaml`](pingmock.yaml) 设置了三台模拟服务器，测试代码再通过 pingmock 的 [Go 客户端](https://pkg.go.dev/github.com/nanmuyao/pingmock/client)按需添加其他网络状况。
+`go test -exec` 会把编译好的测试程序交给 `pingmock exec` 运行，于是测试运行在 pingmock 的独立网络里：[`pingmock.yaml`](pingmock.yaml) 设置了三台模拟服务器，测试代码再通过 pingmock 的 [Go 客户端](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client)按需添加其他网络状况。
 
 不在 pingmock 下运行时（比如直接 `go test ./...`），测试会自动跳过，不会失败。
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 func setDNS(t *testing.T, rs *RuleSet, name, text string) {

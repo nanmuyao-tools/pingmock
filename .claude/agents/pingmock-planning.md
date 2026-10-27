@@ -20,7 +20,7 @@ The task you are given says which of the three kinds of work to do. A task may c
 
 Steps 2, 3 and 5 of the method in `docs/planning.md`, and its "Next time" list:
 
-1. **Users' feedback first**: pingmock's own issues and pull requests (`nanmuyao/pingmock`). Discussions need an authenticated GraphQL call; mark them "not checked".
+1. **Users' feedback first**: pingmock's own issues and pull requests (`nanmuyao-tools/pingmock`). Discussions need an authenticated GraphQL call; mark them "not checked".
 2. **Progress on tracked issues**: those cited in `docs/planning.md`. State, and what is new since the last round.
 3. **What people ask for**: how people test software that pings or depends on the network, monitoring alerts, failover scripts, diagnostics. Ask each time whether the need is really about what pingmock does.
 4. **Reference projects by technical route**: projects that fake or shape network answers, grouped by route (TUN device, network namespace, proxy, kernel queueing discipline, user-space network stack, library mocks, and any other route you find). Derive the routes from the projects found; report however many there are.

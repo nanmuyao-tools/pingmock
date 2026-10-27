@@ -9,7 +9,7 @@ import (
 	"time"
 
 	fastest "example.com/go-demo"
-	"github.com/nanmuyao/pingmock/client"
+	"github.com/nanmuyao-tools/pingmock/client"
 )
 
 // These tests run inside pingmock exec, which mocks the pings they cause:

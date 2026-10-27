@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/dns"
-	"github.com/nanmuyao/pingmock/internal/tun"
+	"github.com/nanmuyao-tools/pingmock/internal/dns"
+	"github.com/nanmuyao-tools/pingmock/internal/tun"
 )
 
 // execChildArg marks the re-executed pingmock that runs inside the new

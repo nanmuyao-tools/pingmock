@@ -13,7 +13,7 @@ Copy it into your repository's `.github/workflows/` directory and change the las
 ```yaml
 - name: Install pingmock
   run: |
-    base="https://github.com/nanmuyao/pingmock/releases/download/$PINGMOCK_VERSION"
+    base="https://github.com/nanmuyao-tools/pingmock/releases/download/$PINGMOCK_VERSION"
     file="pingmock-linux-$(dpkg --print-architecture)"
     curl -fsSLO "$base/$file"
     curl -fsSLO "$base/SHA256SUMS"
@@ -22,7 +22,7 @@ Copy it into your repository's `.github/workflows/` directory and change the las
     ...
 ```
 
-- It downloads the version named in `PINGMOCK_VERSION` from the [releases](https://github.com/nanmuyao/pingmock/releases). **Pinning the version** keeps CI on the same pingmock every time, so a new release never changes things unexpectedly
+- It downloads the version named in `PINGMOCK_VERSION` from the [releases](https://github.com/nanmuyao-tools/pingmock/releases). **Pinning the version** keeps CI on the same pingmock every time, so a new release never changes things unexpectedly
 - `dpkg --print-architecture` gives `amd64` or `arm64` depending on the machine, which matches the release's two file names, so this works as is on GitHub's ARM runners too
 - Before installing, it **checks the file** against the release's `SHA256SUMS`, so a damaged or tampered download is never installed
 
@@ -31,7 +31,7 @@ Copy it into your repository's `.github/workflows/` directory and change the las
 ```yaml
 - name: Allow pingmock to create user namespaces
   run: |
-    curl -fsSL "https://raw.githubusercontent.com/nanmuyao/pingmock/$PINGMOCK_VERSION/contrib/apparmor/pingmock" |
+    curl -fsSL "https://raw.githubusercontent.com/nanmuyao-tools/pingmock/$PINGMOCK_VERSION/contrib/apparmor/pingmock" |
       sudo tee /etc/apparmor.d/pingmock >/dev/null
     sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```

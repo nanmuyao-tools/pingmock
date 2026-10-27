@@ -33,19 +33,19 @@ flowchart LR
 
 ### Done: probes for a path's hops leave the pings alone
 
-The probes for a path's hops shared the target's random stream and counted as its requests, so a traceroute in the middle of a test changed the pings' random results and statistics. They now have a stream of their own and count only under `hops`; probes that reach the target are still its requests. Released in [v0.18.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.18.0).
+The probes for a path's hops shared the target's random stream and counted as its requests, so a traceroute in the middle of a test changed the pings' random results and statistics. They now have a stream of their own and count only under `hops`; probes that reach the target are still its requests. Released in [v0.18.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.18.0).
 
 ### Done: netlink instead of the `ip` command
 
-pingmock sets its addresses and routes over netlink itself, with the standard library alone, so it needs no other programs at runtime: it used to fail to start where iproute2 was missing, as in a plain Ubuntu container. The Docker image no longer installs iproute2. Released in [v0.17.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.17.0).
+pingmock sets its addresses and routes over netlink itself, with the standard library alone, so it needs no other programs at runtime: it used to fail to start where iproute2 was missing, as in a plain Ubuntu container. The Docker image no longer installs iproute2. Released in [v0.17.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.17.0).
 
 ### Done: connections without a rule in the history
 
-Round eight found that a connection to a mocked address on a port without a rule left no trace. Now the history records it, and each UDP datagram to such a port, with the result `ignored`; an empty history returns `[]` rather than `null`. Released in [v0.16.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.16.0).
+Round eight found that a connection to a mocked address on a port without a rule left no trace. Now the history records it, and each UDP datagram to such a port, with the result `ignored`; an empty history returns `[]` rather than `null`. Released in [v0.16.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.16.0).
 
 ### Done: routes follow the rules
 
-Round eight found that a deleted rule left its address routed to pingmock until exit, so under `-outside` a real address mocked once could no longer be reached. Since [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1), deletes and `POST /reset` remove the routes no rule needs, and `GET /rules` lists the routes.
+Round eight found that a deleted rule left its address routed to pingmock until exit, so under `-outside` a real address mocked once could no longer be reached. Since [v0.15.1](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.1), deletes and `POST /reset` remove the routes no rule needs, and `GET /rules` lists the routes.
 
 ### Done: outside access for `exec`
 

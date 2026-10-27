@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // Config is the configuration file loaded with -config. Every field is

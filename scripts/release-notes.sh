@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prints release notes for TAG: the body of its annotated tag message,
 # followed by a link comparing it with the previous release tag.
-#   scripts/release-notes.sh v0.3.0 nanmuyao/pingmock
+#   scripts/release-notes.sh v0.3.0 nanmuyao-tools/pingmock
 set -euo pipefail
 tag=$1
 repo=$2

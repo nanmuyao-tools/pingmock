@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # pingmock in a container. It needs NET_ADMIN and the TUN device:
-#   docker run --cap-add NET_ADMIN --device /dev/net/tun ghcr.io/nanmuyao/pingmock -rule 10.99.0.1=50ms
+#   docker run --cap-add NET_ADMIN --device /dev/net/tun ghcr.io/nanmuyao-tools/pingmock -rule 10.99.0.1=50ms
 # Containers that share its network (--network container:NAME, or
 # network_mode: service:pingmock in Compose) get their pings mocked.
 
@@ -19,7 +19,7 @@ RUN apk add --no-cache iputils
 COPY --from=build /out/pingmock /usr/local/bin/pingmock
 LABEL org.opencontainers.image.title="pingmock" \
       org.opencontainers.image.description="Mock ping (ICMP and ICMPv6 echo) with per-target delay, jitter, loss and unreachable errors" \
-      org.opencontainers.image.source="https://github.com/nanmuyao/pingmock" \
+      org.opencontainers.image.source="https://github.com/nanmuyao-tools/pingmock" \
       org.opencontainers.image.licenses="MIT"
 EXPOSE 9100
 ENTRYPOINT ["pingmock"]

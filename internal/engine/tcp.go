@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/icmp"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/icmp"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // repeatWindow is how long a connection attempt is remembered, so that

@@ -33,19 +33,19 @@ flowchart LR
 
 ### 已完成：发给路径各跳的探测不再影响 ping
 
-发给路径各跳的探测以前和目标共用一条随机序列，也算目标的请求，所以测试中途跑一次 traceroute，会改变 ping 的随机结果和统计。现在它们有自己的随机序列，只计进 `hops`；到达目标的探测仍算目标的请求。随 [v0.18.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.18.0) 发布。
+发给路径各跳的探测以前和目标共用一条随机序列，也算目标的请求，所以测试中途跑一次 traceroute，会改变 ping 的随机结果和统计。现在它们有自己的随机序列，只计进 `hops`；到达目标的探测仍算目标的请求。随 [v0.18.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.18.0) 发布。
 
 ### 已完成：用 netlink 替代 `ip` 命令
 
-pingmock 自己通过 netlink 设置地址和路由，只用标准库，所以运行时不再需要别的程序；以前在没装 iproute2 的地方，比如一个普通的 Ubuntu 容器里，它起不来。Docker 镜像不再安装 iproute2。随 [v0.17.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.17.0) 发布。
+pingmock 自己通过 netlink 设置地址和路由，只用标准库，所以运行时不再需要别的程序；以前在没装 iproute2 的地方，比如一个普通的 Ubuntu 容器里，它起不来。Docker 镜像不再安装 iproute2。随 [v0.17.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.17.0) 发布。
 
 ### 已完成：没有规则的连接记进历史
 
-第八轮发现：连到模拟地址、端口上却没有规则的连接，不留任何痕迹。现在历史会记下它，以及发往这种端口的每个 UDP 数据报，结果是 `ignored`；空历史返回 `[]`，不再是 `null`。随 [v0.16.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.16.0) 发布。
+第八轮发现：连到模拟地址、端口上却没有规则的连接，不留任何痕迹。现在历史会记下它，以及发往这种端口的每个 UDP 数据报，结果是 `ignored`；空历史返回 `[]`，不再是 `null`。随 [v0.16.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.16.0) 发布。
 
 ### 已完成：路由跟着规则走
 
-第八轮发现：删掉规则后，它的地址一直被路由到 pingmock，直到退出，所以在 `-outside` 下，模拟过一次的真实地址就再也连不上了。从 [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1) 起，删除和 `POST /reset` 会撤掉不再有规则需要的路由，`GET /rules` 列出路由。
+第八轮发现：删掉规则后，它的地址一直被路由到 pingmock，直到退出，所以在 `-outside` 下，模拟过一次的真实地址就再也连不上了。从 [v0.15.1](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.1) 起，删除和 `POST /reset` 会撤掉不再有规则需要的路由，`GET /rules` 列出路由。
 
 ### 已完成：`exec` 访问外网
 

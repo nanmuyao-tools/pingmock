@@ -3,8 +3,8 @@ package engine
 import (
 	"net/netip"
 
-	"github.com/nanmuyao/pingmock/internal/icmp"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/icmp"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // SetPath gives target a route: traceroute and mtr then see its hops,

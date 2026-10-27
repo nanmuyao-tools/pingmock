@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/api"
-	"github.com/nanmuyao/pingmock/internal/engine"
-	"github.com/nanmuyao/pingmock/internal/icmp"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/api"
+	"github.com/nanmuyao-tools/pingmock/internal/engine"
+	"github.com/nanmuyao-tools/pingmock/internal/icmp"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // serve runs the real API handler, so the client is tested against the

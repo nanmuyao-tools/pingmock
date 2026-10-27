@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/config"
-	"github.com/nanmuyao/pingmock/internal/dns"
-	"github.com/nanmuyao/pingmock/internal/engine"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/config"
+	"github.com/nanmuyao-tools/pingmock/internal/dns"
+	"github.com/nanmuyao-tools/pingmock/internal/engine"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // dnsRule returns the DNS server's Rule: the decision of rs, recorded in

@@ -13,7 +13,7 @@
 ```yaml
 - name: Install pingmock
   run: |
-    base="https://github.com/nanmuyao/pingmock/releases/download/$PINGMOCK_VERSION"
+    base="https://github.com/nanmuyao-tools/pingmock/releases/download/$PINGMOCK_VERSION"
     file="pingmock-linux-$(dpkg --print-architecture)"
     curl -fsSLO "$base/$file"
     curl -fsSLO "$base/SHA256SUMS"
@@ -22,7 +22,7 @@
     ...
 ```
 
-- 从[发布页](https://github.com/nanmuyao/pingmock/releases)下载 `PINGMOCK_VERSION` 指定的版本。**固定版本号**能保证 CI 每次用的都是同一个 pingmock，不会因为新版本发布而突然出现变化
+- 从[发布页](https://github.com/nanmuyao-tools/pingmock/releases)下载 `PINGMOCK_VERSION` 指定的版本。**固定版本号**能保证 CI 每次用的都是同一个 pingmock，不会因为新版本发布而突然出现变化
 - `dpkg --print-architecture` 会根据机器返回 `amd64` 或 `arm64`，正好对应发布页上的两个文件名，所以在 GitHub 的 ARM 机器上也能直接使用
 - 安装之前先用发布页上的 `SHA256SUMS` **校验文件**，确认下载的程序没有损坏或被篡改
 
@@ -31,7 +31,7 @@
 ```yaml
 - name: Allow pingmock to create user namespaces
   run: |
-    curl -fsSL "https://raw.githubusercontent.com/nanmuyao/pingmock/$PINGMOCK_VERSION/contrib/apparmor/pingmock" |
+    curl -fsSL "https://raw.githubusercontent.com/nanmuyao-tools/pingmock/$PINGMOCK_VERSION/contrib/apparmor/pingmock" |
       sudo tee /etc/apparmor.d/pingmock >/dev/null
     sudo apparmor_parser -r /etc/apparmor.d/pingmock
 ```

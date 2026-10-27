@@ -211,7 +211,7 @@ pingmock 自己还没有 issue 或 pull request。Discussions 没有查（需要
 | Trippy 的 TUN 模拟器从 2026-02-08 起支持 IPv6 | [Trippy #1741](https://github.com/fujiapple852/trippy/issues/1741) | 独立工具仍是草稿（[#1551](https://github.com/fujiapple852/trippy/pull/1551)） |
 | 基于 tc 的工具没满足的需求是：每个目标或端口有多条独立的规则 | [comcast #42](https://github.com/tylertreat/comcast/issues/42)、Pumba #115 和 #130、[Chaos Mesh #2295](https://github.com/chaos-mesh/chaos-mesh/issues/2295) | pingmock 在 Linux 上已经有了 |
 | macOS 上按目标过滤会失效 | [comcast #82](https://github.com/tylertreat/comcast/issues/82)、[#44](https://github.com/tylertreat/comcast/issues/44)、[#45](https://github.com/tylertreat/comcast/issues/45) | 反对移植到 macOS 的证据 |
-| pingmock 自己：0 星，0 个 issue，0 个 pull request | `GET /repos/nanmuyao/pingmock` | 仍然没有用户反馈 |
+| pingmock 自己：0 星，0 个 issue，0 个 pull request | `GET /repos/nanmuyao-tools/pingmock` | 仍然没有用户反馈 |
 
 ### 按技术路线分的竞品
 
@@ -276,7 +276,7 @@ dnsmasq 的技巧、基于 pasta 的测试框架、在命名空间里运行 tc �
 
 ## exec 访问外网：技术选型，2026 年 10 月 23 日
 
-在等用户提出的几项里，维护者先选了 `pingmock exec` 访问外网，因为它服务的应用开发者人数最多。[`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent 在容器里（Ubuntu 24.04 和 26.04、Alpine 3.20、Debian 12）做了 15 个实验比较各种机制，提出的设计由 [v0.15.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.0) 实现。标了*已核对*的行人工重跑过。
+在等用户提出的几项里，维护者先选了 `pingmock exec` 访问外网，因为它服务的应用开发者人数最多。[`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent 在容器里（Ubuntu 24.04 和 26.04、Alpine 3.20、Debian 12）做了 15 个实验比较各种机制，提出的设计由 [v0.15.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.0) 实现。标了*已核对*的行人工重跑过。
 
 | 机制 | 结果 | 结论 |
 |---|---|---|
@@ -301,7 +301,7 @@ dnsmasq 的技巧、基于 pasta 的测试框架、在命名空间里运行 tc �
 同一个 agent，约十分钟，做了两个实验。
 
 - **反馈**：没有。pingmock 没有 issue、pull request 和星标，Discussions 页面没有帖子；跟踪的 14 个外部 issue 在 10 月 23 日之后都没有变化。
-- **一个 bug**（*已核对：复现了*）。在 `pingmock exec -outside` 下，真实的 1.1.1.1 返回 301；加了 `refuse` 规则后 curl 退出码 7；`DELETE`（204）之后退出码 28，`1.1.1.1 dev pingmock0` 的路由还在。`POST /reset` 也一样。路由器只加不撤（`internal/tun/tun_linux.go`）。已在 [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1) 修复：路由跟着规则走。
+- **一个 bug**（*已核对：复现了*）。在 `pingmock exec -outside` 下，真实的 1.1.1.1 返回 301；加了 `refuse` 规则后 curl 退出码 7；`DELETE`（204）之后退出码 28，`1.1.1.1 dev pingmock0` 的路由还在。`POST /reset` 也一样。路由器只加不撤（`internal/tun/tun_linux.go`）。已在 [v0.15.1](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.1) 修复：路由跟着规则走。
 - **客户端的间接需求**，10 月 25 日各软件包仓库的数据：`toxiproxy-python` 上个月下载 25,613 次，`toxiproxy-node-client` 413,313 次，`@testcontainers/toxiproxy` 约 322,000 次。这些是竞品客户端的用户，不是 pingmock 的。
 
 | 候选 | 用户 | 证据 | 结论 |
@@ -315,7 +315,7 @@ dnsmasq 的技巧、基于 pasta 的测试框架、在命名空间里运行 tc �
 
 ## 下一次规划时
 
-1. **先看用户的反馈**：[Discussions](https://github.com/nanmuyao/pingmock/discussions) 和 issue 中的真实需求，优先于任何调研
+1. **先看用户的反馈**：[Discussions](https://github.com/nanmuyao-tools/pingmock/discussions) 和 issue 中的真实需求，优先于任何调研
 2. 用新版本的工具和库重新运行兼容性测试，并加入新出现的常用工具
 3. 回头看这几轮引用的 issue 有没有进展：Trippy #1551、#1552、#1554；pro-bing #70、#195；Toxiproxy #447、#610、#17；Trippy #1741；comcast #42、#82；Chaos Mesh #2295；slirp4netns #361；asyncpg #1155
 4. 重复上面的七步，把新的证据补充到这份文档中

@@ -11,11 +11,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/api"
-	"github.com/nanmuyao/pingmock/internal/engine"
-	"github.com/nanmuyao/pingmock/internal/responder"
-	"github.com/nanmuyao/pingmock/internal/rule"
-	"github.com/nanmuyao/pingmock/internal/tun"
+	"github.com/nanmuyao-tools/pingmock/internal/api"
+	"github.com/nanmuyao-tools/pingmock/internal/engine"
+	"github.com/nanmuyao-tools/pingmock/internal/responder"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/tun"
 )
 
 // instance is a running pingmock: the TUN device, the responder answering

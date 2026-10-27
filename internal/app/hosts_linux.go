@@ -7,7 +7,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/nanmuyao/pingmock/internal/config"
+	"github.com/nanmuyao-tools/pingmock/internal/config"
 )
 
 // The files name resolution reads, on every system pingmock runs on.

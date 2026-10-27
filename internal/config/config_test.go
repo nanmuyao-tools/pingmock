@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 func writeFile(t *testing.T, name, content string) string {

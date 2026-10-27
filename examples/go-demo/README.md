@@ -25,7 +25,7 @@ This example shows how to test Go code that **makes decisions from ping latency*
 go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 ```
 
-`go test -exec` hands the compiled test binary to `pingmock exec`, so the tests run in pingmock's private network: [`pingmock.yaml`](pingmock.yaml) sets up three mocked servers, and the tests add other network conditions as they need them through pingmock's [Go client](https://pkg.go.dev/github.com/nanmuyao/pingmock/client).
+`go test -exec` hands the compiled test binary to `pingmock exec`, so the tests run in pingmock's private network: [`pingmock.yaml`](pingmock.yaml) sets up three mocked servers, and the tests add other network conditions as they need them through pingmock's [Go client](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client).
 
 Outside pingmock (a plain `go test ./...`, say), the tests skip themselves instead of failing.
 

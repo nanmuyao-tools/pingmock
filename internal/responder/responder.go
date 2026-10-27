@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/engine"
-	"github.com/nanmuyao/pingmock/internal/icmp"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/engine"
+	"github.com/nanmuyao-tools/pingmock/internal/icmp"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // Responder answers echo requests read from a device.

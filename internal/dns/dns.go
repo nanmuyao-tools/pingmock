@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // Table maps names to addresses, and addresses back to names.

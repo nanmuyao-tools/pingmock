@@ -117,7 +117,7 @@ jobs:
       - name: Go example, rootless
         working-directory: examples/go-demo
         run: |
-          go mod edit -replace github.com/nanmuyao/pingmock=../..
+          go mod edit -replace github.com/nanmuyao-tools/pingmock=../..
           go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out
@@ -126,7 +126,7 @@ jobs:
       - name: Ping-library example, rootless
         working-directory: examples/pinglib-demo
         run: |
-          go mod edit -replace github.com/nanmuyao/pingmock=../..
+          go mod edit -replace github.com/nanmuyao-tools/pingmock=../..
           go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out

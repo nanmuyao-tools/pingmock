@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao/pingmock/client"
+	"github.com/nanmuyao-tools/pingmock/client"
 	probing "github.com/prometheus-community/pro-bing"
 )
 

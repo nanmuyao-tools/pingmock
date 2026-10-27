@@ -7,8 +7,8 @@ import (
 	"net/netip"
 	"sort"
 
-	"github.com/nanmuyao/pingmock/internal/icmp"
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/icmp"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // UDPStats counts the datagrams sent to one address and port.

@@ -1,4 +1,4 @@
-module github.com/nanmuyao/pingmock
+module github.com/nanmuyao-tools/pingmock
 
 go 1.22
 

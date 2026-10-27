@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/nanmuyao/pingmock/client"
+	"github.com/nanmuyao-tools/pingmock/client"
 )
 
 // TestUnderPingmockExec runs only inside pingmock exec, the way users are

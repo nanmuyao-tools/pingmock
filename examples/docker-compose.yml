@@ -7,7 +7,7 @@
 # http://127.0.0.1:9100.
 services:
   pingmock:
-    image: ${PINGMOCK_IMAGE:-ghcr.io/nanmuyao/pingmock:latest}
+    image: ${PINGMOCK_IMAGE:-ghcr.io/nanmuyao-tools/pingmock:latest}
     cap_add: [NET_ADMIN]
     devices: [/dev/net/tun]
     command: ["-seed", "42", "-rule", "10.99.0.1=50ms", "-rule", "8.8.8.8=delay=120ms,jitter=10ms"]

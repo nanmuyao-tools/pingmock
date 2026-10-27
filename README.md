@@ -1,6 +1,6 @@
 # pingmock
 
-[![CI](https://github.com/nanmuyao/pingmock/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao/pingmock/actions/workflows/ci.yml)
+[![CI](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml)
 
 English | [中文](README.zh-CN.md)
 
@@ -24,7 +24,7 @@ Compared to `tc netem`, rules are set per **target address** rather than per int
 
 <!-- docker-demo -->
 ```bash
-docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao/pingmock -c '
+docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao-tools/pingmock -c '
   pingmock -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
   until wget -q -O /dev/null 127.0.0.1:9100/rules 2>/dev/null; do kill -0 $! 2>/dev/null || exit 1; sleep 0.1; done
   ping -c 6 -i 0.5 10.99.0.1; ping -c 2 -i 0.5 10.99.0.2'
@@ -87,29 +87,29 @@ Four things hold for everything pingmock does:
 
 pingmock is a single static binary and needs no other programs at runtime.
 
-**Download a prebuilt binary** (no Go required) from the [Releases](https://github.com/nanmuyao/pingmock/releases) page, for example:
+**Download a prebuilt binary** (no Go required) from the [Releases](https://github.com/nanmuyao-tools/pingmock/releases) page, for example:
 
 ```bash
-curl -L -o pingmock https://github.com/nanmuyao/pingmock/releases/latest/download/pingmock-linux-amd64
+curl -L -o pingmock https://github.com/nanmuyao-tools/pingmock/releases/latest/download/pingmock-linux-amd64
 chmod +x pingmock
 ```
 
 **Install with Go** (Go 1.22+):
 
 ```bash
-go install github.com/nanmuyao/pingmock@latest
+go install github.com/nanmuyao-tools/pingmock@latest
 ```
 
 **Container image** (amd64 and arm64), see [Docker](#docker):
 
 ```bash
-docker pull ghcr.io/nanmuyao/pingmock
+docker pull ghcr.io/nanmuyao-tools/pingmock
 ```
 
 **Build from source:**
 
 ```bash
-git clone https://github.com/nanmuyao/pingmock.git
+git clone https://github.com/nanmuyao-tools/pingmock.git
 cd pingmock
 go build -o pingmock .
 ```
@@ -697,11 +697,11 @@ On GitHub Actions' Ubuntu runners, do the same in a step before running tests; [
 
 ## Docker
 
-The image `ghcr.io/nanmuyao/pingmock` needs `NET_ADMIN` and the TUN device. Containers that share its network get their pings and connections mocked and reach the API at `127.0.0.1:9100`:
+The image `ghcr.io/nanmuyao-tools/pingmock` needs `NET_ADMIN` and the TUN device. Containers that share its network get their pings and connections mocked and reach the API at `127.0.0.1:9100`:
 
 ```bash
 docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
-  ghcr.io/nanmuyao/pingmock -rule 10.99.0.1=50ms
+  ghcr.io/nanmuyao-tools/pingmock -rule 10.99.0.1=50ms
 docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
 ```
 
@@ -868,14 +868,14 @@ The easiest way is to run the tests themselves under `pingmock exec`: no root, n
 
 ### Go
 
-Run the test binary inside pingmock with `go test -exec`, and control pingmock from the tests with the [`client`](https://pkg.go.dev/github.com/nanmuyao/pingmock/client) package:
+Run the test binary inside pingmock with `go test -exec`, and control pingmock from the tests with the [`client`](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client) package:
 
 ```bash
 go test -exec 'pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
 ```
 
 ```go
-import "github.com/nanmuyao/pingmock/client"
+import "github.com/nanmuyao-tools/pingmock/client"
 
 func TestPicksFastestServer(t *testing.T) {
 	pm, err := client.FromEnv()
@@ -907,7 +907,7 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-The client covers the whole API: rules (`SetRule`, `DeleteRule`, `SetDefault`), paths (`SetPath`, `DeletePath`), TCP, UDP and DNS rules (`SetTCP`, `DeleteTCP`, `SetUDP`, `DeleteUDP`, `SetDNS`, `DeleteDNS`), statistics (`State`, `Stats`, `TCPStats`, `UDPStats`, `DNSStats`, `ResetStats`), the history (`History`, `ClearHistory`), `Reset` to put everything back as at startup (for the beginning of each test) and `Version`; `New`, `FromEnv` and `URL` connect it, and `IsNotFound` tells a missing rule from other errors. See its [documentation](https://pkg.go.dev/github.com/nanmuyao/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
+The client covers the whole API: rules (`SetRule`, `DeleteRule`, `SetDefault`), paths (`SetPath`, `DeletePath`), TCP, UDP and DNS rules (`SetTCP`, `DeleteTCP`, `SetUDP`, `DeleteUDP`, `SetDNS`, `DeleteDNS`), statistics (`State`, `Stats`, `TCPStats`, `UDPStats`, `DNSStats`, `ResetStats`), the history (`History`, `ClearHistory`), `Reset` to put everything back as at startup (for the beginning of each test) and `Version`; `New`, `FromEnv` and `URL` connect it, and `IsNotFound` tells a missing rule from other errors. See its [documentation](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
 
 ### Other languages
 

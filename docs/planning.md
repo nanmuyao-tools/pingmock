@@ -211,7 +211,7 @@ The [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent compared
 | Trippy's TUN simulator covers IPv6 since 2026-02-08 | [Trippy #1741](https://github.com/fujiapple852/trippy/issues/1741) | Its standalone tool is still a draft ([#1551](https://github.com/fujiapple852/trippy/pull/1551)) |
 | The unmet needs of tc-based tools are several independent rules per target or port | [comcast #42](https://github.com/tylertreat/comcast/issues/42), Pumba #115 and #130, [Chaos Mesh #2295](https://github.com/chaos-mesh/chaos-mesh/issues/2295) | pingmock already has them on Linux |
 | Per-target filtering fails on macOS | [comcast #82](https://github.com/tylertreat/comcast/issues/82), [#44](https://github.com/tylertreat/comcast/issues/44), [#45](https://github.com/tylertreat/comcast/issues/45) | Evidence against a macOS port |
-| pingmock itself: 0 stars, 0 issues, 0 pull requests | `GET /repos/nanmuyao/pingmock` | Still no user feedback |
+| pingmock itself: 0 stars, 0 issues, 0 pull requests | `GET /repos/nanmuyao-tools/pingmock` | Still no user feedback |
 
 ### Competitors by technical route
 
@@ -276,7 +276,7 @@ dnsmasq tricks, test harnesses built on pasta, test helpers that run tc and nete
 
 ## Outside access for exec: technical selection, 23 October 2026
 
-The maintainer chose outside access for `pingmock exec` first among the items that wait for users, since it serves application developers, the largest group. The [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent compared the mechanisms with fifteen experiments in containers (Ubuntu 24.04 and 26.04, Alpine 3.20, Debian 12) and proposed the design that [v0.15.0](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.0) implements. The rows marked *checked* were rerun by hand.
+The maintainer chose outside access for `pingmock exec` first among the items that wait for users, since it serves application developers, the largest group. The [`pingmock-planning`](../.claude/agents/pingmock-planning.md) agent compared the mechanisms with fifteen experiments in containers (Ubuntu 24.04 and 26.04, Alpine 3.20, Debian 12) and proposed the design that [v0.15.0](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.0) implements. The rows marked *checked* were rerun by hand.
 
 | Mechanism | Result | Decision |
 |---|---|---|
@@ -301,7 +301,7 @@ Evidence of demand: none from users. The nearest is sandboxes for AI agents that
 The same agent, for about ten minutes, with two experiments.
 
 - **Feedback**: none. pingmock has no issues, pull requests or stars, and the Discussions page has no threads. None of the fourteen tracked external issues changed after 23 October.
-- **A bug** *(checked: reproduced)*. Under `pingmock exec -outside`, the real 1.1.1.1 answered 301; with a `refuse` rule, curl exited 7; after `DELETE` (204), it exited 28 and `1.1.1.1 dev pingmock0` was still routed. `POST /reset` did the same. The router only ever added routes (`internal/tun/tun_linux.go`). Fixed in [v0.15.1](https://github.com/nanmuyao/pingmock/releases/tag/v0.15.1): routes follow the rules.
+- **A bug** *(checked: reproduced)*. Under `pingmock exec -outside`, the real 1.1.1.1 answered 301; with a `refuse` rule, curl exited 7; after `DELETE` (204), it exited 28 and `1.1.1.1 dev pingmock0` was still routed. `POST /reset` did the same. The router only ever added routes (`internal/tun/tun_linux.go`). Fixed in [v0.15.1](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.1): routes follow the rules.
 - **Proxy demand** for the clients, from the package registries on 25 October: `toxiproxy-python` 25,613 downloads in the last month, `toxiproxy-node-client` 413,313, `@testcontainers/toxiproxy` about 322,000. These count users of a competitor's clients, not pingmock's.
 
 | Candidate | Users | Evidence | Decision |
@@ -315,7 +315,7 @@ The same agent, for about ten minutes, with two experiments.
 
 ## Next time
 
-1. **Start from users' feedback**: real needs in [Discussions](https://github.com/nanmuyao/pingmock/discussions) and issues come before any research
+1. **Start from users' feedback**: real needs in [Discussions](https://github.com/nanmuyao-tools/pingmock/discussions) and issues come before any research
 2. Rerun the compatibility tests with new versions of the tools and libraries, adding new common tools
 3. Check the issues cited in these rounds for progress: Trippy #1551, #1552, #1554; pro-bing #70, #195; Toxiproxy #447, #610, #17; Trippy #1741; comcast #42, #82; Chaos Mesh #2295; slirp4netns #361; asyncpg #1155
 4. Repeat the seven steps above and add the new evidence to this document

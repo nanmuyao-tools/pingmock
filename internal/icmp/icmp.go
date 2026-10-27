@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"net/netip"
 
-	"github.com/nanmuyao/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/pingmock/internal/rule"
 )
 
 // EchoRequest describes an echo request read from the TUN device.

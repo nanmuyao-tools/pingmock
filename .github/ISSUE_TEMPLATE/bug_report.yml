@@ -29,7 +29,7 @@ body:
       options:
         - pingmock exec (without root)
         - sudo pingmock
-        - Container image (ghcr.io/nanmuyao/pingmock)
+        - Container image (ghcr.io/nanmuyao-tools/pingmock)
         - Go client package only
     validations:
       required: true
