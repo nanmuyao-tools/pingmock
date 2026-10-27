@@ -21,6 +21,7 @@ pingmock 处在什么位置、接下来做什么、为什么，截至 2026 年 1
 | v0.17 | 用 netlink 替代 `ip` 命令：运行时不需要别的程序 |
 | v0.18 | 发给路径各跳的探测不再影响 ping |
 | v0.19 | 容器里没有权限的 root 也能用 `pingmock exec` |
+| v0.20 | 搬到 github.com/nanmuyao-tools/pingmock；其他系统上的程序通过 WireGuard 网关测试（文档） |
 
 ## 几个阶段
 

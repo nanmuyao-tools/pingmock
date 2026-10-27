@@ -1,6 +1,6 @@
 # TODO
 
-已发布 v0.19.0（见 [Releases](https://github.com/nanmuyao-tools/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则、v0.14.0 冻结前的整理、v0.15.0 `exec` 访问外网、v0.15.1 路由跟着规则走、v0.16.0 没有规则的连接记进历史、v0.17.0 用 netlink 替代 `ip` 命令、v0.18.0 路径的中间跳和 ping 分开、v0.19.0 容器里没有权限的 root 也能用 `exec`，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
+已发布 v0.20.0（见 [Releases](https://github.com/nanmuyao-tools/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则、v0.14.0 冻结前的整理、v0.15.0 `exec` 访问外网、v0.15.1 路由跟着规则走、v0.16.0 没有规则的连接记进历史、v0.17.0 用 netlink 替代 `ip` 命令、v0.18.0 路径的中间跳和 ping 分开、v0.19.0 容器里没有权限的 root 也能用 `exec`、v0.20.0 搬到 nanmuyao-tools 并写了 WireGuard 网关，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
 接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
 
@@ -324,6 +324,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
   - 网关（实测，Docker Desktop 的 arm64 虚拟机，两端都是 Linux 容器，v0.19.0 发布版不改代码）：设备经 WireGuard 发来的 ping 50ms 的规则测得 51.0–53.6ms，`unreachable` 的 8.8.8.8 得到主机不可达，80 端口 `refuse` 得到 `ECONNREFUSED`，历史的 `src` 是设备的隧道地址 10.13.13.2；traceroute 的 UDP 和 ICMP 模式都先显示网关 10.13.13.1，再是路径的各跳和目标（往后挪一跳），回应的 TTL 是 63。网关把 FORWARD 设为 DROP 时 ping 全丢，放行 wg0 和 pingmock0 之间的转发后恢复。agent 另外测到：中间跳的地址不在设备的 AllowedIPs 里时显示 `*`；网关做 NAT 时连接跟踪丢掉并行的 ICMP 探测（`traceroute -I` 6 次全错，加 `notrack` 后 6 次全对，不做 NAT 时 4 次全对，我重跑的不做 NAT 的那次也对）
   - 没有测：真实的 macOS、iOS、Android、Windows 客户端，手机经 Wi-Fi 连 Docker Desktop 发布的 51820/udp，amd64 和真实的 Linux 宿主机
   - 等用户要了再做：pingmock 内置用户态 WireGuard（wireguard-go 原型在没有任何权限、Docker 默认 seccomp 的容器里回答了 ping，50ms 测得 50.4–58.3ms；接 `Responder.Serve(io.ReadWriter)`；代价是 wireguard-go、x/crypto、x/net、x/sys 四个依赖，二进制多约 0.46MB，`go` 要升到 1.23.1，wireguard-go 的 tag 没有 `v` 前缀只能用伪版本；入口、客户端配置的生成、网关下的 DNS、多台设备的随机序列都要先和维护者定）。系统调用拦截（Docker 默认 seccomp 下 ptrace、seccomp 用户通知、`ADDFD`、`process_vm_readv` 可用，`unshare`、`pidfd_getfd`、io_uring 被拒；seccomp 用户通知必须设 no_new_privs，于是 setcap 的 ping 拿不到 `CAP_NET_RAW`；每次拦截约 51µs；要在用户态模拟大半个套接字层，端到端的 ping 原型没做完）
+  - [x] [v0.20.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.20.0)，同时仓库从 nanmuyao 搬到 nanmuyao-tools 组织（维护者，2026-10-27）：模块路径、import、链接和镜像名都改成 `nanmuyao-tools`；v0.19.0 的镜像由维护者重跑发版的 image 任务推到新地址。验证：SHA256SUMS 校验通过，arm64 二进制在 Ubuntu 24.04 容器里输出 `pingmock v0.20.0`；`golang:1.25` 容器里 `go install github.com/nanmuyao-tools/pingmock@latest` 装出 v0.20.0；不登录拉 `ghcr.io/nanmuyao-tools/pingmock:v0.20.0` 输出 `pingmock v0.20.0`；两个 Go 示例 `go mod tidy` 从 proxy 取到 v0.20.0。旧路径的 v0.19.0 及更早版本仍可用旧模块名安装
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文。**暂缓**（维护者，2026-10-23）：「不用考虑兼容性，项目还是内部开发阶段」。在那之前改动不必保持兼容，也不用为冻结做决定；镜像 API 的默认地址因此不再是 v1.0 前必须定的事，只在文档里提醒
 
 **维护者的决定**（括号里是当时 agent 的推荐；结果写在每项后面）：
