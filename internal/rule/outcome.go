@@ -19,14 +19,14 @@ const (
 	// For TCP rules:
 	Refused // TCP RST: the connection is refused
 	// For TCP rules, on a connection already accepted (see After):
-	Closed // TCP FIN: pingmock closed the connection
-	Reset  // TCP RST: pingmock reset the connection
+	Closed // TCP FIN: ghostwire closed the connection
+	Reset  // TCP RST: ghostwire reset the connection
 	Sent   // bytes of send= or reply= on the connection
 	// For DNS rules:
 	NXDomain // the name does not exist
 	ServFail // the server failed
 	// For a TCP or UDP probe to a mocked address on a port that no rule
-	// covers, and no path: pingmock does not answer, but records it.
+	// covers, and no path: ghostwire does not answer, but records it.
 	Ignored
 )
 
@@ -60,7 +60,7 @@ func (o Outcome) String() string {
 	return "reply"
 }
 
-// After is what pingmock does on a TCP connection it accepted.
+// After is what ghostwire does on a TCP connection it accepted.
 type After uint8
 
 const (

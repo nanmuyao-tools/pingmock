@@ -1,4 +1,4 @@
-module github.com/nanmuyao-tools/pingmock/test/compat
+module github.com/nanmuyao-tools/ghostwire/test/compat
 
 go 1.25.0
 

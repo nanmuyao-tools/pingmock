@@ -1,9 +1,9 @@
-// Tests of a ping library's behavior, run inside pingmock exec:
+// Tests of a ping library's behavior, run inside ghostwire exec:
 //
-//	go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+//	go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...
 //
 // The library under test is pro-bing, as it is: nothing here is mocked
-// except the network. pingmock.yaml defines one host per behavior (answers,
+// except the network. ghostwire.yaml defines one host per behavior (answers,
 // never answers, unreachable, loses every other ping, TTL 128), so each
 // test pings the host it is about and checks what the library reports.
 package pinglib_test
@@ -17,9 +17,9 @@ import (
 	probing "github.com/prometheus-community/pro-bing"
 )
 
-// pingmock connects to the pingmock running the tests, or skips the test
+// ghostwire connects to the ghostwire running the tests, or skips the test
 // when there is none.
-func pingmock(t *testing.T) *client.Client {
+func ghostwire(t *testing.T) *client.Client {
 	t.Helper()
 	pm, err := client.FromEnv()
 	if err != nil {
@@ -29,7 +29,7 @@ func pingmock(t *testing.T) *client.Client {
 }
 
 // pinger returns a pinger for host that sends count pings 100ms apart and
-// gives up after timeout. It uses a raw socket: inside pingmock exec the
+// gives up after timeout. It uses a raw socket: inside ghostwire exec the
 // test process is root in its own user namespace, so no sudo is needed.
 func pinger(t *testing.T, host string, count int, timeout time.Duration) *probing.Pinger {
 	t.Helper()
@@ -42,7 +42,7 @@ func pinger(t *testing.T, host string, count int, timeout time.Duration) *probin
 	return p
 }
 
-// history returns what pingmock recorded for host: one event per request
+// history returns what ghostwire recorded for host: one event per request
 // the library sent, with how it was answered.
 func history(t *testing.T, pm *client.Client, host string) []client.Event {
 	t.Helper()
@@ -54,7 +54,7 @@ func history(t *testing.T, pm *client.Client, host string) []client.Event {
 }
 
 func TestRepliesGiveTheRtt(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	p := pinger(t, "10.99.0.1", 4, 5*time.Second)
 	if err := p.Run(); err != nil {
 		t.Fatal(err)
@@ -70,12 +70,12 @@ func TestRepliesGiveTheRtt(t *testing.T) {
 	}
 	// The library sent exactly what it says it sent.
 	if events := history(t, pm, "10.99.0.1"); len(events) != 4 {
-		t.Errorf("pingmock saw %d requests, want 4", len(events))
+		t.Errorf("ghostwire saw %d requests, want 4", len(events))
 	}
 }
 
 func TestTimeoutEndsTheRun(t *testing.T) {
-	pingmock(t)
+	ghostwire(t)
 	// 10.99.0.2 never answers. Run must come back when Timeout is over, not
 	// hang until Count replies arrive, which they never will.
 	p := pinger(t, "10.99.0.2", 4, time.Second)
@@ -98,7 +98,7 @@ func TestTimeoutEndsTheRun(t *testing.T) {
 }
 
 func TestUnreachableLooksLikeLoss(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	// 10.99.0.3 answers every ping at once with "destination host
 	// unreachable". pro-bing only counts echo replies, so to it the host is
 	// as silent as 10.99.0.2, and Run again lasts until the timeout.
@@ -113,11 +113,11 @@ func TestUnreachableLooksLikeLoss(t *testing.T) {
 	if s := p.Statistics(); s.PacketsRecv != 0 {
 		t.Errorf("received %d, want 0: unreachable errors are not replies", s.PacketsRecv)
 	}
-	// pingmock shows the difference the library cannot: every request was
+	// ghostwire shows the difference the library cannot: every request was
 	// answered, with an error.
 	events := history(t, pm, "10.99.0.3")
 	if len(events) < 4 {
-		t.Fatalf("pingmock saw %d requests, want at least 4", len(events))
+		t.Fatalf("ghostwire saw %d requests, want at least 4", len(events))
 	}
 	for _, e := range events {
 		if e.Result != "unreachable" || e.Code != "host" {
@@ -127,7 +127,7 @@ func TestUnreachableLooksLikeLoss(t *testing.T) {
 }
 
 func TestLossIsCounted(t *testing.T) {
-	pingmock(t)
+	ghostwire(t)
 	// 10.99.0.4 answers one ping and loses the next, deterministically, so
 	// the numbers are the same on every run. Count counts replies, so with
 	// loss the run lasts until the timeout: 6 pings go out in 600ms.
@@ -142,7 +142,7 @@ func TestLossIsCounted(t *testing.T) {
 }
 
 func TestTTLIsReported(t *testing.T) {
-	pingmock(t)
+	ghostwire(t)
 	// 10.99.0.5 answers with TTL 128. The TTL reaches the OnRecv callback
 	// and the statistics.
 	p := pinger(t, "10.99.0.5", 3, 5*time.Second)

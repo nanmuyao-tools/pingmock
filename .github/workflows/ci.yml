@@ -24,7 +24,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: stable
-      # What pingmock depends on that differs between images, so that a
+      # What ghostwire depends on that differs between images, so that a
       # failure on one image can be compared with a success on the other.
       - name: Environment
         run: |
@@ -48,9 +48,9 @@ jobs:
       - name: Unit tests
         run: go test -race -count=1 ./...
       - name: Build
-        run: go build -o pingmock .
+        run: go build -o ghostwire .
       # traceroute and mtr, for the path checks of the end-to-end tests,
-      # nscd for a check of pingmock exec, and passt for its pasta, which
+      # nscd for a check of ghostwire exec, and passt for its pasta, which
       # -outside needs; the check starts nscd itself, so it is stopped for
       # everything else. Whether pasta came with the image is printed, since
       # users of -outside may rely on it.
@@ -65,23 +65,23 @@ jobs:
         run: sudo REQUIRE_IPV6=1 test/e2e.sh
       # Ubuntu 24.04 and later restrict unprivileged user namespaces with
       # AppArmor.
-      # Allow them for pingmock only, with the profile users are told to
+      # Allow them for ghostwire only, with the profile users are told to
       # install, rather than lifting the restriction for everything.
       - name: Install the AppArmor profile
         run: |
-          sed "s|profile pingmock /usr/local/bin/pingmock|profile pingmock $PWD/pingmock|" \
-            contrib/apparmor/pingmock | sudo tee /etc/apparmor.d/pingmock
-          sudo apparmor_parser -r /etc/apparmor.d/pingmock
+          sed "s|profile ghostwire /usr/local/bin/ghostwire|profile ghostwire $PWD/ghostwire|" \
+            contrib/apparmor/ghostwire | sudo tee /etc/apparmor.d/ghostwire
+          sudo apparmor_parser -r /etc/apparmor.d/ghostwire
       # REQUIRE_OUTSIDE=1: the checks of -outside must run, not be skipped.
-      - name: pingmock exec, rootless
+      - name: ghostwire exec, rootless
         run: REQUIRE_OUTSIDE=1 test/e2e-exec.sh
       # The way users test Go code: the whole test binary runs inside
-      # pingmock exec. Require a PASS, since outside exec the test skips.
-      - name: go test -exec 'pingmock exec', rootless
+      # ghostwire exec. Require a PASS, since outside exec the test skips.
+      - name: go test -exec 'ghostwire exec', rootless
         run: |
-          go test -count=1 -v -exec "$PWD/pingmock exec -addr6= --" -run TestUnderPingmockExec ./client | tee test.out
-          grep -q -- '--- PASS: TestUnderPingmockExec' test.out
-      - name: pingmock exec, as root
+          go test -count=1 -v -exec "$PWD/ghostwire exec -addr6= --" -run TestUnderGhostwireExec ./client | tee test.out
+          grep -q -- '--- PASS: TestUnderGhostwireExec' test.out
+      - name: ghostwire exec, as root
         run: sudo REQUIRE_OUTSIDE=1 test/e2e-exec.sh
 
   # The checks that matter less often: the examples users copy from and
@@ -99,7 +99,7 @@ jobs:
         with:
           go-version: stable
       - name: Build
-        run: go build -o pingmock .
+        run: go build -o ghostwire .
       - name: Install fping
         run: |
           sudo apt-get update -q
@@ -108,17 +108,17 @@ jobs:
       # As in the test job.
       - name: Install the AppArmor profile
         run: |
-          sed "s|profile pingmock /usr/local/bin/pingmock|profile pingmock $PWD/pingmock|" \
-            contrib/apparmor/pingmock | sudo tee /etc/apparmor.d/pingmock
-          sudo apparmor_parser -r /etc/apparmor.d/pingmock
+          sed "s|profile ghostwire /usr/local/bin/ghostwire|profile ghostwire $PWD/ghostwire|" \
+            contrib/apparmor/ghostwire | sudo tee /etc/apparmor.d/ghostwire
+          sudo apparmor_parser -r /etc/apparmor.d/ghostwire
       # The example users copy from, run against the code in this commit
       # rather than the release its go.mod names. A skipped test means it
-      # did not run under pingmock, so that fails too.
+      # did not run under ghostwire, so that fails too.
       - name: Go example, rootless
         working-directory: examples/go-demo
         run: |
-          go mod edit -replace github.com/nanmuyao-tools/pingmock=../..
-          go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
+          go mod edit -replace github.com/nanmuyao-tools/ghostwire=../..
+          go test -count=1 -v -exec "$GITHUB_WORKSPACE/ghostwire exec -config ghostwire.yaml --" ./... | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out
       # The ping-library example, likewise: pro-bing's raw socket must work
@@ -126,8 +126,8 @@ jobs:
       - name: Ping-library example, rootless
         working-directory: examples/pinglib-demo
         run: |
-          go mod edit -replace github.com/nanmuyao-tools/pingmock=../..
-          go test -count=1 -v -exec "$GITHUB_WORKSPACE/pingmock exec -config pingmock.yaml --" ./... | tee test.out
+          go mod edit -replace github.com/nanmuyao-tools/ghostwire=../..
+          go test -count=1 -v -exec "$GITHUB_WORKSPACE/ghostwire exec -config ghostwire.yaml --" ./... | tee test.out
           grep -q -- '--- PASS' test.out
           ! grep -E -- '--- (SKIP|FAIL)' test.out
       - uses: actions/setup-python@v7
@@ -139,13 +139,13 @@ jobs:
         working-directory: examples/python-demo
         run: |
           pip install -r requirements.txt
-          "$GITHUB_WORKSPACE/pingmock" exec -config pingmock.yaml -- python -m pytest -v -p no:cacheprovider | tee test.out
+          "$GITHUB_WORKSPACE/ghostwire" exec -config ghostwire.yaml -- python -m pytest -v -p no:cacheprovider | tee test.out
           tail -n 1 test.out | grep -E '^=+ [0-9]+ passed in [0-9.]+s =+$'
       # And for the shell example: a skip prints SKIP, not a summary.
       - name: Shell example, rootless
         working-directory: examples/shell-demo
         run: |
-          "$GITHUB_WORKSPACE/pingmock" exec -config pingmock.yaml -- ./test.sh | tee test.out
+          "$GITHUB_WORKSPACE/ghostwire" exec -config ghostwire.yaml -- ./test.sh | tee test.out
           tail -n 1 test.out | grep -E '^[0-9]+ passed, 0 failed$'
       # Common ping tools and libraries, each with raw sockets and, for the
       # libraries, unprivileged ping sockets too.
@@ -175,9 +175,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
 
-  # Runs the steps of examples/github-actions/pingmock-tests.yml exactly as
+  # Runs the steps of examples/github-actions/ghostwire-tests.yml exactly as
   # written there, so that the workflow users copy is known to work. Like
-  # that workflow, it installs the release named in its PINGMOCK_VERSION;
+  # that workflow, it installs the release named in its GHOSTWIRE_VERSION;
   # the tests are those of examples/go-demo, which uses the same release.
   # GOFLAGS=-v lists the tests, so that skipped ones fail this job.
   workflow-example:
@@ -194,7 +194,7 @@ jobs:
       - name: The GitHub Actions example's steps
         run: |
           # Absolute: the steps run in other directories.
-          wf="$GITHUB_WORKSPACE/examples/github-actions/pingmock-tests.yml"
+          wf="$GITHUB_WORKSPACE/examples/github-actions/ghostwire-tests.yml"
           run_step() {
             local script
             script=$(yq ".jobs.test.steps[] | select(.name == \"$1\") | .run" "$wf")
@@ -204,10 +204,10 @@ jobs:
             fi
             bash -e -c "$script"
           }
-          PINGMOCK_VERSION=$(yq '.env.PINGMOCK_VERSION' "$wf")
-          export PINGMOCK_VERSION
-          (cd "$RUNNER_TEMP" && run_step "Install pingmock")
-          run_step "Allow pingmock to create user namespaces"
+          GHOSTWIRE_VERSION=$(yq '.env.GHOSTWIRE_VERSION' "$wf")
+          export GHOSTWIRE_VERSION
+          (cd "$RUNNER_TEMP" && run_step "Install ghostwire")
+          run_step "Allow ghostwire to create user namespaces"
           cd examples/go-demo
           GOFLAGS=-v run_step "Test" | tee test.out
           grep -q -- '--- PASS' test.out
@@ -227,10 +227,10 @@ jobs:
       # The container's user gets the runner's uid, so that it can write
       # to the checked-out repository, which is bind-mounted.
       - name: Build the development container
-        run: docker build --build-arg UID="$(id -u)" -t pingmock-dev -f .devcontainer/Dockerfile .
+        run: docker build --build-arg UID="$(id -u)" -t ghostwire-dev -f .devcontainer/Dockerfile .
       # Ubuntu's AppArmor restriction on unprivileged user namespaces
       # applies inside containers too, where the host's profile for
-      # pingmock cannot help. Lift it for this job: a Mac has no such
+      # ghostwire cannot help. Lift it for this job: a Mac has no such
       # restriction, and the test job covers it with the profile.
       - name: Allow user namespaces in containers
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -238,5 +238,5 @@ jobs:
         run: |
           docker run --rm --cap-add NET_ADMIN --cap-add SYS_ADMIN --device /dev/net/tun \
             --security-opt apparmor=unconfined \
-            -v "$PWD:/workspace" -w /workspace pingmock-dev \
+            -v "$PWD:/workspace" -w /workspace ghostwire-dev \
             bash -c 'make lint && make test && make e2e-all'

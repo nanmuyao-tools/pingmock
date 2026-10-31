@@ -27,9 +27,9 @@ func TestParseUDPScenario(t *testing.T) {
 		}
 	}
 	for bad, want := range map[string]string{
-		"20ms":                      "pingmock sends no UDP answers",
-		"loss=30%":                  "pingmock sends no UDP answers",
-		"refuse for 1 request; 5ms": "pingmock sends no UDP answers",
+		"20ms":                      "ghostwire sends no UDP answers",
+		"loss=30%":                  "ghostwire sends no UDP answers",
+		"refuse for 1 request; 5ms": "ghostwire sends no UDP answers",
 		"pattern=.r":                "may only contain 'x'",
 		"after=close":               "TCP rules",
 		`reply="x",refuse`:          "TCP rules",

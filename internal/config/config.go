@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // Config is the configuration file loaded with -config. Every field is
@@ -33,7 +33,7 @@ type Config struct {
 	History *int                     `json:"history"`
 	Default *rule.Scenario           `json:"default"`
 	Rules   map[string]rule.Scenario `json:"rules"`
-	// Hosts maps names to addresses for pingmock exec, which resolves
+	// Hosts maps names to addresses for ghostwire exec, which resolves
 	// them for the command through a private /etc/hosts:
 	//
 	//	hosts:
@@ -55,13 +55,13 @@ type Config struct {
 	//	udp:
 	//	  10.99.0.1:514: refuse
 	UDP map[string]rule.UDPScenario `json:"udp"`
-	// DNS gives names DNS rules, for pingmock exec:
+	// DNS gives names DNS rules, for ghostwire exec:
 	//
 	//	dns:
 	//	  api.example.com: nxdomain
 	//	  backup.example.com: servfail for 2 requests; 10ms
 	DNS map[string]rule.DNSScenario `json:"dns"`
-	// Outside gives the command of pingmock exec the host's network; see
+	// Outside gives the command of ghostwire exec the host's network; see
 	// Outside.
 	Outside *Outside `json:"outside"`
 }
@@ -197,7 +197,7 @@ type Rule struct {
 	Scenario rule.Scenario
 }
 
-// Host is a name that pingmock exec resolves to an address.
+// Host is a name that ghostwire exec resolves to an address.
 type Host struct {
 	Name string
 	Addr netip.Addr

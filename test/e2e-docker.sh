@@ -3,8 +3,8 @@
 #   test/e2e-docker.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
-IMAGE=pingmock:e2e
-NAME=pingmock-e2e-$$
+IMAGE=ghostwire:e2e
+NAME=ghostwire-e2e-$$
 
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; echo "--- container log:"; docker logs "$NAME" 2>&1 | tail -n 20 || true; exit 1; }
@@ -19,13 +19,13 @@ near() {
 DEMO=examples/compose-demo/compose.yaml
 cleanup() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
-  PINGMOCK_IMAGE=$IMAGE docker compose -f examples/docker-compose.yml down >/dev/null 2>&1 || true
-  PINGMOCK_IMAGE=$IMAGE docker compose -f "$DEMO" --profile tests down >/dev/null 2>&1 || true
+  GHOSTWIRE_IMAGE=$IMAGE docker compose -f examples/docker-compose.yml down >/dev/null 2>&1 || true
+  GHOSTWIRE_IMAGE=$IMAGE docker compose -f "$DEMO" --profile tests down >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 docker build -q -t "$IMAGE" --build-arg VERSION=e2e . >/dev/null
-same "the image reports its version" "$(docker run --rm "$IMAGE" -version)" "pingmock e2e"
+same "the image reports its version" "$(docker run --rm "$IMAGE" -version)" "ghostwire e2e"
 
 docker run -d --name "$NAME" --cap-add NET_ADMIN --device /dev/net/tun "$IMAGE" \
   -rule 10.99.0.1=40ms -rule 10.99.0.2=unreachable >/dev/null
@@ -34,9 +34,9 @@ for _ in $(seq 50); do
   sleep 0.2
 done
 docker exec "$NAME" wget -q -O /dev/null http://127.0.0.1:9100/rules || fail "the API did not come up"
-pass "pingmock starts in a container"
+pass "ghostwire starts in a container"
 
-# A second container sharing pingmock's network gets its pings mocked.
+# A second container sharing ghostwire's network gets its pings mocked.
 peer() { docker run --rm --network "container:$NAME" --entrypoint "$1" "$IMAGE" "${@:2}"; }
 avg=$(peer ping -c 3 -i 0.2 10.99.0.1 | awk -F/ '/^rtt/ {print $5}')
 near "ping from a container sharing the network" "$avg" 40 5
@@ -46,30 +46,30 @@ seed=$(peer wget -q -O - http://127.0.0.1:9100/rules | grep -c '"seed"' || true)
 same "the API is reachable from the sharing container" "$seed" 1
 docker rm -f "$NAME" >/dev/null
 
-# pingmock exec as the image's root, which lacks CAP_SYS_ADMIN and
+# ghostwire exec as the image's root, which lacks CAP_SYS_ADMIN and
 # CAP_NET_ADMIN unless the container is given them: it then creates a user
 # namespace, as other users do. Docker's default seccomp profile forbids
-# that too, and pingmock exec says what the container needs.
-inside() { docker run --rm "$@" --entrypoint pingmock "$IMAGE" exec -rule 10.99.0.1=40ms -- ping -c 3 -i 0.2 10.99.0.1; }
+# that too, and ghostwire exec says what the container needs.
+inside() { docker run --rm "$@" --entrypoint ghostwire "$IMAGE" exec -rule 10.99.0.1=40ms -- ping -c 3 -i 0.2 10.99.0.1; }
 avg=$(inside --security-opt seccomp=unconfined --device /dev/net/tun 2>/dev/null | awk -F/ '/^rtt/ {print $5}')
-near "pingmock exec as root without the capabilities" "$avg" 40 5
+near "ghostwire exec as root without the capabilities" "$avg" 40 5
 avg=$(inside --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun 2>/dev/null | awk -F/ '/^rtt/ {print $5}')
-near "pingmock exec as root with the capabilities" "$avg" 40 5
+near "ghostwire exec as root with the capabilities" "$avg" 40 5
 status=0
 msg=$(inside --device /dev/net/tun 2>&1) || status=$?
-same "pingmock exec under the default seccomp profile exits with" "$status" 125
-grep -q -- '--cap-add SYS_ADMIN --cap-add NET_ADMIN' <<<"$msg" && pass "pingmock exec names the capabilities to add" ||
+same "ghostwire exec under the default seccomp profile exits with" "$status" 125
+grep -q -- '--cap-add SYS_ADMIN --cap-add NET_ADMIN' <<<"$msg" && pass "ghostwire exec names the capabilities to add" ||
   fail "no advice under the default seccomp profile: $msg"
 msg=$(inside --cap-add SYS_ADMIN --cap-add NET_ADMIN 2>&1) || true
-grep -q -- '--device /dev/net/tun' <<<"$msg" && pass "pingmock exec asks for the TUN device" ||
+grep -q -- '--device /dev/net/tun' <<<"$msg" && pass "ghostwire exec asks for the TUN device" ||
   fail "no advice without the TUN device: $msg"
 
 # The Compose example, with the image just built.
 status=0
-PINGMOCK_IMAGE=$IMAGE docker compose -f examples/docker-compose.yml up \
+GHOSTWIRE_IMAGE=$IMAGE docker compose -f examples/docker-compose.yml up \
   --abort-on-container-exit --exit-code-from app >/tmp/compose.log 2>&1 || status=$?
 if [ "$status" != 0 ]; then echo "--- compose log:"; tail -n 30 /tmp/compose.log; fi
-same "the Compose example runs the app against pingmock" "$status" 0
+same "the Compose example runs the app against ghostwire" "$status" 0
 grep -q 'time=5[0-9]' /tmp/compose.log && pass "the Compose app sees the 50ms rule" || fail "no 50ms replies in the Compose output"
 
 # The one-command demo at the top of the READMEs, taken from them as written
@@ -80,8 +80,8 @@ demo_en=$(readme_demo README.md)
 demo_zh=$(readme_demo README.zh-CN.md)
 [ -n "$demo_en" ] || fail "no <!-- docker-demo --> block in README.md"
 same "the Docker demo command is the same in both READMEs" "$demo_zh" "$demo_en"
-for image in "$IMAGE" ghcr.io/nanmuyao-tools/pingmock; do
-  cmd=${demo_en//ghcr.io\/nanmuyao-tools\/pingmock/$image}
+for image in "$IMAGE" ghcr.io/nanmuyao-tools/ghostwire; do
+  cmd=${demo_en//ghcr.io\/nanmuyao-tools\/ghostwire/$image}
   # The demo ends with a ping to an unreachable host, so it exits with
   # ping's status 1; what it shows is what is checked.
   out=$(bash -c "$cmd" 2>&1) || true
@@ -99,7 +99,7 @@ done
 
 # examples/compose-demo: the tests on their own, then the monitor reacting
 # to a rule changed from the host, as its README shows.
-demo() { PINGMOCK_IMAGE=$IMAGE docker compose -f "$DEMO" "$@"; }
+demo() { GHOSTWIRE_IMAGE=$IMAGE docker compose -f "$DEMO" "$@"; }
 demo_fail() { echo "FAIL $1"; demo --profile tests logs 2>&1 | tail -n 30; exit 1; }
 status=0
 demo run --rm --build tests >/tmp/compose-demo-tests.log 2>&1 || status=$?

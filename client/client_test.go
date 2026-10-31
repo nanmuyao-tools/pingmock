@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/api"
-	"github.com/nanmuyao-tools/pingmock/internal/engine"
-	"github.com/nanmuyao-tools/pingmock/internal/icmp"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/api"
+	"github.com/nanmuyao-tools/ghostwire/internal/engine"
+	"github.com/nanmuyao-tools/ghostwire/internal/icmp"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // serve runs the real API handler, so the client is tested against the
@@ -325,7 +325,7 @@ func TestUDPRules(t *testing.T) {
 	}
 }
 
-// The facts pingmock exec sets up at startup, such as its outside access,
+// The facts ghostwire exec sets up at startup, such as its outside access,
 // come with the state; without them, Outside is nil.
 func TestStateOutside(t *testing.T) {
 	c, _, _ := serve(t)

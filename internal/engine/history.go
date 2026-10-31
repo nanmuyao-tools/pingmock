@@ -27,8 +27,8 @@ type Event struct {
 	// For TCP probes.
 	Port   uint16 `json:"port,omitempty"`   // the destination port
 	Repeat bool   `json:"repeat,omitempty"` // a SYN sent again for an attempt already answered; not counted again
-	Bytes  int    `json:"bytes,omitempty"`  // for "sent": the bytes of send= or reply= pingmock sent
-	// For DNS queries, under pingmock exec.
+	Bytes  int    `json:"bytes,omitempty"`  // for "sent": the bytes of send= or reply= ghostwire sent
+	// For DNS queries, under ghostwire exec.
 	Name  string `json:"name,omitempty"`  // the name asked for
 	QType string `json:"qtype,omitempty"` // "A", "AAAA", ...
 }

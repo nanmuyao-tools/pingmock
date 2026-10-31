@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这个示例演示怎样用 pingmock 测试一段**依赖 ping 延迟做决定**的 Go 代码。被测代码完全不知道 pingmock 的存在，测试时也不需要修改它，也不需要 root。
+这个示例演示怎样用 ghostwire 测试一段**依赖 ping 延迟做决定**的 Go 代码。被测代码完全不知道 ghostwire 的存在，测试时也不需要修改它，也不需要 root。
 
 ## 被测代码
 
@@ -19,19 +19,19 @@
 
 ## 运行测试
 
-需要先[安装 pingmock](../../README.zh-CN.md#安装)。然后在这个目录下执行：
+需要先[安装 ghostwire](../../README.zh-CN.md#安装)。然后在这个目录下执行：
 
 ```bash
-go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...
 ```
 
-`go test -exec` 会把编译好的测试程序交给 `pingmock exec` 运行，于是测试运行在 pingmock 的独立网络里：[`pingmock.yaml`](pingmock.yaml) 设置了三台模拟服务器，测试代码再通过 pingmock 的 [Go 客户端](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client)按需添加其他网络状况。
+`go test -exec` 会把编译好的测试程序交给 `ghostwire exec` 运行，于是测试运行在 ghostwire 的独立网络里：[`ghostwire.yaml`](ghostwire.yaml) 设置了三台模拟服务器，测试代码再通过 ghostwire 的 [Go 客户端](https://pkg.go.dev/github.com/nanmuyao-tools/ghostwire/client)按需添加其他网络状况。
 
-不在 pingmock 下运行时（比如直接 `go test ./...`），测试会自动跳过，不会失败。
+不在 ghostwire 下运行时（比如直接 `go test ./...`），测试会自动跳过，不会失败。
 
 ## 每个测试演示了什么
 
-| 测试 | 模拟的网络状况 | 用到的 pingmock 功能 |
+| 测试 | 模拟的网络状况 | 用到的 ghostwire 功能 |
 |---|---|---|
 | `TestPicksFastest` | 三台服务器分别是 80ms、20ms、50ms | [配置文件](../../README.zh-CN.md#配置文件)里的规则 |
 | `TestSkipsUnreachableServer` | 最快的服务器返回"目标不可达" | `unreachable` |
@@ -47,11 +47,11 @@ go test -exec 'pingmock exec -config pingmock.yaml --' ./...
 
 ## 运行命令行程序
 
-在 pingmock 的网络里运行 `cmd/fastest`，可以直观地看到网络状况怎样改变程序的选择：
+在 ghostwire 的网络里运行 `cmd/fastest`，可以直观地看到网络状况怎样改变程序的选择：
 
 ```bash
 go build -o fastest ./cmd/fastest
-pingmock exec -config pingmock.yaml -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
+ghostwire exec -config ghostwire.yaml -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
 ```
 
 ```
@@ -64,7 +64,7 @@ fastest: 10.99.0.2
 不改代码，只让最快的服务器丢包，程序就会改选另一台：
 
 ```bash
-pingmock exec -config pingmock.yaml -rule '10.99.0.2=delay=20ms,pattern=.x' -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
+ghostwire exec -config ghostwire.yaml -rule '10.99.0.2=delay=20ms,pattern=.x' -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
 ```
 
 ```
@@ -74,12 +74,12 @@ pingmock exec -config pingmock.yaml -rule '10.99.0.2=delay=20ms,pattern=.x' -- .
 fastest: 10.99.0.3
 ```
 
-**先编译，再运行。** `pingmock exec` 里的程序没有外网访问，所以如果在里面执行 `go run`，而它需要下载依赖，就会因为 `network is unreachable` 而失败。先在外面 `go build`（或 `go mod download`）就不会有这个问题。`go test -exec` 总是先编译再运行，所以不受影响。
+**先编译，再运行。** `ghostwire exec` 里的程序没有外网访问，所以如果在里面执行 `go run`，而它需要下载依赖，就会因为 `network is unreachable` 而失败。先在外面 `go build`（或 `go mod download`）就不会有这个问题。`go test -exec` 总是先编译再运行，所以不受影响。
 
 ## 用到自己的项目里
 
-1. 在测试中用 `client.FromEnv()` 连接 pingmock，出错时 `t.Skip`，参考 [`fastest_test.go`](fastest_test.go) 中的 `pingmock` 函数
+1. 在测试中用 `client.FromEnv()` 连接 ghostwire，出错时 `t.Skip`，参考 [`fastest_test.go`](fastest_test.go) 中的 `ghostwire` 函数
 2. 写一个配置文件，列出测试开始时的网络状况；每个测试需要的额外状况，用 `SetRule`（连接用 `SetTCP`）添加，用 `t.Cleanup` 删除
-3. 用 `go test -exec 'pingmock exec -config pingmock.yaml --' ./...` 运行测试；在 CI 中也这样运行。[`examples/github-actions`](../github-actions/README.zh-CN.md) 是一份可以直接复制的配置
+3. 用 `go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...` 运行测试；在 CI 中也这样运行。[`examples/github-actions`](../github-actions/README.zh-CN.md) 是一份可以直接复制的配置
 
 配置文件里设置了 `seed: 42`，所以即使用了随机的丢包和抖动，每次运行的结果也都一样。

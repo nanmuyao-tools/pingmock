@@ -1,4 +1,4 @@
-"""A small client for pingmock's control API, as a pytest fixture.
+"""A small client for ghostwire's control API, as a pytest fixture.
 
 It uses only the standard library, so the tests need nothing but pytest.
 """
@@ -11,8 +11,8 @@ import urllib.request
 import pytest
 
 
-class Pingmock:
-    """Changes pingmock's rules and reads what happened, over HTTP."""
+class Ghostwire:
+    """Changes ghostwire's rules and reads what happened, over HTTP."""
 
     def __init__(self, url):
         self.url = url.rstrip("/")
@@ -25,7 +25,7 @@ class Pingmock:
         return json.loads(text) if text else None
 
     def version(self):
-        """The version of the running pingmock, such as "vX.Y.Z"."""
+        """The version of the running ghostwire, such as "vX.Y.Z"."""
         return self._call("GET", "/version")["version"]
 
     def rules(self):
@@ -45,7 +45,7 @@ class Pingmock:
         self._call("PUT", "/dns/" + urllib.parse.quote(name), rule)
 
     def history(self, target):
-        """The requests pingmock received for target, oldest first."""
+        """The requests ghostwire received for target, oldest first."""
         return self._call("GET", "/history?target=" + urllib.parse.quote(target))["events"]
 
     def clear_history(self):
@@ -57,11 +57,11 @@ class Pingmock:
 
 
 @pytest.fixture
-def pingmock():
-    """The pingmock these tests run under; skips the test if there is none."""
-    url = os.environ.get("PINGMOCK_API")
+def ghostwire():
+    """The ghostwire these tests run under; skips the test if there is none."""
+    url = os.environ.get("GHOSTWIRE_API")
     if not url:
-        pytest.skip("not running under pingmock: run  pingmock exec -config pingmock.yaml -- python3 -m pytest")
-    pm = Pingmock(url)
+        pytest.skip("not running under ghostwire: run  ghostwire exec -config ghostwire.yaml -- python3 -m pytest")
+    pm = Ghostwire(url)
     pm.reset()  # whatever an earlier test changed, start from the configuration file
     return pm

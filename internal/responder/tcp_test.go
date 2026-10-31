@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/engine"
-	"github.com/nanmuyao-tools/pingmock/internal/icmp"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/engine"
+	"github.com/nanmuyao-tools/ghostwire/internal/icmp"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // tcpSYN builds an IPv4 TCP SYN from client to dst:port.
@@ -170,7 +170,7 @@ func TestHandleTCPAfter(t *testing.T) {
 }
 
 // Answers without a delay are written in the order of what they answer:
-// the reset that answers data sent after pingmock's FIN must not overtake
+// the reset that answers data sent after ghostwire's FIN must not overtake
 // the FIN, or the client sees a reset instead of the connection closing.
 func TestServeKeepsSegmentOrder(t *testing.T) {
 	def, _ := rule.ParseScenario("0ms")

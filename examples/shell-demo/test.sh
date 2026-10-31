@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Tests for failover.sh, run inside pingmock exec:
+# Tests for failover.sh, run inside ghostwire exec:
 #
-#   pingmock exec -config pingmock.yaml -- ./test.sh
+#   ghostwire exec -config ghostwire.yaml -- ./test.sh
 #
-# Each test starts by stating the whole network it needs through pingmock's
+# Each test starts by stating the whole network it needs through ghostwire's
 # control API, with nothing but curl.
 set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 
-if [ -z "${PINGMOCK_API:-}" ]; then
-  echo "SKIP: not running under pingmock; run: pingmock exec -config pingmock.yaml -- ./test.sh"
+if [ -z "${GHOSTWIRE_API:-}" ]; then
+  echo "SKIP: not running under ghostwire; run: ghostwire exec -config ghostwire.yaml -- ./test.sh"
   exit 0
 fi
 
@@ -21,8 +21,8 @@ failed=0
 # network PRIMARY_RULE BACKUP_RULE sets both links and starts from a fresh
 # state file, as if failover.sh had never run.
 network() {
-  curl -sf -X PUT "$PINGMOCK_API/rules/$PRIMARY" -d "$1" >/dev/null
-  curl -sf -X PUT "$PINGMOCK_API/rules/$BACKUP" -d "$2" >/dev/null
+  curl -sf -X PUT "$GHOSTWIRE_API/rules/$PRIMARY" -d "$1" >/dev/null
+  curl -sf -X PUT "$GHOSTWIRE_API/rules/$BACKUP" -d "$2" >/dev/null
   state=$(mktemp)
 }
 
@@ -93,14 +93,14 @@ for i in 1 2 3 4; do
   expect "flapping primary: stays on the backup (check $i)" backup 1
 done
 
-# pingmock's history shows what the script really did: one check sends
+# ghostwire's history shows what the script really did: one check sends
 # COUNT pings to the primary, and none to the backup while the primary is
 # healthy.
 network 20ms 40ms
-curl -sf -X DELETE "$PINGMOCK_API/history" >/dev/null
+curl -sf -X DELETE "$GHOSTWIRE_API/history" >/dev/null
 run
-to_primary=$(curl -sf "$PINGMOCK_API/history?target=$PRIMARY" | grep -c '"seq":' || true)
-to_backup=$(curl -sf "$PINGMOCK_API/history?target=$BACKUP" | grep -c '"seq":' || true)
+to_primary=$(curl -sf "$GHOSTWIRE_API/history?target=$PRIMARY" | grep -c '"seq":' || true)
+to_backup=$(curl -sf "$GHOSTWIRE_API/history?target=$BACKUP" | grep -c '"seq":' || true)
 out="link=primary $to_primary to primary, $to_backup to backup"
 status=0
 expect "sends 3 pings to the primary and none to the backup" primary 0 "3 to primary, 0 to backup"

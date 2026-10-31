@@ -29,16 +29,16 @@ jobs:
         run: |
           go vet ./...
           go test -race -count=1 ./...
-          go build -o pingmock .
+          go build -o ghostwire .
           sudo REQUIRE_IPV6=1 test/e2e.sh
-          # Allow user namespaces for pingmock under Ubuntu's AppArmor
+          # Allow user namespaces for ghostwire under Ubuntu's AppArmor
           # restriction, as in CI and as users are told to.
-          sed "s|profile pingmock /usr/local/bin/pingmock|profile pingmock $PWD/pingmock|" \
-            contrib/apparmor/pingmock | sudo tee /etc/apparmor.d/pingmock >/dev/null
-          sudo apparmor_parser -r /etc/apparmor.d/pingmock
+          sed "s|profile ghostwire /usr/local/bin/ghostwire|profile ghostwire $PWD/ghostwire|" \
+            contrib/apparmor/ghostwire | sudo tee /etc/apparmor.d/ghostwire >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/ghostwire
           test/e2e-exec.sh
           sudo test/e2e-exec.sh
-          rm pingmock
+          rm ghostwire
 
       - name: Build binaries
         env:
@@ -48,10 +48,10 @@ jobs:
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X main.version=$VERSION" \
-              -o dist/pingmock-linux-$arch .
+              -o dist/ghostwire-linux-$arch .
           done
-          (cd dist && sha256sum pingmock-linux-* > SHA256SUMS && cat SHA256SUMS)
-          ./dist/pingmock-linux-amd64 -version
+          (cd dist && sha256sum ghostwire-linux-* > SHA256SUMS && cat SHA256SUMS)
+          ./dist/ghostwire-linux-amd64 -version
 
       - name: Write release notes
         env:

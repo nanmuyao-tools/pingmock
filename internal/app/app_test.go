@@ -40,7 +40,7 @@ func TestParseRuleFlag(t *testing.T) {
 
 func parse(t *testing.T, args ...string) (*settings, []string, error) {
 	t.Helper()
-	return parseSettings("pingmock", args, serverUsage, io.Discard)
+	return parseSettings("ghostwire", args, serverUsage, io.Discard)
 }
 
 func TestParseSettingsDefaults(t *testing.T) {
@@ -48,7 +48,7 @@ func TestParseSettingsDefaults(t *testing.T) {
 	if err != nil || len(rest) != 0 {
 		t.Fatalf("parse: %v %v", rest, err)
 	}
-	if s.dev != "pingmock0" || s.addr.String() != "10.99.0.254/24" || s.addr6.String() != "fd99::fe/64" || s.addr6Explicit ||
+	if s.dev != "ghostwire0" || s.addr.String() != "10.99.0.254/24" || s.addr6.String() != "fd99::fe/64" || s.addr6Explicit ||
 		s.api != "127.0.0.1:9100" || s.history != 1000 || s.def.String() != "delay=0s" {
 		t.Errorf("defaults = %+v", s)
 	}
@@ -151,12 +151,12 @@ func TestHasNamespaceCaps(t *testing.T) {
 		{"00000000a82435fb", true},  // with both
 		{"0000000000000000", false}, // another user
 	} {
-		status := "Name:\tpingmock\nCapInh:\t0000000000000000\nCapEff:\t" + c.capEff + "\nCapBnd:\t000001ffffffffff\n"
+		status := "Name:\tghostwire\nCapInh:\t0000000000000000\nCapEff:\t" + c.capEff + "\nCapBnd:\t000001ffffffffff\n"
 		if got := hasNamespaceCaps(status); got != c.want {
 			t.Errorf("CapEff %s: %v, want %v", c.capEff, got, c.want)
 		}
 	}
-	if hasNamespaceCaps("Name:\tpingmock\n") {
+	if hasNamespaceCaps("Name:\tghostwire\n") {
 		t.Error("no CapEff line: true")
 	}
 }
@@ -372,7 +372,7 @@ func dnsCanon(n string) string { return strings.ToLower(strings.TrimSuffix(n, ".
 
 func TestWithoutNames(t *testing.T) {
 	in := "127.0.0.1\tlocalhost\n# a comment\n10.0.0.1 api.example.com\n10.0.0.2 db.example.com DB.example.com. other # note\n"
-	want := "127.0.0.1\tlocalhost\n# a comment\n# pingmock exec: has a DNS rule: 10.0.0.1 api.example.com\n10.0.0.2\tother # note\n"
+	want := "127.0.0.1\tlocalhost\n# a comment\n# ghostwire exec: has a DNS rule: 10.0.0.1 api.example.com\n10.0.0.2\tother # note\n"
 	if got := withoutNames(in, []string{"api.example.com", "db.example.com"}); got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
@@ -383,14 +383,14 @@ func TestWithoutNames(t *testing.T) {
 
 // A DNS rule is refused as root, with a hint, as names are.
 func TestServerRefusesDNS(t *testing.T) {
-	if os.Getenv("PINGMOCK_TEST_MAIN") == "1" {
+	if os.Getenv("GHOSTWIRE_TEST_MAIN") == "1" {
 		os.Exit(Main([]string{"-api", "", "-dns", "github.com=nxdomain"}))
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestServerRefusesDNS")
-	cmd.Env = append(os.Environ(), "PINGMOCK_TEST_MAIN=1")
+	cmd.Env = append(os.Environ(), "GHOSTWIRE_TEST_MAIN=1")
 	out, err := cmd.CombinedOutput()
 	var ee *exec.ExitError
-	if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "only work with pingmock exec") {
+	if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "only work with ghostwire exec") {
 		t.Errorf("exit %v, output %s", err, out)
 	}
 }

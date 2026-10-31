@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/engine"
-	"github.com/nanmuyao-tools/pingmock/internal/icmp"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/engine"
+	"github.com/nanmuyao-tools/ghostwire/internal/icmp"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // fakeDevice delivers queued packets to Read and records what is written,

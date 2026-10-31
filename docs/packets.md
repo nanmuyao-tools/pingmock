@@ -2,9 +2,9 @@
 
 English | [中文](packets.zh-CN.md)
 
-This document takes a ping request apart, and in section 12 a TCP connection attempt: what each byte means, how pingmock decides that a packet is a ping request, how checksums are computed, and a few details worth knowing, such as where the `0x4000` and `0x3fff` in the flags and fragment field come from. Every byte shown comes from a **real, captured** ping request, and every conclusion was checked by experiment.
+This document takes a ping request apart, and in section 12 a TCP connection attempt: what each byte means, how ghostwire decides that a packet is a ping request, how checksums are computed, and a few details worth knowing, such as where the `0x4000` and `0x3fff` in the flags and fragment field come from. Every byte shown comes from a **real, captured** ping request, and every conclusion was checked by experiment.
 
-For how the request gets from `ping` to pingmock, see [The round trip of one ping](packet-path.md); for how pingmock handles it inside, see the [code tour](architecture.md).
+For how the request gets from `ping` to ghostwire, see [The round trip of one ping](packet-path.md); for how ghostwire handles it inside, see the [code tour](architecture.md).
 
 If addresses, packets, TCP or DNS are new to you, read [Network basics](basics.md) first: it explains them with diagrams.
 
@@ -86,9 +86,9 @@ For example, `0x3fff` = `3 f f f` = `0011 1111 1111 1111`, much clearer than dec
 | `x & m` | bitwise AND | 1 only where both bits are 1: **keeps just the bits set in the mask `m`** | `0x45 & 0x0f` = 5 |
 | `binary.BigEndian.Uint16(b)` | big-endian read | joins 2 bytes into a 16-bit number, the first byte high | `40 00` → `0x4000` |
 
-## 5. How pingmock recognizes a ping request
+## 5. How ghostwire recognizes a ping request
 
-Not everything on the TUN device is a ping request: TCP connection attempts and the UDP probes of traceroute are routed there too. So pingmock first checks what a packet is, in one function for every kind of packet it may answer: [`ParseProbe`](../internal/icmp/probe.go). This section follows a ping through it; [section 12](#121-how-pingmock-recognizes-tcp-parseprobe) does the same for TCP.
+Not everything on the TUN device is a ping request: TCP connection attempts and the UDP probes of traceroute are routed there too. So ghostwire first checks what a packet is, in one function for every kind of packet it may answer: [`ParseProbe`](../internal/icmp/probe.go). This section follows a ping through it; [section 12](#121-how-ghostwire-recognizes-tcp-parseprobe) does the same for TCP.
 
 ### 5.1 The version first: `ParseProbe`
 
@@ -120,8 +120,8 @@ An IPv6 packet starts with `0x60`, which gives 6 and goes to `probe6`. Anything 
 | Long enough for an IP header | the whole packet | 84 ≥ 20 | a shorter packet does not even hold an IP header |
 | Length of the IP header | byte 0 `& 0x0f`, × 4 | 5 × 4 = 20 | the IP header **may carry options**, so this says where ICMP starts |
 | Plausible total length | bytes 2-3 | 84 | keeps a malformed packet from sending the code to wrong offsets |
-| Not a fragment | bytes 6-7 `& 0x3fff` | 0 | pingmock does not reassemble fragments; it handles whole packets only (see section 6) |
-| What it carries | byte 9 | 1: ICMP | 1 goes on to the next check; 6 is TCP ([section 12](#12-tcp-a-connection-attempt-and-pingmocks-answers)) and 17 UDP, which only a path answers; anything else is ignored |
+| Not a fragment | bytes 6-7 `& 0x3fff` | 0 | ghostwire does not reassemble fragments; it handles whole packets only (see section 6) |
+| What it carries | byte 9 | 1: ICMP | 1 goes on to the next check; 6 is TCP ([section 12](#12-tcp-a-connection-attempt-and-ghostwires-answers)) and 17 UDP, which only a path answers; anything else is ignored |
 | Is an echo request | ICMP bytes 0 and 1 | type 8, code 0 | ICMP also has replies, unreachable errors and more |
 
 When every check passes, the packet is a `Probe` of kind `Echo`, with its source, destination, TTL, identifier and sequence number, and goes on to the decision ([`RuleSet.DecideProbe`](../internal/engine/path.go), see the [code tour](architecture.md)).
@@ -186,11 +186,11 @@ The offset counts in 8-byte units because it has only 13 bits, enough for 8191; 
 
 Exactly as derived. The lengths add up as well: 2000 bytes of data and an 8-byte ICMP header make 2008 bytes; the first fragment carries 1500 − 20 = 1480 of them and the second 548 − 20 = 528, and 1480 + 528 = 2008.
 
-Neither fragment has "don't fragment" set: the packet is too large to send unsplit, so `ping` does not ask for it. Both give a nonzero result with `& 0x3fff`, so pingmock ignores them. That is why `ping -s 2000` times out under pingmock, and what the README's limitation "fragmented requests are not supported" refers to.
+Neither fragment has "don't fragment" set: the packet is too large to send unsplit, so `ping` does not ask for it. Both give a nonzero result with `& 0x3fff`, so ghostwire ignores them. That is why `ping -s 2000` times out under ghostwire, and what the README's limitation "fragmented requests are not supported" refers to.
 
 ## 7. From request to reply: only 4 bytes change
 
-[`BuildEchoReply`](../internal/icmp/icmp.go) turns the request into a reply. Comparing the example request with the reply pingmock writes back, byte by byte, only 4 of the 84 bytes differ:
+[`BuildEchoReply`](../internal/icmp/icmp.go) turns the request into a reply. Comparing the example request with the reply ghostwire writes back, byte by byte, only 4 of the 84 bytes differ:
 
 | Offset | Request | Reply | Field | Why |
 |---|---|---|---|---|
@@ -220,7 +220,7 @@ step 4: invert every bit                   ~0x2730 = 0xd8cf
 
 `0xd8cf` is exactly the value in the packet. The receiver's check is simpler still: computing the sum over the whole header **including the checksum** gives 0 when nothing is damaged.
 
-pingmock's implementation:
+ghostwire's implementation:
 
 ```go
 func Checksum(b []byte) uint16 { return ^fold(sum(0, b)) }  // step 4: invert
@@ -248,7 +248,7 @@ For IPv6, the ICMP checksum also covers a **pseudo-header** of the source and de
 
 ## 9. What happens when a checksum is wrong
 
-Does pingmock have to get both checksums right? Experiments say **it depends on how the other side receives the reply**, so yes.
+Does ghostwire have to get both checksums right? Experiments say **it depends on how the other side receives the reply**, so yes.
 
 | Wrong in the reply | The kernel | The system `ping` command (raw socket) | An unprivileged ping socket |
 |---|---|---|---|
@@ -273,7 +273,7 @@ With 20250605, the same reply with its checksum broken:
 
 (Measured with iputils 20250605 built from source; 20240117 prints the same line without the warning.)
 
-The software under test may run the system's `ping`, or send pings through a library, which often uses a ping socket. Either way a wrong checksum is noticed: the reply is dropped or flagged. So both of pingmock's checksums must be right. This is why the `icmp` tests verify the checksums of every packet they build, and why the IPv6 checksum was cross-checked against an independent implementation.
+The software under test may run the system's `ping`, or send pings through a library, which often uses a ping socket. Either way a wrong checksum is noticed: the reply is dropped or flagged. So both of ghostwire's checksums must be right. This is why the `icmp` tests verify the checksums of every packet they build, and why the IPv6 checksum was cross-checked against an independent implementation.
 
 ## 10. Why the data must be kept as it is
 
@@ -290,7 +290,7 @@ wrong data byte #16 should be 0x10 but was 0x0
 - **The time of sending is gone**: `ping` computes the latency as the time the reply arrived minus the time of sending carried in the reply. With that time zeroed, there is no valid latency, so it shows 0
 - **The padding is wrong**: `ping` checks that the padding is the `0x10, 0x11, 0x12...` it sent
 
-So pingmock **leaves the data alone** and only **writes the reply later**; `ping` then measures a longer latency by itself. That is the heart of how pingmock controls latency precisely.
+So ghostwire **leaves the data alone** and only **writes the reply later**; `ping` then measures a longer latency by itself. That is the heart of how ghostwire controls latency precisely.
 
 ## 11. What differs for IPv6
 
@@ -304,11 +304,11 @@ IPv6 pings are built the same way; the differences show in `parse6`, `reply6` an
 | Field saying what is inside | protocol = 1 | next header = 58 |
 | Request / reply type | 8 / 0 | **128 / 129** |
 | What the ICMP checksum covers | the ICMP part | the ICMP part + a **pseudo-header** (source, destination, length, protocol number) |
-| Fragmentation | flags and offset in the IP header | a separate fragment extension header, which pingmock does not handle either |
+| Fragmentation | flags and offset in the IP header | a separate fragment extension header, which ghostwire does not handle either |
 
 The pseudo-header's addresses are also added up, so swapping them leaves the ICMP checksum unchanged, for the same reason the IPv4 header checksum does not change in section 7.
 
-## 12. TCP: a connection attempt and pingmock's answers
+## 12. TCP: a connection attempt and ghostwire's answers
 
 TCP rules answer connection attempts, so the packets are TCP segments instead of ICMP. This SYN was captured from `curl http://10.96.0.1/` with the script in the appendix, changed to keep TCP (protocol 6); the answers after it are what [`BuildSynAck`](../internal/icmp/probe.go), [`BuildRST`](../internal/icmp/probe.go) and [`BuildSegment`](../internal/icmp/probe.go) build for it.
 
@@ -330,7 +330,7 @@ TCP rules answer connection attempts, so the packets are TCP segments instead of
 | 16-17 | `de 12` | checksum | over a pseudo-header and the segment, as for ICMPv6 in section 11 |
 | 20-39 | | options | MSS 1460, SACK permitted, timestamps, window scale 7 |
 
-### 12.1 How pingmock recognizes TCP: `ParseProbe`
+### 12.1 How ghostwire recognizes TCP: `ParseProbe`
 
 The checks are those of section 5, in the same [`ParseProbe`](../internal/icmp/probe.go), up to byte 9, which says 6, TCP. For IPv4 (`probe4`), on the SYN above:
 
@@ -351,19 +351,19 @@ flags & (SYN|RST) == 0      neither SYN nor RST  a later segment of a connection
 anything else               SYN-ACK, or a reset  not answered
 ```
 
-- **A SYN without ACK** is how every connection starts; pingmock keeps its ports and its sequence number, the ISN.
-- **A later segment** (the handshake's last ACK, data, a FIN) also needs its data offset to be sane, at least 20 bytes and within the segment, because the **length of its data** is computed from it: IP total length − IP header − data offset. pingmock keeps its flags, its sequence and acknowledgment numbers and that length.
-- **SYN-ACKs and resets are never answered.** pingmock sends SYN-ACKs and resets itself, and a client's kernel answers a SYN-ACK it did not expect with a reset; answering those would only start an exchange that never ends.
+- **A SYN without ACK** is how every connection starts; ghostwire keeps its ports and its sequence number, the ISN.
+- **A later segment** (the handshake's last ACK, data, a FIN) also needs its data offset to be sane, at least 20 bytes and within the segment, because the **length of its data** is computed from it: IP total length − IP header − data offset. ghostwire keeps its flags, its sequence and acknowledgment numbers and that length.
+- **SYN-ACKs and resets are never answered.** ghostwire sends SYN-ACKs and resets itself, and a client's kernel answers a SYN-ACK it did not expect with a reset; answering those would only start an exchange that never ends.
 
 ### 12.2 Whose segment is it
 
-Being a TCP segment is not enough to be answered: pingmock answers only what a rule or a path made its own.
+Being a TCP segment is not enough to be answered: ghostwire answers only what a rule or a path made its own.
 
 1. **A SYN to an address with a path, whose TTL runs out on the way**, is a probe of traceroute or mtr, and the hop where it runs out answers, as for UDP probes ([`DecideProbe`](../internal/engine/path.go)).
 2. **A SYN that reaches an address and port with a TCP rule** is a connection attempt, path or not ([`DecideTCP`](../internal/engine/tcp.go)). An attempt is identified by the addresses, the ports and the ISN: a SYN the client's kernel sends again repeats all five, and gets the answer the first one got, recorded with `"repeat": true` and not counted.
 3. **A SYN that reaches an address with a path, on a port without a TCP rule**, gets a SYN-ACK, on every port: to traceroute, the destination is reached.
 4. **Any other SYN is ignored and not recorded**, so a port without a rule looks closed by a firewall that drops, as before TCP rules existed.
-5. **A later segment** is answered only if its connection was accepted under `after=close` or `after=reset` ([`DecideSegment`](../internal/engine/tcp.go)). The connection is found by its addresses and ports, and the segment must acknowledge pingmock's own sequence numbers, `70 69 6e 68` (after the SYN-ACK) or `70 69 6e 69` (after the FIN): a segment of another connection between the same ports never does. Under `after=hang`, the default, later segments are never answered.
+5. **A later segment** is answered only if its connection was accepted under `after=close` or `after=reset` ([`DecideSegment`](../internal/engine/tcp.go)). The connection is found by its addresses and ports, and the segment must acknowledge ghostwire's own sequence numbers, `70 69 6e 68` (after the SYN-ACK) or `70 69 6e 69` (after the FIN): a segment of another connection between the same ports never does. Under `after=hang`, the default, later segments are never answered.
 
 
 ### 12.3 The answers
@@ -386,13 +386,13 @@ IPv6 answers are built the same way, with the 40-byte IPv6 header of section 11 
 
 ## Appendix: capture packets yourself
 
-This script creates a TUN device as pingmock does and prints the key fields of every IPv4 packet it receives, so you can check this document for yourself. It only reads and never replies, so `ping` times out, which is expected.
+This script creates a TUN device as ghostwire does and prints the key fields of every IPv4 packet it receives, so you can check this document for yourself. It only reads and never replies, so `ping` times out, which is expected.
 
 ```python
 # sudo python3 capture.py, then in another terminal: ping 10.96.0.1 (or ping -s 2000 10.96.0.1)
 import fcntl, os, struct, subprocess
 
-TUNSETIFF, IFF_TUN, IFF_NO_PI = 0x400454ca, 0x0001, 0x1000   # the same as pingmock's tun.Open
+TUNSETIFF, IFF_TUN, IFF_NO_PI = 0x400454ca, 0x0001, 0x1000   # the same as ghostwire's tun.Open
 fd = os.open('/dev/net/tun', os.O_RDWR)
 fcntl.ioctl(fd, TUNSETIFF, struct.pack('16sH22x', b'cap0', IFF_TUN | IFF_NO_PI))
 subprocess.run('ip addr add 10.96.0.254/24 dev cap0 && ip link set cap0 up', shell=True, check=True)

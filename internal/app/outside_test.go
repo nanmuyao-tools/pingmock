@@ -47,7 +47,7 @@ func TestParseSettingsOutside(t *testing.T) {
 		"-outside-port 0":                   "invalid -outside-port",
 		"-outside-port 53/sctp":             "invalid -outside-port",
 		"-outside=false -outside-port 5432": "-outside=false",
-		// Ports pingmock listens on in the command's network.
+		// Ports ghostwire listens on in the command's network.
 		"-outside-port 53/udp":                       "DNS server",
 		"-outside-port 53":                           "DNS server",
 		"-outside-port 9100":                         "control API",
@@ -81,11 +81,11 @@ func TestPastaArgs(t *testing.T) {
 }
 
 func TestServerRefusesOutside(t *testing.T) {
-	if os.Getenv("PINGMOCK_TEST_MAIN") == "1" {
+	if os.Getenv("GHOSTWIRE_TEST_MAIN") == "1" {
 		os.Exit(Main([]string{"-api", "", "-outside"}))
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=TestServerRefusesOutside")
-	cmd.Env = append(os.Environ(), "PINGMOCK_TEST_MAIN=1")
+	cmd.Env = append(os.Environ(), "GHOSTWIRE_TEST_MAIN=1")
 	out, err := cmd.CombinedOutput()
 	var ee *exec.ExitError
 	if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "-outside") {

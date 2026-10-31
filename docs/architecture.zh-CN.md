@@ -1,16 +1,16 @@
-# pingmock 代码导读
+# ghostwire 代码导读
 
 [English](architecture.md) | 中文
 
-这份文档帮你读懂 pingmock 的代码：它由哪些模块组成、一个 ping 请求是怎样一步步被处理的，以及应该按什么顺序阅读。全部代码约 6600 行（不含测试），核心是 ping；按下面的顺序读，ping 的处理路径一两个小时就能读完。TCP 连接和 DNS 查询沿用同样的模式，在它之后介绍。
+这份文档帮你读懂 ghostwire 的代码：它由哪些模块组成、一个 ping 请求是怎样一步步被处理的，以及应该按什么顺序阅读。全部代码约 6600 行（不含测试），核心是 ping；按下面的顺序读，ping 的处理路径一两个小时就能读完。TCP 连接和 DNS 查询沿用同样的模式，在它之后介绍。
 
 如果地址、数据包、TCP 或 DNS 对你来说还比较陌生，请先读[网络基础](basics.zh-CN.md)，那里配着示意图讲解了这些概念。
 
 ## 一句话原理
 
-pingmock 创建一块**虚拟网卡**（TUN 设备），把要模拟的地址都路由到这块网卡上。之后任何程序 ping 这些地址，内核都会把 ping 请求的数据包交给 pingmock；pingmock 按规则决定怎么回应（多久之后回复、丢弃，还是返回"目标不可达"），自己构造回复包写回网卡，内核再把它交还给发 ping 的程序。
+ghostwire 创建一块**虚拟网卡**（TUN 设备），把要模拟的地址都路由到这块网卡上。之后任何程序 ping 这些地址，内核都会把 ping 请求的数据包交给 ghostwire；ghostwire 按规则决定怎么回应（多久之后回复、丢弃，还是返回"目标不可达"），自己构造回复包写回网卡，内核再把它交还给发 ping 的程序。
 
-所以，被模拟的"主机"其实并不存在，回复全是 pingmock 伪造的。
+所以，被模拟的"主机"其实并不存在，回复全是 ghostwire 伪造的。
 
 ## 目录地图
 
@@ -25,7 +25,7 @@ internal/
   rule/                *  规则：一条规则是什么，怎么书写
   api/                    HTTP 控制接口：运行中修改规则
   config/                 YAML 配置文件
-  dns/                    pingmock exec 为命令运行的 DNS 服务，执行 DNS 规则
+  dns/                    ghostwire exec 为命令运行的 DNS 服务，执行 DNS 规则
 client/                   给 Go 测试用的 API 客户端（唯一公开的包）
 test/                     端到端测试和兼容性测试
 examples/                 可以照抄的示例，每种语言或工具一个
@@ -43,7 +43,7 @@ contrib/, scripts/        AppArmor 配置；生成发布说明的脚本
 
 ```mermaid
 flowchart TD
-    A["ping 10.99.0.1"] -->|"内核按路由表<br>发往虚拟网卡"| B["虚拟网卡 pingmock0"]
+    A["ping 10.99.0.1"] -->|"内核按路由表<br>发往虚拟网卡"| B["虚拟网卡 ghostwire0"]
     B --> C["responder: Serve 读到数据包"]
     C --> D["icmp: ParseProbe<br>是 ping 请求吗？目标地址是？"]
     D --> E["engine: RuleSet.DecideProbe，再到 Decide<br>该目标匹配哪条规则、处在哪个阶段"]
@@ -64,7 +64,7 @@ flowchart TD
 
 ping 程序收到回复时计算往返时间，得到的就是设定的 50ms。
 
-这里讲的是 pingmock **内部**的处理。请求是怎样从 ping 经过内核到达 pingmock0、应答又是怎样回到 ping 的，参见[一个 ping 的往返之旅](packet-path.zh-CN.md)。
+这里讲的是 ghostwire **内部**的处理。请求是怎样从 ping 经过内核到达 ghostwire0、应答又是怎样回到 ping 的，参见[一个 ping 的往返之旅](packet-path.zh-CN.md)。
 
 ## 连接和 DNS 查询
 
@@ -79,7 +79,7 @@ TCP 和 DNS 规则沿用上面的一切：同样的 `Spec`、`Phase`、`Scenario
 
 **一个 UDP 数据报**发往有 UDP 规则的地址和端口时，走的路和 SYN 一样，只是没有缓存：[`RuleSet.DecideUDP`](../internal/engine/udp.go) 决定 `Refused`（用 ICMP 端口不可达回应）、`Unreachable` 或 `Drop`，有路径时先由各跳回应。
 
-**一次 DNS 查询**根本不经过网卡。在 `pingmock exec` 下，命令的 `resolv.conf` 指向 [`dns`](../internal/dns/dns.go) 包里的一个小 DNS 服务，由子进程在 [`serveDNS`](../internal/app/names_linux.go) 中启动：
+**一次 DNS 查询**根本不经过网卡。在 `ghostwire exec` 下，命令的 `resolv.conf` 指向 [`dns`](../internal/dns/dns.go) 包里的一个小 DNS 服务，由子进程在 [`serveDNS`](../internal/app/names_linux.go) 中启动：
 
 1. `Server.Serve`（UDP）和 `Server.ServeTCP` 为每个查询单独起一个 goroutine 回答。
 2. 域名有 DNS 规则时，`Server.Rule` 询问 [`RuleSet.DecideDNS`](../internal/engine/dns.go)，它按（域名, 查询类型）记录阶段：回错误（`NXDomain`、`ServFail`）、不回应（`Drop`），或者延迟之后给出通常的回复。
@@ -110,7 +110,7 @@ TCP 和 DNS 规则沿用上面的一切：同样的 `Spec`、`Phase`、`Scenario
 
 ```
 -rule 10.99.0.1=50ms    ─→  rule.ParseScenario                        命令行的文本
-pingmock.yaml           ─→  config.Load ─→ yamlToJSON ─┐              YAML 配置文件
+ghostwire.yaml           ─→  config.Load ─→ yamlToJSON ─┐              YAML 配置文件
 PUT /rules {...}        ───────────────────────────────┴─→  Scenario.UnmarshalJSON     HTTP API 的 JSON 请求体
 ```
 
@@ -121,33 +121,33 @@ YAML 配置先被转换成 JSON（[`yamlToJSON`](../internal/config/yaml.go)）�
 ```
 main.go: main
   └─ app.Main                    根据第一个参数分发
-       ├─ runServer              普通模式：sudo pingmock [参数]
+       ├─ runServer              普通模式：sudo ghostwire [参数]
        │    ├─ parseSettings     解析参数 → 读配置文件 → 校验，得到 settings
        │    └─ start             创建网卡 → 设置地址 → 安装规则 → 启动 API → 启动主循环
-       └─ runExec                exec 模式：pingmock exec [参数] -- 命令
+       └─ runExec                exec 模式：ghostwire exec [参数] -- 命令
 ```
 
-[`parseSettings`](../internal/app/settings.go) 的优先级是：**命令行参数 > 配置文件 > 默认值**。[`start`](../internal/app/instance.go) 返回时，pingmock 已经可以回应 ping，API 也已经在监听。
+[`parseSettings`](../internal/app/settings.go) 的优先级是：**命令行参数 > 配置文件 > 默认值**。[`start`](../internal/app/instance.go) 返回时，ghostwire 已经可以回应 ping，API 也已经在监听。
 
 ## exec 模式
 
-`pingmock exec` 不需要 root，靠的是 Linux 的**命名空间**：
+`ghostwire exec` 不需要 root，靠的是 Linux 的**命名空间**：
 
 ```
 你的终端
-  └─ pingmock exec（父进程，[runExec]）
+  └─ ghostwire exec（父进程，[runExec]）
        │  创建新的 用户 + 网络 + PID 命名空间，然后在里面重新启动自己
-       └─ pingmock（子进程，[runExecChild]，在新命名空间里是 root、是 1 号进程）
+       └─ ghostwire（子进程，[runExecChild]，在新命名空间里是 root、是 1 号进程）
             ├─ start：在这个独立的网络里创建虚拟网卡
-            └─ 被测命令（例如 ./my-app），环境变量 PINGMOCK_API 指向 API
+            └─ 被测命令（例如 ./my-app），环境变量 GHOSTWIRE_API 指向 API
 ```
 
 - **用户命名空间**让普通用户在里面拥有 root 权限，但只对这个命名空间有效，所以可以创建网卡。
 - **网络命名空间**是一套独立的网卡和路由，所以不影响宿主机。
 - **PID 命名空间**让子进程成为 1 号进程。它退出时，内核会结束命名空间里的所有进程，所以不会有残留。
-- 加了 **`-outside`** 时，父进程在子进程建网卡之前把 pasta 接到子进程的命名空间上（[`outside_linux.go`](../internal/app/outside_linux.go)）：子进程在一个管道上等 pasta 完成，这样 pingmock 为模拟目标加的路由排在 pasta 的默认路由之后，而且更精确，所以优先。
+- 加了 **`-outside`** 时，父进程在子进程建网卡之前把 pasta 接到子进程的命名空间上（[`outside_linux.go`](../internal/app/outside_linux.go)）：子进程在一个管道上等 pasta 完成，这样 ghostwire 为模拟目标加的路由排在 pasta 的默认路由之后，而且更精确，所以优先。
 
-代码在 [`exec_linux.go`](../internal/app/exec_linux.go)：[`runExec`](../internal/app/exec_linux.go) 是父进程，[`runExecChild`](../internal/app/exec_linux.go) 是子进程。子进程通过一个特殊的第一个参数 `__pingmock-exec-child` 识别自己。
+代码在 [`exec_linux.go`](../internal/app/exec_linux.go)：[`runExec`](../internal/app/exec_linux.go) 是父进程，[`runExecChild`](../internal/app/exec_linux.go) 是子进程。子进程通过一个特殊的第一个参数 `__ghostwire-exec-child` 识别自己。
 
 ## 建议的阅读顺序
 

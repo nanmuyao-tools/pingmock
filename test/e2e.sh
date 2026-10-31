@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # End-to-end check: run as root on Linux with iproute2, ping and curl.
-#   make e2e    (or: go build -o pingmock . && sudo test/e2e.sh)
+#   make e2e    (or: go build -o ghostwire . && sudo test/e2e.sh)
 # The IPv6 checks are skipped when the kernel has no IPv6, unless
 # REQUIRE_IPV6=1 is set (as in CI), which makes that a failure.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PM=""
-# pingmock runs with an empty PATH: it needs no programs, not even ip, to
+# ghostwire runs with an empty PATH: it needs no programs, not even ip, to
 # set up its device and routes.
-start() { # args passed to pingmock
-  env PATH=/nonexistent ./pingmock "$@" >/tmp/pingmock-e2e.log 2>&1 &
+start() { # args passed to ghostwire
+  env PATH=/nonexistent ./ghostwire "$@" >/tmp/ghostwire-e2e.log 2>&1 &
   PM=$!
   for _ in $(seq 50); do curl -sf localhost:9100/rules >/dev/null && return; sleep 0.1; done
-  echo "FAIL pingmock did not start:"; cat /tmp/pingmock-e2e.log; exit 1
+  echo "FAIL ghostwire did not start:"; cat /tmp/ghostwire-e2e.log; exit 1
 }
 stop() { kill "$PM" 2>/dev/null || true; wait "$PM" 2>/dev/null || true; PM=""; }
 trap stop EXIT
@@ -62,11 +62,11 @@ stop
 
 # -host is for exec only: the server mode refuses it instead of ignoring it.
 status=0
-./pingmock -host test.example=10.99.0.1 >/dev/null 2>&1 || status=$?
-same "-host is refused outside pingmock exec" "$status" 2
+./ghostwire -host test.example=10.99.0.1 >/dev/null 2>&1 || status=$?
+same "-host is refused outside ghostwire exec" "$status" 2
 status=0
-./pingmock -tcp db.example.com:5432=refuse >/dev/null 2>&1 || status=$?
-same "a TCP rule for a name is refused outside pingmock exec" "$status" 2
+./ghostwire -tcp db.example.com:5432=refuse >/dev/null 2>&1 || status=$?
+same "a TCP rule for a name is refused outside ghostwire exec" "$status" 2
 
 # Destination unreachable: ping must report each code, and fail fast.
 start -rule 10.99.0.8=unreachable -rule 10.99.0.9=unreachable=net \
@@ -124,9 +124,9 @@ else
   stop
 fi
 
-# A network the host is on: pingmock must take its traffic without replacing
+# A network the host is on: ghostwire must take its traffic without replacing
 # the host's route for it, which would cut the host off from that network,
-# even after pingmock exits. The device pmhost0 stands for such a network.
+# even after ghostwire exits. The device pmhost0 stands for such a network.
 ip tuntap add dev pmhost0 mode tun
 trap 'stop; ip link del pmhost0 2>/dev/null || true' EXIT
 ip addr add 192.168.77.5/24 dev pmhost0
@@ -134,15 +134,15 @@ ip link set pmhost0 up
 host_route() { ip -o "$1" route show exact "$2" table main | grep -c 'dev pmhost0' || true; }
 start -rule 192.168.77.0/24=60ms
 near "a network the host is on is mocked" "$(rtt 192.168.77.9 2)" 60 5
-same "the host's route for it stays while pingmock runs" "$(host_route -4 192.168.77.0/24)" 1
-grep -q "leaving the host's route for 192.168.77.0/24 (dev pmhost0) in place" /tmp/pingmock-e2e.log &&
-  pass "pingmock logs that it left the route in place" || fail "no log line about the route left in place"
-# Routes follow the rules: deleting the rule removes the halves pingmock
+same "the host's route for it stays while ghostwire runs" "$(host_route -4 192.168.77.0/24)" 1
+grep -q "leaving the host's route for 192.168.77.0/24 (dev pmhost0) in place" /tmp/ghostwire-e2e.log &&
+  pass "ghostwire logs that it left the route in place" || fail "no log line about the route left in place"
+# Routes follow the rules: deleting the rule removes the halves ghostwire
 # added and only those, and a reset puts back those of the startup rules.
 # A real address set through the API is routed until its rule goes.
-pm_routes() { ip -o -4 route show table main | grep 'dev pingmock0' | grep -c "$1" || true; }
+pm_routes() { ip -o -4 route show table main | grep 'dev ghostwire0' | grep -c "$1" || true; }
 curl -sf -X DELETE localhost:9100/rules/192.168.77.0/24 >/dev/null
-same "DELETE removes the routes pingmock added for a rule" "$(pm_routes 192.168.77.)" 0
+same "DELETE removes the routes ghostwire added for a rule" "$(pm_routes 192.168.77.)" 0
 same "and leaves the host's route for the network" "$(host_route -4 192.168.77.0/24)" 1
 curl -sf -X POST localhost:9100/reset >/dev/null
 same "POST /reset routes the startup rules again" "$(pm_routes 192.168.77.)" 2
@@ -152,25 +152,25 @@ same "GET /rules lists the routes" "$(curl -sf localhost:9100/rules | python3 -c
 curl -sf -X DELETE localhost:9100/rules/198.51.100.7 >/dev/null
 same "and DELETE removes its route" "$(pm_routes 198.51.100.7)" 0
 stop
-same "the host's route for it stays after pingmock exits" "$(host_route -4 192.168.77.0/24)" 1
+same "the host's route for it stays after ghostwire exits" "$(host_route -4 192.168.77.0/24)" 1
 
-# A single address with a route of its own cannot be split around: pingmock
+# A single address with a route of its own cannot be split around: ghostwire
 # refuses to start rather than replace that route.
 ip route add 192.168.77.99/32 dev pmhost0
-if ./pingmock -addr6= -api= -rule 192.168.77.99=5ms >/tmp/pingmock-e2e.log 2>&1; then
-  fail "pingmock started although 192.168.77.99 has a route of its own"
+if ./ghostwire -addr6= -api= -rule 192.168.77.99=5ms >/tmp/ghostwire-e2e.log 2>&1; then
+  fail "ghostwire started although 192.168.77.99 has a route of its own"
 fi
-grep -q "use pingmock exec" /tmp/pingmock-e2e.log && pass "an address with a route of its own is refused" ||
-  { cat /tmp/pingmock-e2e.log; fail "the refusal does not suggest pingmock exec"; }
+grep -q "use ghostwire exec" /tmp/ghostwire-e2e.log && pass "an address with a route of its own is refused" ||
+  { cat /tmp/ghostwire-e2e.log; fail "the refusal does not suggest ghostwire exec"; }
 same "and its route stays" "$(host_route -4 192.168.77.99/32)" 1
 
 if [ -e /proc/net/if_inet6 ]; then
   ip -6 addr add fd77::5/64 dev pmhost0 nodad
   start -rule fd77::/64=60ms
   near "IPv6: a network the host is on is mocked" "$(rtt6 fd77::9 2)" 60 5
-  same "IPv6: the host's route for it stays while pingmock runs" "$(host_route -6 fd77::/64)" 1
+  same "IPv6: the host's route for it stays while ghostwire runs" "$(host_route -6 fd77::/64)" 1
   stop
-  same "IPv6: the host's route for it stays after pingmock exits" "$(host_route -6 fd77::/64)" 1
+  same "IPv6: the host's route for it stays after ghostwire exits" "$(host_route -6 fd77::/64)" 1
 fi
 ip link del pmhost0
 
@@ -238,15 +238,15 @@ events=$(curl -sf "localhost:9100/history?target=10.99.0.25" | tr -d ' \n')
 echo "$events" | grep -q '"repeat":true' && echo "$events" | grep -q '"port":80' || fail "TCP: history lacks port or repeat: $events"
 pass "TCP: the history records the port and the retransmitted SYNs"
 # after=: what happens once the connection is accepted. curl sends its
-# request and gets an empty reply (exit 52) when pingmock closes, a reset
+# request and gets an empty reply (exit 52) when ghostwire closes, a reset
 # while receiving (56) when it resets, and every attempt gets the same.
 curl -sf -X PUT localhost:9100/tcp/10.99.0.27:80 -d 5ms,after=close >/dev/null
 curl -sf -X PUT localhost:9100/tcp/10.99.0.28:80 -d after=reset >/dev/null
 exits() { for _ in 1 2 3 4 5; do curl -s -o /dev/null -m 2 "$1"; echo -n "$? "; done; }
 same "TCP: after=close closes every connection (curl exit 52)" "$(exits http://10.99.0.27/)" "52 52 52 52 52 "
 same "TCP: after=reset resets every connection (curl exit 56)" "$(exits http://10.99.0.28/)" "56 56 56 56 56 "
-# Data written after pingmock's FIN gets a reset, as from a real server that
-# closed its socket, and no socket is left waiting for pingmock's ACK
+# Data written after ghostwire's FIN gets a reset, as from a real server that
+# closed its socket, and no socket is left waiting for ghostwire's ACK
 # (under after=hang, the default, a client that gives up is left waiting).
 same "TCP: after=close, then a write is refused (EPIPE)" "$(python3 -c '
 import socket, time
@@ -290,7 +290,7 @@ except OSError as e:
     print(type(e).__name__)')" ConnectionResetError
 # The connection's own count of retransmitted segments (tcpi_total_retrans,
 # at byte 100 of struct tcp_info): the system-wide count also has the
-# retransmissions of earlier connections that pingmock left hanging.
+# retransmissions of earlier connections that ghostwire left hanging.
 read -r took retrans <<<"$(python3 -c '
 import socket, struct, time
 start = time.monotonic()

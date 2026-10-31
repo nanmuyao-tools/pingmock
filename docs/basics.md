@@ -1,16 +1,16 @@
-# Network basics for pingmock
+# Network basics for ghostwire
 
 English | [中文](basics.zh-CN.md)
 
-This page explains the networking that pingmock relies on, for readers who write programs but have never looked inside a network packet. It covers what an address and a port are, what ping, a TCP connection and a DNS lookup actually send, and how pingmock gets in the middle to fake the answers. Each part ends with what it means for pingmock. Read it in order the first time; afterwards, [the glossary](#glossary) at the end is enough. Section 9 then reads a TCP conversation, a ping and a DNS lookup byte by byte.
+This page explains the networking that ghostwire relies on, for readers who write programs but have never looked inside a network packet. It covers what an address and a port are, what ping, a TCP connection and a DNS lookup actually send, and how ghostwire gets in the middle to fake the answers. Each part ends with what it means for ghostwire. Read it in order the first time; afterwards, [the glossary](#glossary) at the end is enough. Section 9 then reads a TCP conversation, a ping and a DNS lookup byte by byte.
 
-Once this page makes sense, [the README](../README.md) shows how to use pingmock, [Inside the packets](packets.md) takes real packets apart byte by byte, and [the code tour](architecture.md) shows how pingmock is built.
+Once this page makes sense, [the README](../README.md) shows how to use ghostwire, [Inside the packets](packets.md) takes real packets apart byte by byte, and [the code tour](architecture.md) shows how ghostwire is built.
 
 ## 1. Addresses, subnets and ports
 
 Every machine on a network has an **IP address**, such as `10.99.0.1` (IPv4, four numbers from 0 to 255) or `fd99::1` (IPv6, longer, written in hexadecimal). Data travels in **packets**, and every packet carries the address it comes from and the address it goes to.
 
-A **subnet** is a range of addresses, written as a first address and a number of fixed bits: `10.99.0.0/24` means the first 24 bits (the first three numbers) are fixed, so it covers `10.99.0.0` to `10.99.0.255`. pingmock uses this range by default for its pretend hosts; nothing real uses it.
+A **subnet** is a range of addresses, written as a first address and a number of fixed bits: `10.99.0.0/24` means the first 24 bits (the first three numbers) are fixed, so it covers `10.99.0.0` to `10.99.0.255`. ghostwire uses this range by default for its pretend hosts; nothing real uses it.
 
 One machine runs many programs, so an address is not enough to say which program a packet is for. A **port**, a number from 1 to 65535, picks the program: a web server listens on port 443 (HTTPS) or 80 (HTTP), PostgreSQL on 5432. `10.99.0.1:5432` means "port 5432 at 10.99.0.1".
 
@@ -25,7 +25,7 @@ One machine runs many programs, so an address is not enough to say which program
 
 Ping has no ports: it talks to the machine itself.
 
-**For pingmock**: rules are written for addresses (`-rule 10.99.0.1=50ms`), for subnets (`-rule 10.99.0.0/24=timeout`), and for TCP also for ports (`-tcp 10.99.0.1:5432=refuse`).
+**For ghostwire**: rules are written for addresses (`-rule 10.99.0.1=50ms`), for subnets (`-rule 10.99.0.0/24=timeout`), and for TCP also for ports (`-tcp 10.99.0.1:5432=refuse`).
 
 ## 2. Packets are layered
 
@@ -64,7 +64,7 @@ The IPv4 header, as RFCs draw it, 32 bits (4 bytes) per row:
 
 The fields that matter here: **Protocol** (what follows), **Source** and **Destination address**, and **TTL**, a counter every router lowers by one, which traceroute uses (section 6).
 
-**For pingmock**: it reads every packet sent to the addresses it mocks, looks at these headers to recognize pings and connection attempts, and writes back answers built byte by byte. [Inside the packets](packets.md) does this with real packets.
+**For ghostwire**: it reads every packet sent to the addresses it mocks, looks at these headers to recognize pings and connection attempts, and writes back answers built byte by byte. [Inside the packets](packets.md) does this with real packets.
 
 ## 3. Ping: ICMP echo
 
@@ -105,7 +105,7 @@ Three words describe how well a network answers:
 - **Jitter**: how much the latency varies from one ping to the next.
 - **Packet loss**: the share of requests that never get an answer. ping shows it as `10% packet loss`.
 
-**For pingmock**: a rule such as `delay=50ms,jitter=10ms,loss=5%` sets these three for a target. pingmock answers each request itself, after the delay, or drops it; the payload goes back unchanged, so ping's own measurement shows the delay you asked for.
+**For ghostwire**: a rule such as `delay=50ms,jitter=10ms,loss=5%` sets these three for a target. ghostwire answers each request itself, after the delay, or drops it; the payload goes back unchanged, so ping's own measurement shows the delay you asked for.
 
 ## 4. When there is no answer: timeout versus unreachable
 
@@ -129,7 +129,7 @@ sequenceDiagram
 - **Timeout**: nothing comes back. The program waits until it gives up, often seconds. This is what a dead machine or a firewall that silently drops looks like.
 - **Unreachable**: a router, or the target itself, answers with an ICMP error ("destination unreachable", ICMP type 3). The program knows at once, without waiting. There are several reasons: host unreachable, network unreachable, administratively prohibited (a firewall that rejects).
 
-**For pingmock**: `timeout` or `loss=` give the first, `unreachable[=host|net|admin]` the second. The README's [Unreachable versus timeout](../README.md#unreachable-versus-timeout) has the details.
+**For ghostwire**: `timeout` or `loss=` give the first, `unreachable[=host|net|admin]` the second. The README's [Unreachable versus timeout](../README.md#unreachable-versus-timeout) has the details.
 
 ## 5. TCP connections
 
@@ -185,7 +185,7 @@ A connection can fail in more ways than a ping:
 | The connection opens, then the server closes it (**FIN**) | reading gets end of file; an HTTP client reports an empty reply |
 | The connection opens, then the server resets it (**RST**) | "connection reset by peer" (`ECONNRESET`) |
 
-**For pingmock**: a TCP rule picks one of these per address and port: `5ms` accepts after 5 ms, `refuse` answers RST, `timeout` never answers, `unreachable` sends the ICMP error, `after=hang|close|reset` decides what happens once the connection is open, and `send=` and `reply=` put fixed bytes on it. pingmock does not run a server: it writes the SYN-ACK, RST, FIN or data segments itself, and the program's own kernel does the rest of the handshake. A port without a TCP rule gets no answer, unless the address has a [path](../README.md#paths-traceroute-and-mtr), whose target accepts every port. See [TCP connections](../README.md#tcp-connections).
+**For ghostwire**: a TCP rule picks one of these per address and port: `5ms` accepts after 5 ms, `refuse` answers RST, `timeout` never answers, `unreachable` sends the ICMP error, `after=hang|close|reset` decides what happens once the connection is open, and `send=` and `reply=` put fixed bytes on it. ghostwire does not run a server: it writes the SYN-ACK, RST, FIN or data segments itself, and the program's own kernel does the rest of the handshake. A port without a TCP rule gets no answer, unless the address has a [path](../README.md#paths-traceroute-and-mtr), whose target accepts every port. See [TCP connections](../README.md#tcp-connections).
 
 ## 6. traceroute: TTL and hops
 
@@ -208,7 +208,7 @@ sequenceDiagram
     H-->>T: answer (reached the target)
 ```
 
-**For pingmock**: a path (`-path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@15ms'`) makes up these routers: pingmock answers each probe as the router where its TTL ran out would. See [Paths](../README.md#paths-traceroute-and-mtr).
+**For ghostwire**: a path (`-path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@15ms'`) makes up these routers: ghostwire answers each probe as the router where its TTL ran out would. See [Paths](../README.md#paths-traceroute-and-mtr).
 
 ## 7. DNS: from a name to an address
 
@@ -256,35 +256,35 @@ The answer code says how it went:
 | **SERVFAIL**: the server failed | the resolver tries again, then: "Temporary failure in name resolution" |
 | No answer | the resolver waits (5 seconds by default), tries again, then fails as for SERVFAIL |
 
-**For pingmock**: under `pingmock exec`, the command gets its own `/etc/hosts` and `/etc/resolv.conf`, pointing at a small DNS server pingmock runs for it. That is how a rule can be written for a name (`-rule api.example.com=80ms`), and how a DNS rule makes a name fail (`-dns api.example.com=nxdomain`). See [Names](../README.md#names) and [DNS faults](../README.md#dns-faults).
+**For ghostwire**: under `ghostwire exec`, the command gets its own `/etc/hosts` and `/etc/resolv.conf`, pointing at a small DNS server ghostwire runs for it. That is how a rule can be written for a name (`-rule api.example.com=80ms`), and how a DNS rule makes a name fail (`-dns api.example.com=nxdomain`). See [Names](../README.md#names) and [DNS faults](../README.md#dns-faults).
 
-## 8. How pingmock gets in the middle
+## 8. How ghostwire gets in the middle
 
-The kernel decides where each packet goes with the **routing table**: "addresses in this range leave through that network interface". pingmock creates a **virtual network interface**, a TUN device called `pingmock0`, and adds routes so that the addresses it mocks go there. A TUN device has no cable behind it: every packet the kernel sends to it is read by a program, and every packet that program writes comes back to the kernel as if it had arrived from the network.
+The kernel decides where each packet goes with the **routing table**: "addresses in this range leave through that network interface". ghostwire creates a **virtual network interface**, a TUN device called `ghostwire0`, and adds routes so that the addresses it mocks go there. A TUN device has no cable behind it: every packet the kernel sends to it is read by a program, and every packet that program writes comes back to the kernel as if it had arrived from the network.
 
 ```mermaid
 flowchart LR
     A["your program<br>ping / connect"] --> K["the kernel<br>looks up the route"]
-    K -->|"10.99.0.0/24<br>goes to pingmock0"| T["pingmock0<br>(TUN device)"]
-    T --> P["pingmock<br>reads the packet,<br>checks the rules"]
+    K -->|"10.99.0.0/24<br>goes to ghostwire0"| T["ghostwire0<br>(TUN device)"]
+    T --> P["ghostwire<br>reads the packet,<br>checks the rules"]
     P -->|"writes the answer<br>after the delay"| T
     T --> K
     K --> A
     K -->|"everything else:<br>the real network"| N["eth0"]
 ```
 
-So the program needs no change: it pings or connects as usual, the kernel hands the packet to pingmock, and pingmock writes back the answer you decided. [The round trip of one ping](packet-path.md) follows a packet through the kernel step by step.
+So the program needs no change: it pings or connects as usual, the kernel hands the packet to ghostwire, and ghostwire writes back the answer you decided. [The round trip of one ping](packet-path.md) follows a packet through the kernel step by step.
 
 There are two ways to run it:
 
-- **`sudo pingmock`** changes the routes of the whole machine, so it needs root (administrator) rights, and every program on the machine sees the mocked addresses.
-- **`pingmock exec -- ./my-app`** needs no root: it gives the command a private copy of the network, a **network namespace**, with its own interfaces and routes. Only that command sees the mocked network, and nothing on the machine changes.
+- **`sudo ghostwire`** changes the routes of the whole machine, so it needs root (administrator) rights, and every program on the machine sees the mocked addresses.
+- **`ghostwire exec -- ./my-app`** needs no root: it gives the command a private copy of the network, a **network namespace**, with its own interfaces and routes. Only that command sees the mocked network, and nothing on the machine changes.
 
 ## 9. A worked example, byte by byte
 
 This section builds a few packets by hand and reads them byte by byte: a whole TCP conversation, a ping and a DNS lookup. The numbers are chosen to be easy to follow (the client starts counting at 1000, the server at 5000), and the TCP headers carry no options; real packets are messier, and [Inside the packets](packets.md) takes captured ones apart. These are still valid packets: their checksums are right, and `tcpdump -vv` decodes every one without a complaint.
 
-The addresses are pingmock's defaults: the program runs on **10.99.0.254**, port 40000, and talks to a web server at **10.99.0.1**, port 80.
+The addresses are ghostwire's defaults: the program runs on **10.99.0.254**, port 40000, and talks to a web server at **10.99.0.1**, port 80.
 
 ### 9.1 Reading hexadecimal
 
@@ -391,7 +391,7 @@ bit     7     6     5     4     3     2     1     0
 value  0x80  0x40  0x20  0x10  0x08  0x04  0x02  0x01
 ```
 
-A packet's flags are the sum of the bits it sets. The combinations in this example, and the ones pingmock sends:
+A packet's flags are the sum of the bits it sets. The combinations in this example, and the ones ghostwire sends:
 
 | Hex | Bits | Flags | Meaning |
 |---|---|---|---|
@@ -403,7 +403,7 @@ A packet's flags are the sum of the bits it sets. The combinations in this examp
 | `04` | `0000 0100` | RST | abort |
 | `14` | `0001 0100` | RST, ACK | abort; in answer to a SYN, "connection refused" |
 
-To test one flag in a program, mask it: `flags & 0x02 != 0` is "SYN is set". pingmock tells a connection attempt from everything else with `flags & 0x12 == 0x02`: SYN set and ACK not set ([Inside the packets](packets.md#121-how-pingmock-recognizes-tcp-parseprobe)).
+To test one flag in a program, mask it: `flags & 0x02 != 0` is "SYN is set". ghostwire tells a connection attempt from everything else with `flags & 0x12 == 0x02`: SYN set and ACK not set ([Inside the packets](packets.md#121-how-ghostwire-recognizes-tcp-parseprobe)).
 
 ### 9.5 Sequence and acknowledgment numbers
 
@@ -444,11 +444,11 @@ Packet 4 is the request. Compared with the SYN, the total length grows by the da
 | 33 | `18` | PSH, ACK |
 | 40-57 | `47 45 54 20 2f ...` | the data, in ASCII: `G E T space / space H T T P / 1 . 0`, then `0d 0a 0d 0a`, two line ends (`\r\n\r\n`) that end an HTTP request |
 
-### 9.7 Where pingmock comes in
+### 9.7 Where ghostwire comes in
 
-With a TCP rule for 10.99.0.1:80, there is no server: pingmock writes the server's packets itself, and only those the rule asks for.
+With a TCP rule for 10.99.0.1:80, there is no server: ghostwire writes the server's packets itself, and only those the rule asks for.
 
-| The rule | What pingmock writes | Then |
+| The rule | What ghostwire writes | Then |
 |---|---|---|
 | `10.99.0.1:80=5ms` | packet 2, the SYN-ACK, after 5 ms | the client sends 3 and 4, and gets nothing more: it waits for an answer that never comes |
 | `refuse` | instead of packet 2, an RST, ACK (flags `14`) with ack 1001 | `connect` fails: "connection refused" |
@@ -457,11 +457,11 @@ With a TCP rule for 10.99.0.1:80, there is no server: pingmock writes the server
 | `after=reset` | packet 2, then on packet 4 an RST, ACK | the client gets "connection reset by peer" |
 | `reply="HTTP/1.0 200 OK...",after=close` | packet 2; on packet 4 an ACK and, like packet 6, the reply; then a FIN, like packet 8 | the client reads the reply, then end of file: much of this very conversation |
 
-pingmock's own sequence number is not 5000 but `70 69 6e 67`, the letters "ping" in ASCII, the same in every connection; only the client's numbers (the 1001 it acknowledges) come from the packet it answers. [Inside the packets](packets.md#12-tcp-a-connection-attempt-and-pingmocks-answers) shows these answers byte by byte.
+ghostwire's own sequence number is not 5000 but `70 69 6e 67`, the letters "ping" in ASCII, the same in every connection; only the client's numbers (the 1001 it acknowledges) come from the packet it answers. [Inside the packets](packets.md#12-tcp-a-connection-attempt-and-ghostwires-answers) shows these answers byte by byte.
 
 ### 9.8 A ping, every byte
 
-An echo request with 8 bytes of data, the word `pingmock`, and its reply:
+An echo request with 8 bytes of data, the word `ghostwire`, and its reply:
 
 ```
 request   0000  45 00 00 24 30 01 40 00 40 01 f5 13 0a 63 00 fe
@@ -484,9 +484,9 @@ reply     0000  45 00 00 24 30 01 40 00 40 01 f5 13 0a 63 00 01
 | 22-23 | `48 4c` | `50 4c` | checksum: the type went down by 8, so the checksum goes up by `0x0800` |
 | 24-25 | `00 07` | `00 07` | identifier 7: which ping program |
 | 26-27 | `00 01` | `00 01` | sequence number 1: which ping of that program |
-| 28-35 | `70 69 ... 6b` | the same | the data, `pingmock`, sent back unchanged |
+| 28-35 | `70 69 ... 6b` | the same | the data, `ghostwire`, sent back unchanged |
 
-That is all pingmock changes to answer a ping: the addresses, the type and the checksum. The real `ping` puts a timestamp in the data, and since the reply carries it back unchanged, `ping` measures the delay pingmock waited.
+That is all ghostwire changes to answer a ping: the addresses, the type and the checksum. The real `ping` puts a timestamp in the data, and since the reply carries it back unchanged, `ping` measures the delay ghostwire waited.
 
 ### 9.9 A DNS lookup, every byte
 
@@ -521,7 +521,7 @@ DNS travels over UDP, whose header is only 8 bytes: two ports, a length and a ch
 3   a  p  i         7   e  x  a  m  p  l  e     3   c  o  m     end
 ```
 
-**The flags** are 16 bits. The query has `01 00`; an NXDOMAIN answer, as pingmock sends for `-dns api.example.com=nxdomain`, has `85 83`:
+**The flags** are 16 bits. The query has `01 00`; an NXDOMAIN answer, as ghostwire sends for `-dns api.example.com=nxdomain`, has `85 83`:
 
 ```
          QR  Opcode   AA  TC  RD    RA  Z    RCODE
@@ -539,14 +539,14 @@ c0 0c        the name: a pointer (top two bits set) to byte 12 of the DNS messag
              where the question's name already is, so it is not written again
 00 01        type A
 00 01        class Internet
-00 00 00 00  TTL 0: do not keep this answer (pingmock's answers always say so)
+00 00 00 00  TTL 0: do not keep this answer (ghostwire's answers always say so)
 00 04        4 bytes of data follow
 0a 63 00 fd  10.99.0.253
 ```
 
 ### 9.10 Tricks with bits: reading fields with shifts and masks
 
-Code that reads packets uses the same handful of bit operations over and over. Each is shown on bytes from this section, in Go, as pingmock writes them; Python and C use the same operators, except that Go's `&^` is `& ~` there.
+Code that reads packets uses the same handful of bit operations over and over. Each is shown on bytes from this section, in Go, as ghostwire writes them; Python and C use the same operators, except that Go's `&^` is `& ~` there.
 
 | Operation | Go | What it does |
 |---|---|---|
@@ -566,7 +566,7 @@ Code that reads packets uses the same handful of bit operations over and over. E
 (0x45 & 0x0f) * 4 = 20               bytes, so the next layer starts at byte 20
 ```
 
-The TCP data offset is the high half of byte 32: `(0x50 >> 4) * 4` = 20 bytes of TCP header. pingmock: `pkt[0] >> 4` picks IPv4 or IPv6, `int(pkt[0]&0x0f) * 4` finds where ICMP or TCP starts, `int(msg[12]>>4) * 4` finds where the data starts ([`probe.go`](../internal/icmp/probe.go)).
+The TCP data offset is the high half of byte 32: `(0x50 >> 4) * 4` = 20 bytes of TCP header. ghostwire: `pkt[0] >> 4` picks IPv4 or IPv6, `int(pkt[0]&0x0f) * 4` finds where ICMP or TCP starts, `int(msg[12]>>4) * 4` finds where the data starts ([`probe.go`](../internal/icmp/probe.go)).
 
 **2. One flag: and with its bit.** The result is the bit itself if it is set, 0 if not:
 
@@ -586,7 +586,7 @@ SYN-ACK  0x12 & 0x12 = 0x12 ≠  0x02   not one
 ACK      0x10 & 0x12 = 0x10 ≠  0x02   not one
 ```
 
-pingmock: `flags&(FlagSYN|FlagACK) == FlagSYN` for an attempt, `flags&(FlagSYN|FlagRST) == 0` for a later segment.
+ghostwire: `flags&(FlagSYN|FlagACK) == FlagSYN` for an attempt, `flags&(FlagSYN|FlagRST) == 0` for a later segment.
 
 **4. Building flags: or them together; clear one with and not.**
 
@@ -608,9 +608,9 @@ FlagRST | FlagACK = 0x04 | 0x10 = 0x14          the reset of refuse
 0x83 & 0x0f        = 3             RCODE 3: NXDOMAIN
 ```
 
-The fragment test of IPv4 masks off one bit and keeps the other 14 of bytes 6-7: `0x4000 & 0x3fff` is 0, a whole packet with only "don't fragment" set; a fragment has "more fragments" (`0x2000`) or an offset, and the result is not 0. pingmock: `q[2]&0x80` (a response, ignored) and `(q[2] >> 3) & 0x0f` (the opcode) in [`dns.go`](../internal/dns/dns.go), `&0x3fff != 0` in [`probe.go`](../internal/icmp/probe.go); [Inside the packets](packets.md#6-flags-and-fragment-offset-where-0x4000-0x3fff-and-0x00b9-come-from) works the fragment test through on real fragments.
+The fragment test of IPv4 masks off one bit and keeps the other 14 of bytes 6-7: `0x4000 & 0x3fff` is 0, a whole packet with only "don't fragment" set; a fragment has "more fragments" (`0x2000`) or an offset, and the result is not 0. ghostwire: `q[2]&0x80` (a response, ignored) and `(q[2] >> 3) & 0x0f` (the opcode) in [`dns.go`](../internal/dns/dns.go), `&0x3fff != 0` in [`probe.go`](../internal/icmp/probe.go); [Inside the packets](packets.md#6-flags-and-fragment-offset-where-0x4000-0x3fff-and-0x00b9-come-from) works the fragment test through on real fragments.
 
-**6. Copy some bits, change the others.** pingmock answers a DNS query with the query's opcode and RD bit, and its own QR and AA: mask what it keeps, or in what it sets.
+**6. Copy some bits, change the others.** ghostwire answers a DNS query with the query's opcode and RD bit, and its own QR and AA: mask what it keeps, or in what it sets.
 
 ```
 query flags byte 2:  0x01 = 0000 0001                  RD
@@ -637,7 +637,7 @@ c0 0c
 ((0xc0 & 0x3f) << 8) | 0x0c = 12        the name is at byte 12 of the message
 ```
 
-pingmock writes this pointer in its answers (`0xc0, 12`), and rejects a query whose name has either bit set (`n&0xc0 != 0`), since a question has nothing earlier to point to.
+ghostwire writes this pointer in its answers (`0xc0, 12`), and rejects a query whose name has either bit set (`n&0xc0 != 0`), since a question has nothing earlier to point to.
 
 **9. Checksums: add in 16 bits, fold the carry back, flip.** The Internet checksum adds the data as 16-bit numbers; whatever overflows above 16 bits is added back in, and the result is inverted:
 
@@ -647,7 +647,7 @@ fold:   0x2345 + 0x1 = 0x2346         (s & 0xffff) + (s >> 16), until nothing is
 check = ^0x2346 = 0xdcb9              every bit flipped
 ```
 
-Because it is only a sum, a change to one field changes the checksum by the same amount the other way: in 9.8, the type went from `08 00` to `00 00`, 0x0800 less, so the checksum went from `48 4c` to `50 4c`, 0x0800 more. pingmock: `sum`, `fold` and `Checksum` in [`icmp.go`](../internal/icmp/icmp.go).
+Because it is only a sum, a change to one field changes the checksum by the same amount the other way: in 9.8, the type went from `08 00` to `00 00`, 0x0800 less, so the checksum went from `48 4c` to `50 4c`, 0x0800 more. ghostwire: `sum`, `fold` and `Checksum` in [`icmp.go`](../internal/icmp/icmp.go).
 
 ## Glossary
 
@@ -669,7 +669,7 @@ Because it is only a sum, a change to one field changes the checksum by the same
 | **handshake**, **SYN**, **SYN-ACK**, **ACK** | the three segments that open a TCP connection |
 | **RST**, **reset** | aborts a connection; in answer to a SYN, "connection refused" |
 | **FIN** | closes a connection normally |
-| **UDP** | a protocol without connections, used by DNS; pingmock answers it only with ICMP errors (`-udp`) |
+| **UDP** | a protocol without connections, used by DNS; ghostwire answers it only with ICMP errors (`-udp`) |
 | **TTL**, **hop** | the counter routers lower by one; each router on the way |
 | **traceroute**, **mtr** | tools that list the routers on the way to a target |
 | **DNS**, **resolve** | turning a name into an address |
@@ -678,7 +678,7 @@ Because it is only a sum, a change to one field changes the checksum by the same
 | **NXDOMAIN**, **SERVFAIL** | DNS answers: the name does not exist; the server failed |
 | **`/etc/hosts`**, **`/etc/resolv.conf`** | fixed names, and which DNS server to ask |
 | **routing table** | the kernel's list of where each range of addresses goes |
-| **network interface** | where packets leave the machine: `eth0`, `wlan0`, `pingmock0` |
+| **network interface** | where packets leave the machine: `eth0`, `wlan0`, `ghostwire0` |
 | **TUN device** | a virtual interface whose packets a program reads and writes |
 | **network namespace** | a private copy of the network for some processes |
 | **root** | the administrator account on Linux |

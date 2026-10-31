@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/nanmuyao-tools/pingmock/client"
+	"github.com/nanmuyao-tools/ghostwire/client"
 )
 
 // Change network conditions in the middle of a test and inspect what the
 // code under test did. Run the tests with:
 //
-//	go test -exec 'pingmock exec -rule 10.99.0.1=20ms --' ./...
+//	go test -exec 'ghostwire exec -rule 10.99.0.1=20ms --' ./...
 func Example() {
 	pm, err := client.FromEnv()
 	if err != nil {

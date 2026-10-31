@@ -6,7 +6,7 @@
 //
 // The outcome is one of accepted, refused, timeout, unreachable or the
 // error itself. On an accepted connection the client writes a request and
-// reads the answer, which shows what pingmock does after the handshake:
+// reads the answer, which shows what ghostwire does after the handshake:
 // nothing (timeout), close (closed) or reset (reset).
 package main
 

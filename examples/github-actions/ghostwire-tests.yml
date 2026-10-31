@@ -1,0 +1,51 @@
+# Runs a project's tests under ghostwire on GitHub Actions. Copy this file to
+# .github/workflows/ in your repository and adapt the last step to your
+# tests; see README.md.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GHOSTWIRE_VERSION: v0.20.0
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      # The release binary for this machine, checked against the release's
+      # SHA256SUMS before it is installed.
+      - name: Install ghostwire
+        run: |
+          base="https://github.com/nanmuyao-tools/ghostwire/releases/download/$GHOSTWIRE_VERSION"
+          file="ghostwire-linux-$(dpkg --print-architecture)"
+          curl -fsSLO "$base/$file"
+          curl -fsSLO "$base/SHA256SUMS"
+          sha256sum --check --ignore-missing SHA256SUMS
+          sudo install -m 755 "$file" /usr/local/bin/ghostwire
+          rm "$file" SHA256SUMS
+          ghostwire -version
+
+      # Ubuntu 24.04 and 26.04 restrict unprivileged user namespaces with
+      # AppArmor; this profile allows them for /usr/local/bin/ghostwire alone,
+      # so that ghostwire exec works without sudo.
+      - name: Allow ghostwire to create user namespaces
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/nanmuyao-tools/ghostwire/$GHOSTWIRE_VERSION/contrib/apparmor/ghostwire" |
+            sudo tee /etc/apparmor.d/ghostwire >/dev/null
+          sudo apparmor_parser -r /etc/apparmor.d/ghostwire
+
+      # Your tests, under ghostwire exec. For example, with Python:
+      #   run: ghostwire exec -config ghostwire.yaml -- python -m pytest
+      - name: Test
+        run: go test -exec "ghostwire exec -config ghostwire.yaml --" ./...

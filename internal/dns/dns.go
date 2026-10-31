@@ -1,4 +1,4 @@
-// Package dns is the small DNS server that pingmock exec runs for the
+// Package dns is the small DNS server that ghostwire exec runs for the
 // command: it answers for the mocked names and addresses, and forwards
 // every other query to the host's resolver through the parent process,
 // which still has the host's network.
@@ -22,7 +22,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // Table maps names to addresses, and addresses back to names.
@@ -195,7 +195,7 @@ func (s *Server) answer(q []byte, tcp bool) []byte {
 			default:
 				resp = s.resolve(q, name, qtype, qend, tcp)
 			}
-			time.Sleep(delay) // after forwarding: the delay is pingmock's own
+			time.Sleep(delay) // after forwarding: the delay is ghostwire's own
 			return resp
 		}
 	}
@@ -478,7 +478,7 @@ func askTCP(server string, q []byte, timeout time.Duration) ([]byte, error) {
 // are answered as they complete, in any order.
 
 // ServeRelay answers queries that arrive on conn, with forward, until
-// conn is closed. The parent of pingmock exec runs it.
+// conn is closed. The parent of ghostwire exec runs it.
 func ServeRelay(conn io.ReadWriter, forward func([]byte, bool) ([]byte, error)) {
 	var wmu sync.Mutex
 	for {

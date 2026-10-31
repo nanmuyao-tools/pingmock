@@ -1,37 +1,37 @@
-# pingmock
+# ghostwire
 
-[![CI](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml)
+[![CI](https://github.com/nanmuyao-tools/ghostwire/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao-tools/ghostwire/actions/workflows/ci.yml)
 
 [English](README.md) | 中文
 
-**pingmock 为你的测试伪造网络。** 你的程序会 ping 服务器、连接数据库、解析域名，并根据结果做决定：选最快的服务器、重试、切换线路、显示「离线」。要测这些决定，就需要网络恰好在测试需要的时候变慢、出错或连不上。用 pingmock，你写下「这台服务器 300ms 才回应」「那个数据库拒绝连接」「这个域名不存在」这样的规则，程序一行不改，得到的就是这些回应。
+**ghostwire 为你的测试伪造网络。** 你的程序会 ping 服务器、连接数据库、解析域名，并根据结果做决定：选最快的服务器、重试、切换线路、显示「离线」。要测这些决定，就需要网络恰好在测试需要的时候变慢、出错或连不上。用 ghostwire，你写下「这台服务器 300ms 才回应」「那个数据库拒绝连接」「这个域名不存在」这样的规则，程序一行不改，得到的就是这些回应。
 
-它运行在 Linux 上，模拟 ping（ICMP 和 ICMPv6 Echo）、TCP 连接、UDP 的 ICMP 错误，以及 `pingmock exec` 下的 DNS：每个地址、端口和域名的**延迟、抖动、丢包率、不可达错误、拒绝连接和 DNS 故障**，并可以在测试运行中修改。不熟悉网络？[网络基础](docs/basics.zh-CN.md)配着示意图讲清楚 ping、TCP 和 DNS，[第一步](#第一步)带你一条命令一条命令地试一遍。
+它运行在 Linux 上，模拟 ping（ICMP 和 ICMPv6 Echo）、TCP 连接、UDP 的 ICMP 错误，以及 `ghostwire exec` 下的 DNS：每个地址、端口和域名的**延迟、抖动、丢包率、不可达错误、拒绝连接和 DNS 故障**，并可以在测试运行中修改。不熟悉网络？[网络基础](docs/basics.zh-CN.md)配着示意图讲清楚 ping、TCP 和 DNS，[第一步](#第一步)带你一条命令一条命令地试一遍。
 
-![一个 ping 三台服务器并选出最快者的程序，随着 pingmock 改变各台的延迟，每次选出不同的服务器](docs/demo/demo.svg)
+![一个 ping 三台服务器并选出最快者的程序，随着 ghostwire 改变各台的延迟，每次选出不同的服务器](docs/demo/demo.svg)
 
 最短的例子，不需要 root：
 
 ```bash
-pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
+ghostwire exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
 ```
 
-不 ping 而是建立连接的程序，用法也一样：`pingmock exec -tcp 10.99.0.1:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app` 让第一个数据库从不回应、第二个 5ms 接受连接，见 [TCP 连接](#tcp-连接)。
+不 ping 而是建立连接的程序，用法也一样：`ghostwire exec -tcp 10.99.0.1:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app` 让第一个数据库从不回应、第二个 5ms 接受连接，见 [TCP 连接](#tcp-连接)。
 
-和 `tc netem` 相比：规则按**目标地址**设置，而不是按网卡；可以通过 HTTP API **在程序运行中修改**；`pingmock exec` **不需要 root**，也不影响宿主机的网络。
+和 `tc netem` 相比：规则按**目标地址**设置，而不是按网卡；可以通过 HTTP API **在程序运行中修改**；`ghostwire exec` **不需要 root**，也不影响宿主机的网络。
 
-**用 Docker 马上试一试**，什么都不用安装。pingmock 让 10.99.0.1 前三个 ping 在 20ms 后回复、之后变成 300ms，并让 10.99.0.2 返回"目标不可达"：
+**用 Docker 马上试一试**，什么都不用安装。ghostwire 让 10.99.0.1 前三个 ping 在 20ms 后回复、之后变成 300ms，并让 10.99.0.2 返回"目标不可达"：
 
 <!-- docker-demo -->
 ```bash
-docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao-tools/pingmock -c '
-  pingmock -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
+docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao-tools/ghostwire -c '
+  ghostwire -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
   until wget -q -O /dev/null 127.0.0.1:9100/rules 2>/dev/null; do kill -0 $! 2>/dev/null || exit 1; sleep 0.1; done
   ping -c 6 -i 0.5 10.99.0.1; ping -c 2 -i 0.5 10.99.0.2'
 ```
 <!-- /docker-demo -->
 
-输出（节选）：pingmock 先打印生效的规则；第 4 个 ping 从 20ms 变成了 300ms；10.99.0.2 立即被报告为不可达：
+输出（节选）：ghostwire 先打印生效的规则；第 4 个 ping 从 20ms 变成了 300ms；10.99.0.2 立即被报告为不可达：
 
 ```
 2026/10/18 10:23:05 rule 10.99.0.1/32: delay=20ms for 3 pings; delay=300ms
@@ -48,94 +48,94 @@ From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
 From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
 ```
 
-为了简短，这里把 pingmock 和 `ping` 放在同一个容器里。测试自己的程序时，可以用 [`pingmock exec`](#不用-root-运行pingmock-exec) 运行它，或者像 [`examples/compose-demo`](examples/compose-demo/README.zh-CN.md) 那样用 Docker Compose 让它加入 pingmock 的网络。
+为了简短，这里把 ghostwire 和 `ping` 放在同一个容器里。测试自己的程序时，可以用 [`ghostwire exec`](#不用-root-运行ghostwire-exec) 运行它，或者像 [`examples/compose-demo`](examples/compose-demo/README.zh-CN.md) 那样用 Docker Compose 让它加入 ghostwire 的网络。
 
 ## 原理
 
-pingmock 创建一块 TUN 虚拟网卡，把测试网段（默认是 `10.99.0.0/24` 和 `fd99::/64`）以及你指定的地址路由到它上面。内核会把发往这些地址的 echo 请求交给 pingmock，pingmock 按匹配的规则等待一段时间后回复，或者返回"目标不可达"错误，或者直接丢弃。
+ghostwire 创建一块 TUN 虚拟网卡，把测试网段（默认是 `10.99.0.0/24` 和 `fd99::/64`）以及你指定的地址路由到它上面。内核会把发往这些地址的 echo 请求交给 ghostwire，ghostwire 按匹配的规则等待一段时间后回复，或者返回"目标不可达"错误，或者直接丢弃。
 
 因此被测软件**不需要任何修改**：无论它调用 `ping` 命令，还是自己用原始套接字发送 ICMP，都会被模拟。回复会原样带回请求中的负载，所以 `ping` 这类在负载里写入时间戳的工具，计算出的延迟就是设定值。
 
-连接请求也走同一条路：pingmock 从网卡读到 TCP SYN，写回 SYN-ACK、RST 或者什么都不写，握手的其余部分由程序自己的内核完成。DNS 查询不经过网卡：在 `pingmock exec` 下，命令的 `resolv.conf` 指向 pingmock 为它运行的一个小 DNS 服务。[网络基础](docs/basics.zh-CN.md#8-pingmock-怎样插到中间)画出了这个过程，[代码导读](docs/architecture.zh-CN.md#连接和-dns-查询)讲了对应的代码。
+连接请求也走同一条路：ghostwire 从网卡读到 TCP SYN，写回 SYN-ACK、RST 或者什么都不写，握手的其余部分由程序自己的内核完成。DNS 查询不经过网卡：在 `ghostwire exec` 下，命令的 `resolv.conf` 指向 ghostwire 为它运行的一个小 DNS 服务。[网络基础](docs/basics.zh-CN.md#8-ghostwire-怎样插到中间)画出了这个过程，[代码导读](docs/architecture.zh-CN.md#连接和-dns-查询)讲了对应的代码。
 
 ### 什么时候用它，什么时候用别的
 
-pingmock 用来测试**根据 ping 的结果或连接能否建立来做决定的程序**。它不会把真实流量变慢，也不碰 TCP 连接上传输的数据。下面这些工具各有各的用处：
+ghostwire 用来测试**根据 ping 的结果或连接能否建立来做决定的程序**。它不会把真实流量变慢，也不碰 TCP 连接上传输的数据。下面这些工具各有各的用处：
 
 | 你想做的事 | 用什么 |
 |---|---|
-| 测试一个会 ping 或建立连接的程序：选服务器、切换线路、判断网络是否可用、显示延迟、连接超时和被拒绝 | **pingmock** |
+| 测试一个会 ping 或建立连接的程序：选服务器、切换线路、判断网络是否可用、显示延迟、连接超时和被拒绝 | **ghostwire** |
 | 把某块网卡上的真实流量变慢、丢包，对所有协议都生效：压力测试、"在 3G 网络下程序的体验" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html)，内核自带的网络模拟器 |
 | 让到某个服务的 TCP 连接上的数据变慢或出错：延迟、限速、传输中途重置，针对数据库或 API | [Toxiproxy](https://github.com/Shopify/toxiproxy)，带 API 和多语言客户端的 TCP 代理 |
-| 测试 QUIC（HTTP/3）客户端在 UDP 被拦时回退到 TCP | 用防火墙规则丢掉发往服务器的 UDP，比如 `iptables -A OUTPUT -p udp --dport 443 -d SERVER -j DROP`：pingmock 接管的是整个地址，没法只让 UDP 失败、TCP 仍然连到真实的服务器 |
-| 在测试之外，让整台机器或整个集群的域名解析出错 | 让客户端指向一个 DNS 服务器，比如 CoreDNS 的 `erratic` 插件，或者混沌测试工具；只改一个域名的话，在 `/etc/hosts` 里加一行。pingmock 的 [DNS 故障](#dns-故障)按域名设置，在 `pingmock exec` 下使用 |
+| 测试 QUIC（HTTP/3）客户端在 UDP 被拦时回退到 TCP | 用防火墙规则丢掉发往服务器的 UDP，比如 `iptables -A OUTPUT -p udp --dport 443 -d SERVER -j DROP`：ghostwire 接管的是整个地址，没法只让 UDP 失败、TCP 仍然连到真实的服务器 |
+| 在测试之外，让整台机器或整个集群的域名解析出错 | 让客户端指向一个 DNS 服务器，比如 CoreDNS 的 `erratic` 插件，或者混沌测试工具；只改一个域名的话，在 `/etc/hosts` 里加一行。ghostwire 的 [DNS 故障](#dns-故障)按域名设置，在 `ghostwire exec` 下使用 |
 
-netem 作用在网卡和队列上，一条规则往往会波及所有流量（包括你自己的 SSH），而且需要 root。Toxiproxy 夹在应用和某个 TCP 服务之间，应用得改成连代理。pingmock 是**透明**的：程序照常 ping、照常连接它原来的地址和端口，不需要改成连代理；`pingmock exec` **不需要 root**，也不会改动被测命令之外的任何东西。在此之上，它吸收了这两者面向测试的那一面：故障**按目标地址、网段和端口**声明在和测试放在一起的配置文件里，随机丢包和抖动用 seed **可以复现**，规则可以通过 API **在程序运行中修改**。
+netem 作用在网卡和队列上，一条规则往往会波及所有流量（包括你自己的 SSH），而且需要 root。Toxiproxy 夹在应用和某个 TCP 服务之间，应用得改成连代理。ghostwire 是**透明**的：程序照常 ping、照常连接它原来的地址和端口，不需要改成连代理；`ghostwire exec` **不需要 root**，也不会改动被测命令之外的任何东西。在此之上，它吸收了这两者面向测试的那一面：故障**按目标地址、网段和端口**声明在和测试放在一起的配置文件里，随机丢包和抖动用 seed **可以复现**，规则可以通过 API **在程序运行中修改**。
 
 ### 可以依赖的四点
 
-pingmock 做的每一件事，都同时满足这四点：
+ghostwire 做的每一件事，都同时满足这四点：
 
 | | 含义 | 怎样做到 |
 |---|---|---|
-| **透明** | 被测程序不需要修改代码或配置，照常 ping、连接和解析它原来用的地址、端口和域名 | TUN 网卡和路由拦截请求，`pingmock exec` 下还有一个私有的 DNS 服务回答域名；连 `ping` 命令都能直接用 |
-| **按目标** | 每个目标可以有自己的网络状况 | 规则按地址或网段设置，TCP 规则还可以按端口，`pingmock exec` 下还可以按域名 |
+| **透明** | 被测程序不需要修改代码或配置，照常 ping、连接和解析它原来用的地址、端口和域名 | TUN 网卡和路由拦截请求，`ghostwire exec` 下还有一个私有的 DNS 服务回答域名；连 `ping` 命令都能直接用 |
+| **按目标** | 每个目标可以有自己的网络状况 | 规则按地址或网段设置，TCP 规则还可以按端口，`ghostwire exec` 下还可以按域名 |
 | **可复现** | 同样的设置，每次运行的结果都一样 | `-seed`、确定性的 `pattern`、按次数或时间的场景、`POST /reset` |
 | **可控、可观察** | 测试进行中可以改变网络状况，事后能看到程序实际做了什么 | HTTP API 和 Go 客户端、请求历史和统计 |
 
 ## 安装
 
-pingmock 是一个静态链接的程序，运行时不需要别的程序。
+ghostwire 是一个静态链接的程序，运行时不需要别的程序。
 
-**下载编译好的程序**（不需要安装 Go）：在 [Releases](https://github.com/nanmuyao-tools/pingmock/releases) 页面下载对应架构的文件，例如：
+**下载编译好的程序**（不需要安装 Go）：在 [Releases](https://github.com/nanmuyao-tools/ghostwire/releases) 页面下载对应架构的文件，例如：
 
 ```bash
-curl -L -o pingmock https://github.com/nanmuyao-tools/pingmock/releases/latest/download/pingmock-linux-amd64
-chmod +x pingmock
+curl -L -o ghostwire https://github.com/nanmuyao-tools/ghostwire/releases/latest/download/ghostwire-linux-amd64
+chmod +x ghostwire
 ```
 
 **用 Go 安装**（需要 Go 1.22+）：
 
 ```bash
-go install github.com/nanmuyao-tools/pingmock@latest
+go install github.com/nanmuyao-tools/ghostwire@latest
 ```
 
 **容器镜像**（amd64 和 arm64），参见 [Docker](#docker)：
 
 ```bash
-docker pull ghcr.io/nanmuyao-tools/pingmock
+docker pull ghcr.io/nanmuyao-tools/ghostwire
 ```
 
 **从源码构建：**
 
 ```bash
-git clone https://github.com/nanmuyao-tools/pingmock.git
-cd pingmock
-go build -o pingmock .
+git clone https://github.com/nanmuyao-tools/ghostwire.git
+cd ghostwire
+go build -o ghostwire .
 ```
 
-用 `go install` 安装的程序在 `$(go env GOPATH)/bin` 下。用 root 运行时，`sudo` 可能找不到它，可以写完整路径，例如 `sudo $(go env GOPATH)/bin/pingmock`。
+用 `go install` 安装的程序在 `$(go env GOPATH)/bin` 下。用 root 运行时，`sudo` 可能找不到它，可以写完整路径，例如 `sudo $(go env GOPATH)/bin/ghostwire`。
 
 ## 第一步
 
-五条命令，每条展示 pingmock 的一种能力。它们都用 `pingmock exec`，不需要 root：它在一份私有的网络里运行 `--` 后面的命令，你机器上的东西都不会变。`-addr6=` 关掉 IPv6，让输出短一点。pingmock 先在以 `[pingmock]` 开头的行里打印规则，下面省略了这些行。
+五条命令，每条展示 ghostwire 的一种能力。它们都用 `ghostwire exec`，不需要 root：它在一份私有的网络里运行 `--` 后面的命令，你机器上的东西都不会变。`-addr6=` 关掉 IPv6，让输出短一点。ghostwire 先在以 `[ghostwire]` 开头的行里打印规则，下面省略了这些行。
 
-**1. 一台 200ms 才回应的服务器。** pingmock 假装 10.99.0.1 上有一台机器，每个 ping 都在 200ms 后回应：
+**1. 一台 200ms 才回应的服务器。** ghostwire 假装 10.99.0.1 上有一台机器，每个 ping 都在 200ms 后回应：
 
 ```console
-$ pingmock exec -addr6= -rule 10.99.0.1=200ms -- ping -c 3 10.99.0.1
+$ ghostwire exec -addr6= -rule 10.99.0.1=200ms -- ping -c 3 10.99.0.1
 64 bytes from 10.99.0.1: icmp_seq=1 ttl=64 time=201 ms
 64 bytes from 10.99.0.1: icmp_seq=2 ttl=64 time=200 ms
 64 bytes from 10.99.0.1: icmp_seq=3 ttl=64 time=203 ms
 3 packets transmitted, 3 received, 0% packet loss, time 2005ms
 ```
 
-10.99.0.1 上并没有机器：`ping` 没有任何改动，是 pingmock 替它回答的（[原理](docs/basics.zh-CN.md#8-pingmock-怎样插到中间)）。`time=` 就是规则设定的延迟。
+10.99.0.1 上并没有机器：`ping` 没有任何改动，是 ghostwire 替它回答的（[原理](docs/basics.zh-CN.md#8-ghostwire-怎样插到中间)）。`time=` 就是规则设定的延迟。
 
 **2. 宕机的服务器，两种样子。** `unreachable` 立即回一个错误；`timeout` 从不回应，所以 `ping` 一直等（这里等 1 秒，`-W 1`），什么也收不到：
 
 ```console
-$ pingmock exec -addr6= -rule 10.99.0.2=unreachable -rule 10.99.0.3=timeout -- \
+$ ghostwire exec -addr6= -rule 10.99.0.2=unreachable -rule 10.99.0.3=timeout -- \
     sh -c 'ping -c 2 -W 1 10.99.0.2; ping -c 2 -W 1 10.99.0.3'
 From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
 From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
@@ -145,10 +145,10 @@ From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
 
 程序通常会区别对待这两种：错误立刻就知道，超时则要白等（[为什么](docs/basics.zh-CN.md#4-没有回应时超时和不可达)）。
 
-**3. 在程序运行中修改规则。** pingmock 在 `localhost:9100` 上接收修改。服务器先是很快，然后变慢：
+**3. 在程序运行中修改规则。** ghostwire 在 `localhost:9100` 上接收修改。服务器先是很快，然后变慢：
 
 ```console
-$ pingmock exec -addr6= -rule 10.99.0.1=20ms -- sh -c '
+$ ghostwire exec -addr6= -rule 10.99.0.1=20ms -- sh -c '
     ping -c 2 -q 10.99.0.1 | tail -1
     curl -s -X PUT localhost:9100/rules/10.99.0.1 -d 300ms
     ping -c 2 -q 10.99.0.1 | tail -1'
@@ -165,7 +165,7 @@ rtt min/avg/max/mdev = 300.179/300.573/300.967/0.394 ms
 **4. 一个拒绝连接的数据库，和一个从不回应的。** TCP 规则作用在地址和端口上：
 
 ```console
-$ pingmock exec -addr6= -tcp 10.99.0.1:80=refuse -tcp 10.99.0.2:80=timeout -- \
+$ ghostwire exec -addr6= -tcp 10.99.0.1:80=refuse -tcp 10.99.0.2:80=timeout -- \
     sh -c 'curl -sS http://10.99.0.1/; curl -sS --connect-timeout 2 http://10.99.0.2/'
 curl: (7) Failed to connect to 10.99.0.1 port 80 after 0 ms: Couldn't connect to server
 curl: (28) Failed to connect to 10.99.0.2 port 80 after 2002 ms: Timeout was reached
@@ -176,26 +176,26 @@ curl: (28) Failed to connect to 10.99.0.2 port 80 after 2002 ms: Timeout was rea
 **5. 一个不存在的域名。** DNS 规则让解析失败，这里是「没有这个域名」（NXDOMAIN）；`getent` 以 2 退出，表示「找不到」：
 
 ```console
-$ pingmock exec -addr6= -dns api.example.com=nxdomain -- getent hosts api.example.com.
+$ ghostwire exec -addr6= -dns api.example.com=nxdomain -- getent hosts api.example.com.
 $ echo $?
 2
 ```
 
 域名末尾的点让解析不去试你网络的 search 域（[DNS 基础](docs/basics.zh-CN.md#7-dns从域名到地址)、[DNS 故障](#dns-故障)）。
 
-测试你自己的程序时，把它放在 `--` 后面：`pingmock exec -rule 10.99.0.1=200ms -- ./my-app`。README 的其余部分会逐一详细介绍这些内容。
+测试你自己的程序时，把它放在 `--` 后面：`ghostwire exec -rule 10.99.0.1=200ms -- ./my-app`。README 的其余部分会逐一详细介绍这些内容。
 
 ## 使用
 
-pingmock 有两种运行方式：
+ghostwire 有两种运行方式：
 
-- `sudo pingmock [参数]` 为整台机器模拟 ping 和连接，直到你停止它。本节其余部分介绍的就是这种方式。
-- `pingmock exec [参数] -- 命令` 在一个独立的网络里运行命令，该命令的 ping、连接和域名解析都会被模拟。这种方式**不需要 root**，也不影响宿主机的网络，最适合测试和 CI。参见[不用 root 运行](#不用-root-运行pingmock-exec)。
+- `sudo ghostwire [参数]` 为整台机器模拟 ping 和连接，直到你停止它。本节其余部分介绍的就是这种方式。
+- `ghostwire exec [参数] -- 命令` 在一个独立的网络里运行命令，该命令的 ping、连接和域名解析都会被模拟。这种方式**不需要 root**，也不影响宿主机的网络，最适合测试和 CI。参见[不用 root 运行](#不用-root-运行ghostwire-exec)。
 
 第一种方式需要 root 权限（或 `CAP_NET_ADMIN`）。
 
 ```bash
-sudo ./pingmock \
+sudo ./ghostwire \
   -rule 10.99.0.1=50ms \
   -rule 10.99.0.2=delay=200ms,jitter=30ms \
   -rule 10.99.0.3=loss=20% \
@@ -254,10 +254,10 @@ ping 10.99.0.9   # 没有规则，使用默认值（立即回复）
 
 ```bash
 # 前 10 个 ping 正常，然后断网 5 秒，然后恢复
-sudo ./pingmock -rule '10.99.0.1=30ms for 10 pings; timeout for 5s; 30ms'
+sudo ./ghostwire -rule '10.99.0.1=30ms for 10 pings; timeout for 5s; 30ms'
 
 # 线路时好时坏：好 20 秒，差 10 秒，一直循环
-sudo ./pingmock -rule '10.99.0.2=40ms for 20s; delay=400ms,jitter=100ms for 10s; repeat'
+sudo ./ghostwire -rule '10.99.0.2=40ms for 20s; delay=400ms,jitter=100ms for 10s; repeat'
 ```
 
 按时间切换的阶段从规则设置的那一刻开始计时；按请求数切换的阶段，对每个目标地址分别计数。重新设置规则（例如通过 API）会让它从第一个阶段重新开始。
@@ -268,7 +268,7 @@ sudo ./pingmock -rule '10.99.0.2=40ms for 20s; delay=400ms,jitter=100ms for 10s;
 
 `loss` 和 `jitter` 是随机的，但可以复现。每个目标地址有自己独立的随机序列，由**种子**和地址共同决定。所以发往某个地址的请求，无论和发往其他地址的请求怎样交错，得到的结果都相同。
 
-不指定 `-seed` 时，pingmock 会随机选一个种子，并在启动时打印出来：
+不指定 `-seed` 时，ghostwire 会随机选一个种子，并在启动时打印出来：
 
 ```
 seed 4871203317 (pass -seed 4871203317 to reproduce this run)
@@ -281,52 +281,52 @@ seed 4871203317 (pass -seed 4871203317 to reproduce this run)
 IPv6 的用法完全相同。虚拟网卡的 IPv6 地址是 `fd99::fe/64`，所以 `fd99::1`、`fd99::2` 等都是模拟主机；规则、API 和配置文件都支持 IPv6 地址和网段：
 
 ```bash
-sudo ./pingmock -rule fd99::1=30ms -rule 'fd99::2=delay=10ms,pattern=..u' -rule 2001:db8::8888=timeout
+sudo ./ghostwire -rule fd99::1=30ms -rule 'fd99::2=delay=10ms,pattern=..u' -rule 2001:db8::8888=timeout
 ping -6 fd99::1
 ```
 
-如果系统内核没有启用 IPv6，pingmock 会打印 `IPv6 is unavailable, continuing with IPv4 only`，然后只用 IPv4 运行，此时 IPv6 目标的规则会被拒绝。如果明确指定了 `-addr6`，IPv6 不可用就会报错退出；`-addr6 ""` 则会关闭 IPv6。
+如果系统内核没有启用 IPv6，ghostwire 会打印 `IPv6 is unavailable, continuing with IPv4 only`，然后只用 IPv4 运行，此时 IPv6 目标的规则会被拒绝。如果明确指定了 `-addr6`，IPv6 不可用就会报错退出；`-addr6 ""` 则会关闭 IPv6。
 
 ### 模拟真实地址
 
 如果被测软件 ping 的是写死的真实地址（比如 `8.8.8.8` 或 `2001:4860:4860::8888`），直接为它设置规则即可：
 
 ```bash
-sudo ./pingmock -rule 8.8.8.8=120ms
+sudo ./ghostwire -rule 8.8.8.8=120ms
 ```
 
-pingmock 会把这个地址路由到虚拟网卡上。**注意：只要还有规则需要这条路由，本机发往该地址的所有流量都会被拦截**（不只是 ping）。通过 API 删掉这个地址的最后一条规则，或者 pingmock 退出后，路由恢复原样。`GET /rules` 的 `routes` 列出被路由过来的目标。建议在测试机或容器里使用。
+ghostwire 会把这个地址路由到虚拟网卡上。**注意：只要还有规则需要这条路由，本机发往该地址的所有流量都会被拦截**（不只是 ping）。通过 API 删掉这个地址的最后一条规则，或者 ghostwire 退出后，路由恢复原样。`GET /rules` 的 `routes` 列出被路由过来的目标。建议在测试机或容器里使用。
 
-规则也可以覆盖本机所在的整个网络，比如 VLAN 网卡上的 `192.168.20.0/24`。这时 pingmock 会把它拆成 `192.168.20.0/25` 和 `192.168.20.128/25` 两半来添加路由：它们更精确，所以会接管流量，同时**保留本机原有的这个网络的路由**，pingmock 退出后本机依然能访问这个网络。这样做时 pingmock 会在日志中说明。单个地址如果已经有自己的路由，就无法这样拆分，pingmock 会拒绝这条规则，而不是替换那条路由。`pingmock exec` 不涉及这些问题，因为它从不改动宿主机的路由。
+规则也可以覆盖本机所在的整个网络，比如 VLAN 网卡上的 `192.168.20.0/24`。这时 ghostwire 会把它拆成 `192.168.20.0/25` 和 `192.168.20.128/25` 两半来添加路由：它们更精确，所以会接管流量，同时**保留本机原有的这个网络的路由**，ghostwire 退出后本机依然能访问这个网络。这样做时 ghostwire 会在日志中说明。单个地址如果已经有自己的路由，就无法这样拆分，ghostwire 会拒绝这条规则，而不是替换那条路由。`ghostwire exec` 不涉及这些问题，因为它从不改动宿主机的路由。
 
 如果软件 ping 的是域名，可以在 `/etc/hosts` 里把域名指向测试网段的地址，例如 `10.99.0.1 api.example.com`。
 
 ### 绑定网卡的探测
 
-绑定到网卡的探测无论主路由表怎样都会从那块网卡发出，所以 `ping -I eth0 8.8.8.8` 会绕过 pingmock。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的：用 `SO_BINDTODEVICE` 绑定网卡，再用防火墙标记把探测引到自己的路由表。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）或者绑定 `pingmock0` 则照常被模拟。
+绑定到网卡的探测无论主路由表怎样都会从那块网卡发出，所以 `ping -I eth0 8.8.8.8` 会绕过 ghostwire。OpenWrt 的 mwan3 等多线路工具就是这样检测线路的：用 `SO_BINDTODEVICE` 绑定网卡，再用防火墙标记把探测引到自己的路由表。绑定源**地址**（`ping -I 192.0.2.2 8.8.8.8`）或者绑定 `ghostwire0` 则照常被模拟。
 
-测试仍然可以把绑定的探测引到 pingmock，不用改程序。用标记引导的探测走自己的路由表，在那张表里加上 pingmock 的网段即可：
+测试仍然可以把绑定的探测引到 ghostwire，不用改程序。用标记引导的探测走自己的路由表，在那张表里加上 ghostwire 的网段即可：
 
 ```bash
-sudo ip route add 10.99.0.0/24 dev pingmock0 table 100
+sudo ip route add 10.99.0.0/24 dev ghostwire0 table 100
 ```
 
-绑定到网卡的探测需要用 `tc` 从那块网卡重定向到 pingmock 的网卡，回应再重定向回去；回程按那块网卡自己的地址匹配（这里是 eth0 的 172.17.0.2），其他回应不受影响：
+绑定到网卡的探测需要用 `tc` 从那块网卡重定向到 ghostwire 的网卡，回应再重定向回去；回程按那块网卡自己的地址匹配（这里是 eth0 的 172.17.0.2），其他回应不受影响：
 
 ```bash
 sudo tc qdisc add dev eth0 clsact
 sudo tc filter add dev eth0 egress protocol ip u32 match ip dst 10.99.0.0/24 \
-  action mirred egress redirect dev pingmock0
-sudo tc qdisc add dev pingmock0 clsact
-sudo tc filter add dev pingmock0 ingress protocol ip u32 match ip dst 172.17.0.2/32 \
+  action mirred egress redirect dev ghostwire0
+sudo tc qdisc add dev ghostwire0 clsact
+sudo tc filter add dev ghostwire0 ingress protocol ip u32 match ip dst 172.17.0.2/32 \
   action mirred ingress redirect dev eth0
 ```
 
-两种做法都在[开发容器](.devcontainer/README.zh-CN.md)里用 iputils 的 `ping -I` 试过，重定向还用 curl 的 `--interface` 试过，都是 IPv4；没有用 mwan3 本身试过。在 `pingmock exec` 下，命令可以为自己要用的网卡创建 dummy 设备，并设置同样的重定向，不需要 root。规则仍然只按目标区分，所以同一个地址不能经一块网卡不通、经另一块网卡通。
+两种做法都在[开发容器](.devcontainer/README.zh-CN.md)里用 iputils 的 `ping -I` 试过，重定向还用 curl 的 `--interface` 试过，都是 IPv4；没有用 mwan3 本身试过。在 `ghostwire exec` 下，命令可以为自己要用的网卡创建 dummy 设备，并设置同样的重定向，不需要 root。规则仍然只按目标区分，所以同一个地址不能经一块网卡不通、经另一块网卡通。
 
 ### 配置文件
 
-规则较多时，用配置文件更容易维护，还可以和测试代码放在一起。配置文件使用 YAML 格式，可以写注释。参见 [`examples/pingmock.yaml`](examples/pingmock.yaml)：
+规则较多时，用配置文件更容易维护，还可以和测试代码放在一起。配置文件使用 YAML 格式，可以写注释。参见 [`examples/ghostwire.yaml`](examples/ghostwire.yaml)：
 
 ```yaml
 seed: 42           # 每次运行的随机丢包和抖动都相同
@@ -350,10 +350,10 @@ rules:
 ```
 
 ```bash
-sudo ./pingmock -config examples/pingmock.yaml
+sudo ./ghostwire -config examples/ghostwire.yaml
 ```
 
-每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`，每个阶段是一个 `spec`，加上 `for: 10s`（时长）或 `count: 5`（请求数）。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`、[`paths`](#路径traceroute-和-mtr)、[`tcp`](#tcp-连接)、[`udp`](#udp-数据报)，以及供 `pingmock exec` 使用的 [`hosts`](#域名) 和 [`dns`](#dns-故障)；在 `pingmock exec` 下，规则的键也可以是域名。映射写法里，TCP 规则还可以用 `refuse`、`after`、`send`、`reply`、`limit` 和 `wait`，DNS 规则可以用 `nxdomain` 和 `servfail`（`{delay: 5ms, after: reset}`、`{servfail: true}`）。映射写法里 `send` 和 `reply` 是文本，双引号里用 YAML 自己的转义（`reply: "HTTP/1.1 503 x\r\n\r\n"`）；文本写法要把整条规则放在单引号里，让 YAML 把 Go 字符串原样交给 pingmock（`'reply="\xff\x00"'`）。
+每条规则可以写成和 `-rule` 相同的文本、一个毫秒数，或者一个映射：包含 `delay`、`jitter`、`loss`（`0.05` 或 `5%`）、`pattern`、`unreachable` 和 `ttl`，或者包含 `phases` 和 `repeat`，每个阶段是一个 `spec`，加上 `for: 10s`（时长）或 `count: 5`（请求数）。配置文件还可以设置 `dev`、`addr`、`addr6`、`api`、`history`、[`paths`](#路径traceroute-和-mtr)、[`tcp`](#tcp-连接)、[`udp`](#udp-数据报)，以及供 `ghostwire exec` 使用的 [`hosts`](#域名) 和 [`dns`](#dns-故障)；在 `ghostwire exec` 下，规则的键也可以是域名。映射写法里，TCP 规则还可以用 `refuse`、`after`、`send`、`reply`、`limit` 和 `wait`，DNS 规则可以用 `nxdomain` 和 `servfail`（`{delay: 5ms, after: reset}`、`{servfail: true}`）。映射写法里 `send` 和 `reply` 是文本，双引号里用 YAML 自己的转义（`reply: "HTTP/1.1 503 x\r\n\r\n"`）；文本写法要把整条规则放在单引号里，让 YAML 把 Go 字符串原样交给 ghostwire（`'reply="\xff\x00"'`）。
 
 出错时会提示所在的行号；未知的字段会直接报错，拼写错误在启动时就能发现。早期版本使用的 JSON 配置文件无需修改即可继续使用，因为 JSON 本身就是合法的 YAML。
 
@@ -363,32 +363,32 @@ sudo ./pingmock -config examples/pingmock.yaml
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `-rule` | | `目标=规则`，可重复；在 `pingmock exec` 下，目标可以是[域名](#域名) |
+| `-rule` | | `目标=规则`，可重复；在 `ghostwire exec` 下，目标可以是[域名](#域名) |
 | `-default` | `0ms` | 没有匹配规则时使用的规则 |
 | `-config` | | YAML 配置文件 |
 | `-seed` | 随机 | `loss` 和 `jitter` 的随机种子，相同的种子会复现相同的运行结果 |
 | `-addr` | `10.99.0.254/24` | 虚拟网卡的 IPv4 地址和网段。网段内**除这个地址本身外**的地址都是模拟主机 |
 | `-addr6` | `fd99::fe/64` | 虚拟网卡的 IPv6 地址和网段，设为空字符串则关闭 IPv6 |
-| `-dev` | `pingmock0` | 虚拟网卡名称 |
+| `-dev` | `ghostwire0` | 虚拟网卡名称 |
 | `-api` | `127.0.0.1:9100` | 控制 API 的监听地址，设为空字符串则关闭 |
 | `-history` | `1000` | `GET /history` 保留的最近请求数，`0` 表示关闭 |
-| `-host` | | `域名=地址`，可重复，仅限 `pingmock exec`：命令把域名解析成这个地址，见[域名](#域名) |
+| `-host` | | `域名=地址`，可重复，仅限 `ghostwire exec`：命令把域名解析成这个地址，见[域名](#域名) |
 | `-path` | | `目标=路径`，可重复：traceroute 和 mtr 看到的、到目标的路径，见[路径](#路径traceroute-和-mtr) |
 | `-tcp` | | `目标=规则`，可重复：发往目标（`地址[:端口]`、`网段[:端口]`、`[IPv6]:端口`）的 TCP 连接怎样回应，见 [TCP 连接](#tcp-连接) |
 | `-udp` | | `目标=规则`，可重复：发往目标的 UDP 数据报怎样失败，见 [UDP 数据报](#udp-数据报) |
-| `-dns` | | `域名=规则`，可重复，只用于 `pingmock exec`：命令对该域名的 DNS 查询怎样回应，见 [DNS 故障](#dns-故障) |
-| `-outside` | `false` | 只用于 `pingmock exec`：通过 pasta 让命令使用宿主机的网络，见[访问外网](#访问外网) |
-| `-outside-port` | | `PORT[/udp]`，可重复，只用于 `pingmock exec`：命令访问的 `127.0.0.1:PORT` 通到宿主机的同一端口；隐含 `-outside` |
+| `-dns` | | `域名=规则`，可重复，只用于 `ghostwire exec`：命令对该域名的 DNS 查询怎样回应，见 [DNS 故障](#dns-故障) |
+| `-outside` | `false` | 只用于 `ghostwire exec`：通过 pasta 让命令使用宿主机的网络，见[访问外网](#访问外网) |
+| `-outside-port` | | `PORT[/udp]`，可重复，只用于 `ghostwire exec`：命令访问的 `127.0.0.1:PORT` 通到宿主机的同一端口；隐含 `-outside` |
 | `-v` | `false` | 打印每个请求的处理日志 |
 
-`pingmock version`（或 `-version`）作为唯一的参数时，打印版本号并退出。
+`ghostwire version`（或 `-version`）作为唯一的参数时，打印版本号并退出。
 
 ## TCP 连接
 
 很多检查网络的软件也会建立连接：连数据库、连 API、检测某个端口。**TCP 规则**决定发往某个地址和端口的连接请求怎样回应，程序不需要任何改动，就会遇到连接很慢、被拒绝，或者一直连不上：
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -tcp 10.99.0.1:5432=timeout \
   -tcp 10.99.0.2:5432=5ms \
   -tcp '10.99.0.3:443=refuse for 3 requests; 20ms' \
@@ -397,7 +397,7 @@ pingmock exec \
 
 这里第一个数据库从不回应，`connect` 会超时，程序应该切换到第二个，它 5ms 就接受连接。第三台服务器先拒绝三次连接（立即得到 `ECONNREFUSED`），之后接受。
 
-目标写成 `地址:端口`、`网段:端口`，不写端口就是该地址或网段的所有端口。IPv6 和 URL 里一样加方括号：`[fd99::1]:443`、`[fd99::/64]:443`、`[fd99::1]`。不加括号时 `fd99::1:443` 本身就是一个地址，所以会被拒绝。在 `pingmock exec` 下，目标还可以是[域名](#域名)，比如 `db.example.com:5432`。
+目标写成 `地址:端口`、`网段:端口`，不写端口就是该地址或网段的所有端口。IPv6 和 URL 里一样加方括号：`[fd99::1]:443`、`[fd99::/64]:443`、`[fd99::1]`。不加括号时 `fd99::1:443` 本身就是一个地址，所以会被拒绝。在 `ghostwire exec` 下，目标还可以是[域名](#域名)，比如 `db.example.com:5432`。
 
 规则的写法和 `-rule` 相同，含义如下：
 
@@ -416,13 +416,13 @@ pingmock exec \
 
 场景按连接请求计数：`for 3 requests`（也可以写 `connections`）。一次连接请求只算一次，不管客户端的内核在等待期间重发了几次 SYN，所以 `timeout for 2 requests` 就是两次连接请求，和内核的重传时间无关。多条规则匹配时，先比网段谁更精确，再比有端口的优先于不带端口的。
 
-和 ping 的规则一样，root 模式下为真实地址设置 TCP 规则，会把发往这个地址的**所有**流量交给 pingmock，见[模拟真实地址](#模拟真实地址)；`pingmock exec` 只影响它运行的命令。
+和 ping 的规则一样，root 模式下为真实地址设置 TCP 规则，会把发往这个地址的**所有**流量交给 ghostwire，见[模拟真实地址](#模拟真实地址)；`ghostwire exec` 只影响它运行的命令。
 
 ### 连接建立之后
 
 接受的连接会保持打开，除非规则[发送数据](#发送数据)，否则不会发送任何东西：程序读取时会遇到读取超时，可以和连接超时区分开。没有 TCP 规则的端口和以前一样不回应，除非这个地址设了[路径](#路径traceroute-和-mtr)，路径的目标接受任何端口的连接。不过历史仍会记下每次对这些端口的连接尝试，以及发往没有 UDP 规则的端口的每个 UDP 数据报，结果是 `ignored`，这样测试能看到程序确实尝试过：`GET /history?target=10.99.0.1` 会列出端口，再次发送的 SYN 带 `repeat`。
 
-同样的规则可以测试 **TLS 握手超时**：连接建立了，客户端发出 ClientHello，却一直等不到回应。`pingmock exec -tcp api.example.com:443=5ms -- ./my-app` 让发往这个域名的每个 HTTPS 请求都卡在握手：Python 的 `ssl` 报 "The handshake operation timed out"，curl 以退出码 28 放弃，Go 的 `http.Transport` 在 `TLSHandshakeTimeout` 之后失败。
+同样的规则可以测试 **TLS 握手超时**：连接建立了，客户端发出 ClientHello，却一直等不到回应。`ghostwire exec -tcp api.example.com:443=5ms -- ./my-app` 让发往这个域名的每个 HTTPS 请求都卡在握手：Python 的 `ssl` 报 "The handshake operation timed out"，curl 以退出码 28 放弃，Go 的 `http.Transport` 在 `TLSHandshakeTimeout` 之后失败。
 
 用 `after=` 可以改为别的做法，测试程序怎样应对服务器断开它：`-tcp '10.99.0.1:5432=after=reset'` 让发往这个数据库的每次查询都失败于 "connection reset by peer"；`-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` 先给两次空回复，之后服务器恢复（接受连接并保持）。
 
@@ -435,7 +435,7 @@ pingmock exec \
 规则还可以在连接上发送固定的字节，用来测试程序怎样应对服务器说的话，或者不再接收的服务器：
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -tcp '10.99.0.1:22=send="SSH-2.0-OpenSSH_9.6\r\n"' \
   -tcp '10.99.0.2:80=reply="HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",after=close' \
   -tcp '10.99.0.3:5432=limit=1000,after=reset' \
@@ -443,18 +443,18 @@ pingmock exec \
   -- ./my-app
 ```
 
-| 设置 | pingmock 做什么 |
+| 设置 | ghostwire 做什么 |
 |---|---|
 | `send="..."` | 连接一建立就发送这些字节，像先开口的服务器那样：SSH、SMTP、FTP、MySQL |
 | `reply="..."` | 程序第一次发送数据时发送这些字节：不管请求是什么，都给同一个回答 |
 | `limit=1000` | 接收程序发来的 1000 字节，然后按 `after=` 结束连接；需要 `after=close` 或 `after=reset` |
 | `wait=2s` | 发送 `send` 或 `reply` 之前等待这么久：一台回应很慢的服务器 |
 
-字节写成 Go 的双引号字符串，可以用 `\r`、`\n`、`\t`、`\"`、`\\`，任意字节用 `\xff`，每项最多 16 KiB。pingmock 原样发送，从不查看程序发来的内容：它扮演的是一台总说同样的话的服务器，而不是某个协议。规则发送数据或者有 limit 时，pingmock 会确认程序发来的数据，程序的写入不会卡住；没有这些设置时，和上面说的一样，什么都不确认。
+字节写成 Go 的双引号字符串，可以用 `\r`、`\n`、`\t`、`\"`、`\\`，任意字节用 `\xff`，每项最多 16 KiB。ghostwire 原样发送，从不查看程序发来的内容：它扮演的是一台总说同样的话的服务器，而不是某个协议。规则发送数据或者有 limit 时，ghostwire 会确认程序发来的数据，程序的写入不会卡住；没有这些设置时，和上面说的一样，什么都不确认。
 
-`after=` 决定数据之后怎样：`after=close` 时，pingmock 发完所有数据（有 `reply` 就在 `reply` 之后）就关闭连接，所以 HTTP 客户端会收到回复和响应的结束；`after=reset` 时，程序下一次发送数据或关闭会得到重置；`after=hang` 时，连接保持打开、不再说话。有 `limit` 时，`after=` 改为在达到限制时生效。pingmock 不会重发任何东西：要模拟丢包的网络，请对连接请求用规则的 `delay` 和 `loss`。
+`after=` 决定数据之后怎样：`after=close` 时，ghostwire 发完所有数据（有 `reply` 就在 `reply` 之后）就关闭连接，所以 HTTP 客户端会收到回复和响应的结束；`after=reset` 时，程序下一次发送数据或关闭会得到重置；`after=hang` 时，连接保持打开、不再说话。有 `limit` 时，`after=` 改为在达到限制时生效。ghostwire 不会重发任何东西：要模拟丢包的网络，请对连接请求用规则的 `delay` 和 `loss`。
 
-`wait` 只推迟 pingmock 自己的数据：程序发来的数据会立即被确认，就像一台慢服务器的内核那样，所以程序会等待回答，而不会重发请求。
+`wait` 只推迟 ghostwire 自己的数据：程序发来的数据会立即被确认，就像一台慢服务器的内核那样，所以程序会等待回答，而不会重发请求。
 
 ### 配置文件、API 和历史
 
@@ -477,17 +477,17 @@ Go 客户端有 `SetTCP`、`DeleteTCP` 和 `TCPStats`。`GET /rules` 在 `tcp` �
 
 ## UDP 数据报
 
-UDP 没有连接，所以一个往 UDP 服务（syslog、statsd、NTP、游戏服务器）发送数据的程序，只能从 ICMP 错误或者一片沉默里得知服务挂了。**UDP 规则**按地址和端口决定是哪一种；pingmock 从不发送 UDP 回答：
+UDP 没有连接，所以一个往 UDP 服务（syslog、statsd、NTP、游戏服务器）发送数据的程序，只能从 ICMP 错误或者一片沉默里得知服务挂了。**UDP 规则**按地址和端口决定是哪一种；ghostwire 从不发送 UDP 回答：
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -udp 10.99.0.1:514=refuse \
   -udp '10.99.0.2:123=timeout for 2 requests; refuse' \
   -udp 10.99.0.3=unreachable=admin \
   -- ./my-app
 ```
 
-| 设置 | pingmock 做什么 | 已连接的 UDP socket 下一次接收时看到的 |
+| 设置 | ghostwire 做什么 | 已连接的 UDP socket 下一次接收时看到的 |
 |---|---|---|
 | `refuse` | ICMP 端口不可达，和端口上没有程序的主机一样 | `ECONNREFUSED`（"Connection refused"） |
 | `unreachable=admin` | ICMP 被管理员禁止，和拒绝的防火墙一样 | IPv4 下 `EHOSTUNREACH`，IPv6 下 `EACCES` |
@@ -496,7 +496,7 @@ pingmock exec \
 | `pattern=xxr` | 按顺序轮流：`x` 不回应、`u` 不可达、`r` 拒绝 | |
 | `delay=`、`jitter=`、`ttl=` | ICMP 错误的延迟和 TTL | |
 
-目标的写法和 [TCP 规则](#tcp-连接)相同，`pingmock exec` 下也可以写域名。场景按数据报计数：每个数据报都是一次请求。规则必须说明数据报怎样失败：只写 `20ms`、没有可以延迟的错误，会被拒绝。设了[路径](#路径traceroute-和-mtr)的目标，UDP 规则在终点生效，路上的各跳照样回应 traceroute 的探测。`pingmock exec` 下命令自己的 DNS 服务不在虚拟网卡上，`-udp` 管不到它：请用 [DNS 故障](#dns-故障)。
+目标的写法和 [TCP 规则](#tcp-连接)相同，`ghostwire exec` 下也可以写域名。场景按数据报计数：每个数据报都是一次请求。规则必须说明数据报怎样失败：只写 `20ms`、没有可以延迟的错误，会被拒绝。设了[路径](#路径traceroute-和-mtr)的目标，UDP 规则在终点生效，路上的各跳照样回应 traceroute 的探测。`ghostwire exec` 下命令自己的 DNS 服务不在虚拟网卡上，`-udp` 管不到它：请用 [DNS 故障](#dns-故障)。
 
 配置文件和 API 中的写法：
 
@@ -518,7 +518,7 @@ Go 客户端有 `SetUDP`、`DeleteUDP` 和 `UDPStats`。`GET /rules` 在 `udp` �
 有些软件看的不只是终点，还有去往终点的路。可以给目标设置一条**路径**：从这里到它之间的每一台路由器，像真实路由器一样回应 TTL 在它那里耗尽的探测包。traceroute 和 mtr 就能看到每一跳，三种探测方式（UDP、ICMP、TCP）都能到达终点。
 
 ```bash
-sudo pingmock -rule 8.8.8.8=30ms \
+sudo ghostwire -rule 8.8.8.8=30ms \
   -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
 ```
 
@@ -541,7 +541,7 @@ $ traceroute -n 8.8.8.8
 | `cut=5%` | 这一跳丢掉 5% 经过它的包：发给后面各跳和终点的探测包，还有发给终点的 ping。有问题的链路就是这样：从这一跳起都有丢包 |
 | `ttl=250` | 这一跳回应的 TTL（默认 64） |
 
-终点自己的规则仍然决定终点怎么回应：它的延迟和丢包像以前一样作用于 ping，也作用于 traceroute 的最后一行。设置了路径的目标还会用"端口不可达"回应 UDP 探测、用 SYN-ACK 回应 TCP 探测，任何端口都是，traceroute 的 UDP 和 TCP 模式就是靠这个知道到达了终点；在终点，这个端口的 [TCP 规则](#tcp-连接)优先。没有路径的目标仍然不理会 UDP，也不理会没有 TCP 规则的端口上的 TCP。各跳的地址会被加上指向虚拟网卡的路由，这样在严格的反向路径检查下内核也接受它们的回应；在 `pingmock exec` 里这不会影响命令之外的任何东西。随机数来自 seed、按目标独立，所以 `loss` 和 `cut` 在 `-seed` 下可以精确复现。发给各跳的探测有自己的随机序列，也不算对目标的请求：某一跳回应了，才计进 `hops`。所以它们既不改变 ping 的结果，也不改变它们的统计。越过最后一跳的探测和 ping 一样，算对目标的请求：traceroute 到达了目标，目标的随机序列就往前走，和多发了同样多个 ping 一样。`traceroute -m` 加上跳数，就会在目标之前停下。
+终点自己的规则仍然决定终点怎么回应：它的延迟和丢包像以前一样作用于 ping，也作用于 traceroute 的最后一行。设置了路径的目标还会用"端口不可达"回应 UDP 探测、用 SYN-ACK 回应 TCP 探测，任何端口都是，traceroute 的 UDP 和 TCP 模式就是靠这个知道到达了终点；在终点，这个端口的 [TCP 规则](#tcp-连接)优先。没有路径的目标仍然不理会 UDP，也不理会没有 TCP 规则的端口上的 TCP。各跳的地址会被加上指向虚拟网卡的路由，这样在严格的反向路径检查下内核也接受它们的回应；在 `ghostwire exec` 里这不会影响命令之外的任何东西。随机数来自 seed、按目标独立，所以 `loss` 和 `cut` 在 `-seed` 下可以精确复现。发给各跳的探测有自己的随机序列，也不算对目标的请求：某一跳回应了，才计进 `hops`。所以它们既不改变 ping 的结果，也不改变它们的统计。越过最后一跳的探测和 ping 一样，算对目标的请求：traceroute 到达了目标，目标的随机序列就往前走，和多发了同样多个 ping 一样。`traceroute -m` 加上跳数，就会在目标之前停下。
 
 配置文件里的写法（以 `*` 开头的路径要加引号，否则 YAML 会当成别名）和 API：
 
@@ -557,22 +557,22 @@ curl -X DELETE localhost:9100/paths/8.8.8.8
 
 Go 客户端有 `SetPath` 和 `DeletePath`。`GET /rules` 会列出路径；历史记录里每个探测包都带有 `ttl`、回应或丢掉它的 `hop`，以及回应来自哪个地址（`from`）；探测包的 `result` 是某一跳回的 `time-exceeded`，或者终点回的 `port-unreachable`、`syn-ack`。
 
-## 不用 root 运行：pingmock exec
+## 不用 root 运行：ghostwire exec
 
 ```bash
-pingmock exec [参数] -- 命令 [参数...]
+ghostwire exec [参数] -- 命令 [参数...]
 ```
 
-会在一个**独立的网络命名空间**里运行命令，pingmock 在其中模拟 ping 和连接，有 `-dns` 规则或域名时还模拟 DNS 查询，参数和前面完全相同：
+会在一个**独立的网络命名空间**里运行命令，ghostwire 在其中模拟 ping 和连接，有 `-dns` 规则或域名时还模拟 DNS 查询，参数和前面完全相同：
 
 ```bash
-pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
+ghostwire exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
 ```
 
-- **不需要 root。** 普通用户运行时，pingmock 还会创建一个用户命名空间，在其中设置网络；以 root 运行时，只创建网络命名空间；但如果 root 没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`（比如在容器里），也会创建用户命名空间，见[系统要求](#系统要求)。
+- **不需要 root。** 普通用户运行时，ghostwire 还会创建一个用户命名空间，在其中设置网络；以 root 运行时，只创建网络命名空间；但如果 root 没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`（比如在容器里），也会创建用户命名空间，见[系统要求](#系统要求)。
 - **不影响宿主机网络。** 模拟 `8.8.8.8` 只对这个命令生效；多次运行可以同时进行，各自拥有独立的规则、网卡和 API 端口。
-- **准备就绪后才启动命令。** 命令开始运行时，ping 已经可以被回复，API 也已经在监听。命令可以从环境变量 `$PINGMOCK_API` 获取 API 地址。
-- **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`，无法执行时返回 `126`。pingmock exec 自己失败时（参数或规则写错、网络建不起来），和 `docker run` 一样返回 `125`，以免和命令自己的退出码混淆。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
+- **准备就绪后才启动命令。** 命令开始运行时，ping 已经可以被回复，API 也已经在监听。命令可以从环境变量 `$GHOSTWIRE_API` 获取 API 地址。
+- **以命令的退出码退出**，方便用在脚本和 CI 里：返回命令的退出码；命令被信号 `N` 杀死时返回 `128+N`；命令不存在时返回 `127`，无法执行时返回 `126`。ghostwire exec 自己失败时（参数或规则写错、网络建不起来），和 `docker run` 一样返回 `125`，以免和命令自己的退出码混淆。`SIGTERM`、`SIGHUP` 和 `SIGQUIT` 会转发给命令。
 - **不留残留进程。** 命令退出时，它在后台启动的进程也会被一并停止。
 
 在独立网络里，命令只能访问模拟的目标和 `127.0.0.1` 上的 API，没有其他网络访问，除非用 [`-outside`](#访问外网) 让它使用宿主机的网络。不用它的话，要先编译好程序再放进去运行：需要下载依赖的 `go run`（或 `npm install`、`pip install` 等）会因为 `network is unreachable` 而失败。
@@ -580,7 +580,7 @@ pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check
 ### 访问外网
 
 ```bash
-pingmock exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
+ghostwire exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
 ```
 
 加上 `-outside`，命令就能通过 [pasta](https://passt.top)（软件包 `passt`）使用宿主机的网络：真实的地址和域名都能访问，测试可以下载依赖、连接真实的服务，而每个模拟的地址、网段和域名仍然按规则回应。`-outside-port PORT`（可重复；UDP 写 `PORT/udp`；隐含 `-outside`）让命令访问的 `127.0.0.1:PORT` 通到宿主机的同一端口，比如映射到宿主机 `127.0.0.1:5432` 的数据库容器；这样命令自己就不能再监听这个端口。配置文件里这样写：
@@ -591,7 +591,7 @@ outside:
 ```
 
 - **默认关闭**：不加时，命令的网络不受所在机器影响。
-- **需要安装 pasta**：Ubuntu 和 Debian 上 `sudo apt-get install passt`，Alpine 上 `apk add passt`。没有安装时 pingmock exec 以 `125` 退出。pingmock 启动 pasta 时，除了指定的端口不做任何转发，所以命令的 API 和 DNS 服务不会暴露到宿主机上；命令退出时 pingmock 会停掉 pasta。
+- **需要安装 pasta**：Ubuntu 和 Debian 上 `sudo apt-get install passt`，Alpine 上 `apk add passt`。没有安装时 ghostwire exec 以 `125` 退出。ghostwire 启动 pasta 时，除了指定的端口不做任何转发，所以命令的 API 和 DNS 服务不会暴露到宿主机上；命令退出时 ghostwire 会停掉 pasta。
 - **每台机器都一样**：命令在这个网络里的地址是 `10.0.2.15/24`，网关 `10.0.2.2`，不照抄宿主机的地址；外网访问只支持 IPv4。`GET /rules` 在 `outside` 下列出这些信息，Go 客户端在 `State.Outside` 里。
 - **不记录**：外网流量不经过模拟，所以不会出现在历史和统计里，它能否复现取决于真实的网络。
 - **以 root 运行时**，命令处在一个把所有用户和组都映射成自身的用户命名空间里，这样 pasta 才能接入它的网络。命令的进程仍然是原来的用户，只是特权只限于自己的命名空间。
@@ -599,19 +599,19 @@ outside:
 
 ### 域名
 
-很多软件 ping 的是域名而不是地址。在 `pingmock exec` 下，规则可以直接写域名：
+很多软件 ping 的是域名而不是地址。在 `ghostwire exec` 下，规则可以直接写域名：
 
 ```bash
-pingmock exec -rule api.example.com=80ms -rule backup.example.com=timeout -- ./my-app
+ghostwire exec -rule api.example.com=80ms -rule backup.example.com=timeout -- ./my-app
 ```
 
 命令会把 `api.example.com` 解析成一个模拟地址，ping 它时得到这条规则。地址从网段的高端往下分配（`10.99.0.253`、`10.99.0.252`……），每次运行都一样，启动日志会写明：`rule api.example.com (10.99.0.253): delay=80ms`。想自己指定地址，或者让域名解析成 IPv6 地址，用 `-host 域名=地址`（可重复）：
 
 ```bash
-pingmock exec -host api.example.com=fd99::1 -rule api.example.com=80ms -- ./my-app
+ghostwire exec -host api.example.com=fd99::1 -rule api.example.com=80ms -- ./my-app
 ```
 
-原理：在命令独有的挂载命名空间里，它得到**自己的 `/etc/hosts`**（系统的文件，前面加上模拟的域名）和一份**指向 pingmock 为它运行的小型 DNS 服务的 `resolv.conf`**。这个 DNS 服务回答模拟的域名，正反向都有（地址也能解析回域名），其余域名转发给宿主机的解析器，所以真实的域名照样能解析，只是它们的地址在独立网络里不可达。它同时支持 UDP 和 TCP（解析器遇到较大的回复会改用 TCP），每个查询各自处理；宿主机的解析器不回应时它也不回应，命令会像没有 pingmock 时一样超时；根本连不上宿主机的解析器时，命令立即得到失败。凡是解析域名的程序看到的都一样：`ping` 和其他用 C 库的程序、Go、Python……宿主机运行 nscd（域名服务缓存）时，命令连不到它，因为 nscd 会按宿主机的文件和解析器回答。系统的文件不会被改动，不留任何痕迹，也不需要 root。在配置文件里写法是：
+原理：在命令独有的挂载命名空间里，它得到**自己的 `/etc/hosts`**（系统的文件，前面加上模拟的域名）和一份**指向 ghostwire 为它运行的小型 DNS 服务的 `resolv.conf`**。这个 DNS 服务回答模拟的域名，正反向都有（地址也能解析回域名），其余域名转发给宿主机的解析器，所以真实的域名照样能解析，只是它们的地址在独立网络里不可达。它同时支持 UDP 和 TCP（解析器遇到较大的回复会改用 TCP），每个查询各自处理；宿主机的解析器不回应时它也不回应，命令会像没有 ghostwire 时一样超时；根本连不上宿主机的解析器时，命令立即得到失败。凡是解析域名的程序看到的都一样：`ping` 和其他用 C 库的程序、Go、Python……宿主机运行 nscd（域名服务缓存）时，命令连不到它，因为 nscd 会按宿主机的文件和解析器回答。系统的文件不会被改动，不留任何痕迹，也不需要 root。在配置文件里写法是：
 
 ```yaml
 rules:
@@ -621,14 +621,14 @@ hosts:                            # 只在需要指定地址时写
   api.example.com: fd99::1
 ```
 
-域名只用于 `pingmock exec`。用 `sudo pingmock` 为整台机器模拟时，请把域名加到机器的 `/etc/hosts` 里，规则写地址。
+域名只用于 `ghostwire exec`。用 `sudo ghostwire` 为整台机器模拟时，请把域名加到机器的 `/etc/hosts` 里，规则写地址。
 
 ### DNS 故障
 
-域名解析不了的时候，软件也会出问题：DNS 服务器出错、域名消失、解析一直没有回应。在 `pingmock exec` 下，**DNS 规则**决定命令对某个域名的查询怎样回应：
+域名解析不了的时候，软件也会出问题：DNS 服务器出错、域名消失、解析一直没有回应。在 `ghostwire exec` 下，**DNS 规则**决定命令对某个域名的查询怎样回应：
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -dns api.example.com=nxdomain \
   -dns 'backup.example.com=servfail for 2 requests; 10ms' \
   -dns github.com=delay=2s \
@@ -648,7 +648,7 @@ pingmock exec \
 
 `unreachable` 和 `ttl` 对 DNS 没有意义，会被拒绝。一条规则覆盖这个域名的所有查询类型；只针对一种类型的写法 `api.example.com/AAAA` 已经预留，目前会被拒绝。
 
-规则对模拟的域名（用 `-host` 或为域名写的规则）和真实的域名都有效，真实域名的故障直接由 pingmock 回答，不去问宿主机。有规则的域名不写进命令的 `/etc/hosts`，因为程序会先读 hosts 文件、不问 DNS。
+规则对模拟的域名（用 `-host` 或为域名写的规则）和真实的域名都有效，真实域名的故障直接由 ghostwire 回答，不去问宿主机。有规则的域名不写进命令的 `/etc/hosts`，因为程序会先读 hosts 文件、不问 DNS。
 
 场景按**查询**计数，每个域名的每种查询类型分别计。一次解析通常同时查 A 和 AAAA，遇到 SERVFAIL 或超时解析器还会重试，所以一个阶段覆盖几次解析取决于得到的回复：`nxdomain for 2 requests` 让两次解析失败，因为 NXDOMAIN 会被立即相信；`servfail for 2 requests` 在 glibc 下让一次解析失败，因为它默认问两次（`resolv.conf` 里的 `attempts:2`）；在 musl（Alpine）下一次都不会失败，因为它收到 SERVFAIL 会立即重问，我们实测每种类型问了 6 次。要让解析不管用哪个解析器都失败，就在需要失败的这段时间里一直用 `servfail`，或者用每个解析器都会立即相信的 `nxdomain`。统计按 `api.example.com/A`、`api.example.com/AAAA` 分开给出，可以看到实际发生了什么。
 
@@ -672,40 +672,40 @@ curl -X DELETE localhost:9100/dns/api.example.com
 
 Go 客户端有 `SetDNS`、`DeleteDNS` 和 `DNSStats`。通过 API 可以为任何不在命令 `/etc/hosts` 里的域名设置规则；要在运行中改变模拟域名的回复，启动时就给它一条 DNS 规则（`-dns api.example.com=0ms`）。`GET /rules` 在 `dns` 中列出 DNS 规则，在 `dns_stats` 中给出统计：请求、回复、nxdomain、servfail、丢弃。对有规则的域名的每次查询都会记入历史，带有 `"probe": "dns"`、`name`、`qtype`，结果是 `answer`、`nxdomain`、`servfail` 或 `drop`；`GET /history?target=api.example.com` 返回这些记录。PTR 查询不受影响。随机性来自种子，按域名和查询类型各自独立。
 
-DNS 规则只用于 `pingmock exec`：为整台机器模拟时，pingmock 无法插到程序和机器的解析器之间，所以 `sudo pingmock -dns` 会被拒绝。
+DNS 规则只用于 `ghostwire exec`：为整台机器模拟时，ghostwire 无法插到程序和机器的解析器之间，所以 `sudo ghostwire -dns` 会被拒绝。
 
 ### 系统要求
 
-普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间，并且 `/dev/net/tun` 允许所有人打开（`crw-rw-rw-`），大多数发行版默认如此。如果条件不满足，pingmock 会说明缺少什么以及如何解决。
+普通用户使用 `ghostwire exec` 需要系统支持非特权用户命名空间，并且 `/dev/net/tun` 允许所有人打开（`crw-rw-rw-`），大多数发行版默认如此。如果条件不满足，ghostwire 会说明缺少什么以及如何解决。
 
-**在容器里**，root 通常没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`，所以 `pingmock exec` 会像普通用户一样创建用户命名空间。Docker 默认的 seccomp 配置禁止这样做：要么给容器这两项权限，要么给它一份允许用户命名空间的 seccomp 配置，两种情况下都要把 TUN 设备传进去：
+**在容器里**，root 通常没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`，所以 `ghostwire exec` 会像普通用户一样创建用户命名空间。Docker 默认的 seccomp 配置禁止这样做：要么给容器这两项权限，要么给它一份允许用户命名空间的 seccomp 配置，两种情况下都要把 TUN 设备传进去：
 
 ```bash
-docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun 镜像 pingmock exec ...
+docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun 镜像 ghostwire exec ...
 ```
 
-**Ubuntu 23.10 及以后的版本**会通过 AppArmor 限制非特权用户命名空间。建议不要为所有程序解除这个限制，而是用 [`contrib/apparmor/pingmock`](contrib/apparmor/pingmock) 中的配置只为 pingmock 放行，Ubuntu 对其他需要这项功能的程序也是这样处理的。如果 pingmock 没有安装在 `/usr/local/bin/pingmock`，先修改配置中的路径，然后：
+**Ubuntu 23.10 及以后的版本**会通过 AppArmor 限制非特权用户命名空间。建议不要为所有程序解除这个限制，而是用 [`contrib/apparmor/ghostwire`](contrib/apparmor/ghostwire) 中的配置只为 ghostwire 放行，Ubuntu 对其他需要这项功能的程序也是这样处理的。如果 ghostwire 没有安装在 `/usr/local/bin/ghostwire`，先修改配置中的路径，然后：
 
 ```bash
-sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
-sudo apparmor_parser -r /etc/apparmor.d/pingmock
+sudo cp contrib/apparmor/ghostwire /etc/apparmor.d/ghostwire
+sudo apparmor_parser -r /etc/apparmor.d/ghostwire
 ```
 
 [`-outside`](#访问外网) 需要 pasta，来自软件包 `passt`。
 
-在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事。[`examples/github-actions`](examples/github-actions/README.zh-CN.md) 是一份可以直接复制的配置，包括安装 pingmock 和这份 AppArmor 配置。
+在 GitHub Actions 的 Ubuntu 机器上，在运行测试前加一个步骤做同样的事。[`examples/github-actions`](examples/github-actions/README.zh-CN.md) 是一份可以直接复制的配置，包括安装 ghostwire 和这份 AppArmor 配置。
 
 ## Docker
 
-镜像 `ghcr.io/nanmuyao-tools/pingmock` 需要 `NET_ADMIN` 权限和 TUN 设备。与它共享网络的容器发出的 ping 和连接都会被模拟，并且可以通过 `127.0.0.1:9100` 访问 API：
+镜像 `ghcr.io/nanmuyao-tools/ghostwire` 需要 `NET_ADMIN` 权限和 TUN 设备。与它共享网络的容器发出的 ping 和连接都会被模拟，并且可以通过 `127.0.0.1:9100` 访问 API：
 
 ```bash
-docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
-  ghcr.io/nanmuyao-tools/pingmock -rule 10.99.0.1=50ms
-docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
+docker run -d --name ghostwire --cap-add NET_ADMIN --device /dev/net/tun \
+  ghcr.io/nanmuyao-tools/ghostwire -rule 10.99.0.1=50ms
+docker run --rm --network container:ghostwire alpine ping -c 3 10.99.0.1
 ```
 
-使用 Docker Compose 时，用 `network_mode: service:pingmock` 让被测程序加入 pingmock 的网络。[`examples/docker-compose.yml`](examples/docker-compose.yml) 是一个完整的示例，其中包含健康检查，确保 pingmock 就绪后才启动被测程序：
+使用 Docker Compose 时，用 `network_mode: service:ghostwire` 让被测程序加入 ghostwire 的网络。[`examples/docker-compose.yml`](examples/docker-compose.yml) 是一个完整的示例，其中包含健康检查，确保 ghostwire 就绪后才启动被测程序：
 
 ```bash
 docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
@@ -713,11 +713,11 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 [`examples/compose-demo`](examples/compose-demo/README.zh-CN.md) 更进一步：一个被测服务实时响应从宿主机修改的规则，以及用 `docker compose run` 运行的测试。
 
-不带参数时，镜像运行 `pingmock -api 0.0.0.0:9100`，所以 API 可以用 `-p 9100:9100` 映射出来。API 没有认证，能访问到它的人都能改规则，所以除非是你自己的网络，只映射到本机地址：`-p 127.0.0.1:9100:9100`；给了参数就会替换这个默认值，要映射 API 的话请在参数里加上 `-api 0.0.0.0:9100`。镜像为它所在的网络命名空间运行 pingmock，就像 `sudo pingmock` 为整台机器运行一样，所以那里不能用域名、`-host` 和 `-dns`，请写地址。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，pingmock 只会使用 IPv4。
+不带参数时，镜像运行 `ghostwire -api 0.0.0.0:9100`，所以 API 可以用 `-p 9100:9100` 映射出来。API 没有认证，能访问到它的人都能改规则，所以除非是你自己的网络，只映射到本机地址：`-p 127.0.0.1:9100:9100`；给了参数就会替换这个默认值，要映射 API 的话请在参数里加上 `-api 0.0.0.0:9100`。镜像为它所在的网络命名空间运行 ghostwire，就像 `sudo ghostwire` 为整台机器运行一样，所以那里不能用域名、`-host` 和 `-dns`，请写地址。Docker 默认在容器里禁用 IPv6，所以除非为容器启用了 IPv6，ghostwire 只会使用 IPv4。
 
 ## 其他系统：WireGuard 网关
 
-pingmock 运行在 Linux 上，但被测程序不必：在 macOS、Windows 或手机上，它可以通过一条 [WireGuard](https://www.wireguard.com/) 隧道，把发往模拟地址的 ping 和连接送到一台运行 pingmock 的 Linux 机器上。pingmock 不需要为此做任何改动：这台机器把隧道里出来的报文转发给 pingmock 的网卡，回应沿原路回去。这里只测过两端都是 Linux 的情况；其他系统的 WireGuard 应用读的是同样的配置文件。
+ghostwire 运行在 Linux 上，但被测程序不必：在 macOS、Windows 或手机上，它可以通过一条 [WireGuard](https://www.wireguard.com/) 隧道，把发往模拟地址的 ping 和连接送到一台运行 ghostwire 的 Linux 机器上。ghostwire 不需要为此做任何改动：这台机器把隧道里出来的报文转发给 ghostwire 的网卡，回应沿原路回去。这里只测过两端都是 Linux 的情况；其他系统的 WireGuard 应用读的是同样的配置文件。
 
 在这台 Linux 机器（网关）上，为它和设备各生成一对密钥（`wg genkey | tee gateway.key | wg pubkey > gateway.pub`，`device` 同理），写好 `/etc/wireguard/wg0.conf`：
 
@@ -732,12 +732,12 @@ PublicKey = <device.pub>
 AllowedIPs = 10.13.13.2/32
 ```
 
-然后启动隧道和 pingmock：
+然后启动隧道和 ghostwire：
 
 ```bash
 sudo sysctl -w net.ipv4.ip_forward=1
 sudo wg-quick up wg0
-sudo pingmock -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -tcp 10.99.0.1:80=refuse
+sudo ghostwire -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -tcp 10.99.0.1:80=refuse
 ```
 
 设备在 WireGuard 应用里导入这个文件（`qrencode -t ansiutf8 < device.conf` 把它显示成二维码，方便手机扫）：
@@ -755,11 +755,11 @@ AllowedIPs = 10.99.0.0/24, 8.8.8.8/32, 10.13.13.1/32
 
 之后在设备上 `ping 10.99.0.1` 得到 50ms，8.8.8.8 不可达，80 端口拒绝连接，网关上的历史把设备的隧道地址记作 `src`。需要知道的几点：
 
-- **只有模拟的地址走隧道。** `AllowedIPs` 列出 pingmock 的子网和有规则的真实地址，设备发出的其他流量照旧走原来的路，所以网关不需要 NAT。之后通过 API 给一个地址加规则，要把它也加进 `AllowedIPs`，流量才会到网关。如果让所有流量都走隧道，网关就要做 NAT，这时连接跟踪会丢掉 traceroute 同时发出的一部分 ICMP 探测：要么让模拟的地址不做连接跟踪（`notrack`），要么让隧道只走模拟的地址。
-- **网关自己算一跳。** traceroute 第一跳显示网关的隧道地址，[路径](#路径traceroute-和-mtr)的各跳都往后挪一位，回应的 TTL 也少 1；历史里记的是 pingmock 收到时的 TTL。要用 traceroute，还要把 `10.13.13.1/32` 和各跳的地址加进 `AllowedIPs`：WireGuard 会丢掉来自不在其中的地址的回应，这些跳就显示成 `*`。
-- **延迟包含隧道。** 在两个容器之间，50ms 的规则测得 51–54ms；手机经 Wi-Fi 连网关时，还要加上它到网关的往返时间。seed 决定的是 pingmock 的结果，不是网络的延迟。所有设备共用每个目标的随机序列。
-- **要允许转发。** 如果网关的防火墙丢弃转发的报文（装了 Docker 的机器就是这样），放行隧道和 pingmock 之间的报文：`sudo iptables -I FORWARD -i wg0 -o pingmock0 -j ACCEPT` 和 `sudo iptables -I FORWARD -i pingmock0 -o wg0 -j ACCEPT`。
-- **请写地址。** `sudo pingmock` 不接受域名、`-host` 和 `-dns`，和 [Docker](#docker) 里一样。
+- **只有模拟的地址走隧道。** `AllowedIPs` 列出 ghostwire 的子网和有规则的真实地址，设备发出的其他流量照旧走原来的路，所以网关不需要 NAT。之后通过 API 给一个地址加规则，要把它也加进 `AllowedIPs`，流量才会到网关。如果让所有流量都走隧道，网关就要做 NAT，这时连接跟踪会丢掉 traceroute 同时发出的一部分 ICMP 探测：要么让模拟的地址不做连接跟踪（`notrack`），要么让隧道只走模拟的地址。
+- **网关自己算一跳。** traceroute 第一跳显示网关的隧道地址，[路径](#路径traceroute-和-mtr)的各跳都往后挪一位，回应的 TTL 也少 1；历史里记的是 ghostwire 收到时的 TTL。要用 traceroute，还要把 `10.13.13.1/32` 和各跳的地址加进 `AllowedIPs`：WireGuard 会丢掉来自不在其中的地址的回应，这些跳就显示成 `*`。
+- **延迟包含隧道。** 在两个容器之间，50ms 的规则测得 51–54ms；手机经 Wi-Fi 连网关时，还要加上它到网关的往返时间。seed 决定的是 ghostwire 的结果，不是网络的延迟。所有设备共用每个目标的随机序列。
+- **要允许转发。** 如果网关的防火墙丢弃转发的报文（装了 Docker 的机器就是这样），放行隧道和 ghostwire 之间的报文：`sudo iptables -I FORWARD -i wg0 -o ghostwire0 -j ACCEPT` 和 `sudo iptables -I FORWARD -i ghostwire0 -o wg0 -j ACCEPT`。
+- **请写地址。** `sudo ghostwire` 不接受域名、`-host` 和 `-dns`，和 [Docker](#docker) 里一样。
 - 设备这边：Windows 的 WireGuard 应用只允许管理员导入配置，Android 同一时间只能运行一个 VPN。
 
 ## 运行时控制 API
@@ -770,7 +770,7 @@ AllowedIPs = 10.99.0.0/24, 8.8.8.8/32, 10.13.13.1/32
 # 查看种子、默认规则、规则、路径和每个目标的统计
 # （stats：requests、replied、dropped、unreachable、hops、rule、phase），
 # 以及 TCP 规则（tcp、tcp_stats）、UDP 规则（udp、udp_stats）和 DNS 规则（dns、dns_stats）的同类信息；
-# routes 列出 pingmock 自己的网段以外、被路由到 pingmock 的地址
+# routes 列出 ghostwire 自己的网段以外、被路由到 ghostwire 的地址
 curl localhost:9100/rules
 
 # 设置或修改规则
@@ -779,8 +779,8 @@ curl -X PUT localhost:9100/rules/10.99.0.1 -d 'delay=300ms,pattern=.x'
 curl -X PUT localhost:9100/rules/10.99.0.1 -d '50ms for 3 pings; timeout'
 curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5ms","loss":0.02}'
 
-# 删除规则（回到默认值）。对 pingmock 网段以外的地址，等没有别的规则或路径需要时，
-# 把它引到 pingmock 的路由也一起撤掉，流量回到原来的去处
+# 删除规则（回到默认值）。对 ghostwire 网段以外的地址，等没有别的规则或路径需要时，
+# 把它引到 ghostwire 的路由也一起撤掉，流量回到原来的去处
 curl -X DELETE localhost:9100/rules/10.99.0.1
 
 # TCP 规则：拒绝发往某个端口的连接、重置已接受的连接，然后删除一条规则
@@ -792,7 +792,7 @@ curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 curl -X PUT localhost:9100/udp/10.99.0.1:514 -d refuse
 curl -X DELETE localhost:9100/udp/10.99.0.1:514
 
-# DNS 规则（pingmock exec 下）：域名解析不了，然后恢复
+# DNS 规则（ghostwire exec 下）：域名解析不了，然后恢复
 curl -X PUT localhost:9100/dns/api.example.com -d nxdomain
 curl -X DELETE localhost:9100/dns/api.example.com
 
@@ -816,7 +816,7 @@ curl -X DELETE localhost:9100/history
 # 每个目标的场景和随机序列重新开始
 curl -X POST localhost:9100/reset
 
-# 这是哪个版本的 pingmock：{"version": "vX.Y.Z"}
+# 这是哪个版本的 ghostwire：{"version": "vX.Y.Z"}
 curl localhost:9100/version
 ```
 
@@ -842,7 +842,7 @@ curl localhost:9100/version
 | `probe` | ping 以外的请求 | `udp`、`tcp` 或 `dns` |
 | `ttl`、`hop`、`from` | UDP 和 TCP 探测 | 探测包的 TTL、回应或丢掉它的那一跳（终点不出现）、回应来自哪个地址 |
 | `port`、`repeat` | TCP 和 UDP | 目的端口；`repeat` 在内核重发的 SYN 上为 `true`，不重复计数 |
-| `bytes` | TCP，结果为 `sent` | pingmock 发送的 `send` 或 `reply` 的字节数；`delay` 是它的 `wait` |
+| `bytes` | TCP，结果为 `sent` | ghostwire 发送的 `send` 或 `reply` 的字节数；`delay` 是它的 `wait` |
 | `name`、`qtype` | DNS | 查询的域名，以及 `A`、`AAAA`…… |
 
 ## 在自动化测试中使用
@@ -862,23 +862,23 @@ CI 会在 Ubuntu 24.04 和 26.04 上，用 [`test/e2e-compat.sh`](test/e2e-compa
 
 对于 [TCP 规则](#tcp-连接)，同一个脚本用 Go（`net.Dial`）和 Python（`socket`）的标准库建立连接，检查它们分别看到：延迟之后连上、随后读取超时，`ECONNREFUSED`，连接超时，`EHOSTUNREACH`。curl 和 bash 的 `/dev/tcp` 在端到端测试里检查。
 
-最简单的方式是让测试本身运行在 `pingmock exec` 下：不需要 root，不需要启动和清理的代码，每次运行都相互隔离。建议固定种子，让随机的丢包和抖动每次都一样。
+最简单的方式是让测试本身运行在 `ghostwire exec` 下：不需要 root，不需要启动和清理的代码，每次运行都相互隔离。建议固定种子，让随机的丢包和抖动每次都一样。
 
 ### Go
 
-用 `go test -exec` 让测试程序运行在 pingmock 里，在测试中通过 [`client`](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client) 包控制 pingmock：
+用 `go test -exec` 让测试程序运行在 ghostwire 里，在测试中通过 [`client`](https://pkg.go.dev/github.com/nanmuyao-tools/ghostwire/client) 包控制 ghostwire：
 
 ```bash
-go test -exec 'pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
+go test -exec 'ghostwire exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
 ```
 
 ```go
-import "github.com/nanmuyao-tools/pingmock/client"
+import "github.com/nanmuyao-tools/ghostwire/client"
 
 func TestPicksFastestServer(t *testing.T) {
 	pm, err := client.FromEnv()
 	if err != nil {
-		t.Skip(err) // 没有运行在 pingmock exec 下
+		t.Skip(err) // 没有运行在 ghostwire exec 下
 	}
 	ctx := context.Background()
 
@@ -905,14 +905,14 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-客户端覆盖了全部 API：规则（`SetRule`、`DeleteRule`、`SetDefault`）、路径（`SetPath`、`DeletePath`）、TCP、UDP 和 DNS 规则（`SetTCP`、`DeleteTCP`、`SetUDP`、`DeleteUDP`、`SetDNS`、`DeleteDNS`）、统计（`State`、`Stats`、`TCPStats`、`UDPStats`、`DNSStats`、`ResetStats`）、历史（`History`、`ClearHistory`）、把一切恢复成启动时样子的 `Reset`（适合放在每个测试的开头）和 `Version`；用 `New`、`FromEnv`、`URL` 连接，`IsNotFound` 用来区分「规则不存在」和其他错误。详见它的[文档](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client)。[`examples/go-demo`](examples/go-demo/README.zh-CN.md) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
+客户端覆盖了全部 API：规则（`SetRule`、`DeleteRule`、`SetDefault`）、路径（`SetPath`、`DeletePath`）、TCP、UDP 和 DNS 规则（`SetTCP`、`DeleteTCP`、`SetUDP`、`DeleteUDP`、`SetDNS`、`DeleteDNS`）、统计（`State`、`Stats`、`TCPStats`、`UDPStats`、`DNSStats`、`ResetStats`）、历史（`History`、`ClearHistory`）、把一切恢复成启动时样子的 `Reset`（适合放在每个测试的开头）和 `Version`；用 `New`、`FromEnv`、`URL` 连接，`IsNotFound` 用来区分「规则不存在」和其他错误。详见它的[文档](https://pkg.go.dev/github.com/nanmuyao-tools/ghostwire/client)。[`examples/go-demo`](examples/go-demo/README.zh-CN.md) 是一个可以直接参考的完整示例：一个按延迟挑选服务器的程序，以及针对超时、不可达、丢包、变慢和断开等情况的测试。
 
 ### 其他语言
 
-让测试命令运行在 `pingmock exec` 下，通过 `$PINGMOCK_API` 调用[控制 API](#运行时控制-api)。以 pytest 为例：
+让测试命令运行在 `ghostwire exec` 下，通过 `$GHOSTWIRE_API` 调用[控制 API](#运行时控制-api)。以 pytest 为例：
 
 ```bash
-pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
+ghostwire exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
 ```
 
 [`examples/python-demo`](examples/python-demo/README.zh-CN.md) 是一个完整的示例，其中的 pytest fixture 可以直接复制使用。
@@ -920,7 +920,7 @@ pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
 ```python
 import os, requests
 
-API = os.environ["PINGMOCK_API"]
+API = os.environ["GHOSTWIRE_API"]
 
 def test_picks_fastest_server():
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.1"
@@ -938,7 +938,7 @@ def test_retries():
     assert [e["result"] for e in events] == ["drop", "drop", "reply"]
 ```
 
-如果测试无法运行在 `pingmock exec` 下，可以改为在测试前启动 `sudo pingmock`，或者使用[容器镜像](#docker)。
+如果测试无法运行在 `ghostwire exec` 下，可以改为在测试前启动 `sudo ghostwire`，或者使用[容器镜像](#docker)。
 
 ### 本仓库的测试
 
@@ -946,25 +946,25 @@ def test_retries():
 
 ```bash
 make test         # go vet 和带竞态检测的单元测试
-make e2e          # 编译 pingmock，并用 sudo 运行 test/e2e.sh
-make e2e-exec     # pingmock exec，分别以普通用户和 root 运行
-make e2e-compat   # 用 ping、fping、pro-bing、icmplib，以及 Go 和 Python 的 TCP 客户端测试 pingmock（需要安装 fping 和 icmplib）
+make e2e          # 编译 ghostwire，并用 sudo 运行 test/e2e.sh
+make e2e-exec     # ghostwire exec，分别以普通用户和 root 运行
+make e2e-compat   # 用 ping、fping、pro-bing、icmplib，以及 Go 和 Python 的 TCP 客户端测试 ghostwire（需要安装 fping 和 icmplib）
 make e2e-all      # 上面三项同时跑，约 25 秒
 make e2e-docker   # 容器镜像和 Compose 示例
 ```
 
 在 Mac 上，或者没有 Linux 的地方，用仓库里的[开发容器](.devcontainer/README.zh-CN.md)：除了 `make e2e-docker`，其余都能在里面跑。
 
-[一个 ping 的往返之旅](docs/packet-path.zh-CN.md)讲解了 ping 请求如何经过内核到达 pingmock 再返回，[数据包详解](docs/packets.zh-CN.md)逐字节讲解了请求和应答的内容，[代码导读](docs/architecture.zh-CN.md)介绍了代码的组织方式和阅读顺序，[CONTRIBUTING.md](CONTRIBUTING.md) 说明了如何参与贡献。
+[一个 ping 的往返之旅](docs/packet-path.zh-CN.md)讲解了 ping 请求如何经过内核到达 ghostwire 再返回，[数据包详解](docs/packets.zh-CN.md)逐字节讲解了请求和应答的内容，[代码导读](docs/architecture.zh-CN.md)介绍了代码的组织方式和阅读顺序，[CONTRIBUTING.md](CONTRIBUTING.md) 说明了如何参与贡献。
 
 ## 限制
 
-- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。在 `pingmock exec` 下，对有 [DNS 规则](#dns-故障)的域名的 DNS 查询按规则回应。pingmock 在 TCP 连接上只发送规则里 `send` 和 `reply` 的固定字节，不重发任何东西，也不读程序发来的内容：它运行的唯一一个服务，是 `pingmock exec` 下为命令运行的 DNS 服务。其他 TCP 流量不会得到响应；UDP 只会从 [UDP 规则](#udp-数据报)，或者 traceroute、mtr 遇到的路径那里得到 ICMP 错误，pingmock 从不发送 UDP 回答。
-- **绑定网卡**的探测（`ping -I eth0`、OpenWrt 的 mwan3 都这样发）会绕过 pingmock，除非测试把它们重定向过来；规则也不能区分网卡。见[绑定网卡的探测](#绑定网卡的探测)。
+- 模拟 ping（ICMP 和 ICMPv6 Echo），以及发往有 [TCP 规则](#tcp-连接)的端口的 TCP 连接：接受、拒绝或不回应，接受的连接还可以关闭或重置。在 `ghostwire exec` 下，对有 [DNS 规则](#dns-故障)的域名的 DNS 查询按规则回应。ghostwire 在 TCP 连接上只发送规则里 `send` 和 `reply` 的固定字节，不重发任何东西，也不读程序发来的内容：它运行的唯一一个服务，是 `ghostwire exec` 下为命令运行的 DNS 服务。其他 TCP 流量不会得到响应；UDP 只会从 [UDP 规则](#udp-数据报)，或者 traceroute、mtr 遇到的路径那里得到 ICMP 错误，ghostwire 从不发送 UDP 回答。
+- **绑定网卡**的探测（`ping -I eth0`、OpenWrt 的 mwan3 都这样发）会绕过 ghostwire，除非测试把它们重定向过来；规则也不能区分网卡。见[绑定网卡的探测](#绑定网卡的探测)。
 - 没有[路径](#路径traceroute-和-mtr)的目标，在 traceroute 和 mtr 看来就在一跳之外：回应它的 ping，TCP 探测只在有 TCP 规则的端口上回应，UDP 探测一概不回应。有路径的目标会用表示"已到达"的回应答复 UDP 和 TCP 探测，任何端口都是，除非这个端口有 TCP 规则另作规定。
 - 延迟的精度在 1ms 以内（实测设定 50ms 时为 50.4ms），额外的零点几毫秒来自内核和调度开销。
 - 不支持分片的请求（例如 `ping -s 2000`）和带扩展头的 IPv6 请求，这类请求会被忽略。
-- 只支持 Linux；其他系统上的程序可以通过 [WireGuard 网关](#其他系统wireguard-网关)使用它。普通用户使用 `pingmock exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。
+- 只支持 Linux；其他系统上的程序可以通过 [WireGuard 网关](#其他系统wireguard-网关)使用它。普通用户使用 `ghostwire exec` 需要系统支持非特权用户命名空间（参见[系统要求](#系统要求)）。
 
 ## 许可证
 

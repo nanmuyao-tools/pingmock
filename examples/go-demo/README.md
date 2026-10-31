@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-This example shows how to test Go code that **makes decisions from ping latency** with pingmock. The code under test knows nothing about pingmock and is not changed for the tests, and no root is needed.
+This example shows how to test Go code that **makes decisions from ping latency** with ghostwire. The code under test knows nothing about ghostwire and is not changed for the tests, and no root is needed.
 
 ## The code under test
 
@@ -19,19 +19,19 @@ This example shows how to test Go code that **makes decisions from ping latency*
 
 ## Running the tests
 
-[Install pingmock](../../README.md#installation) first. Then, in this directory:
+[Install ghostwire](../../README.md#installation) first. Then, in this directory:
 
 ```bash
-go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...
 ```
 
-`go test -exec` hands the compiled test binary to `pingmock exec`, so the tests run in pingmock's private network: [`pingmock.yaml`](pingmock.yaml) sets up three mocked servers, and the tests add other network conditions as they need them through pingmock's [Go client](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client).
+`go test -exec` hands the compiled test binary to `ghostwire exec`, so the tests run in ghostwire's private network: [`ghostwire.yaml`](ghostwire.yaml) sets up three mocked servers, and the tests add other network conditions as they need them through ghostwire's [Go client](https://pkg.go.dev/github.com/nanmuyao-tools/ghostwire/client).
 
-Outside pingmock (a plain `go test ./...`, say), the tests skip themselves instead of failing.
+Outside ghostwire (a plain `go test ./...`, say), the tests skip themselves instead of failing.
 
 ## What each test shows
 
-| Test | Network conditions | pingmock feature |
+| Test | Network conditions | ghostwire feature |
 |---|---|---|
 | `TestPicksFastest` | three servers at 80ms, 20ms and 50ms | rules in the [configuration file](../../README.md#configuration-file) |
 | `TestSkipsUnreachableServer` | the fastest server answers "destination unreachable" | `unreachable` |
@@ -47,11 +47,11 @@ The tests do not get in each other's way: each uses its own addresses and remove
 
 ## Running the command
 
-Running `cmd/fastest` in pingmock's network shows plainly how network conditions change what the program chooses:
+Running `cmd/fastest` in ghostwire's network shows plainly how network conditions change what the program chooses:
 
 ```bash
 go build -o fastest ./cmd/fastest
-pingmock exec -config pingmock.yaml -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
+ghostwire exec -config ghostwire.yaml -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
 ```
 
 ```
@@ -64,7 +64,7 @@ fastest: 10.99.0.2
 Without changing any code, make the fastest server lose pings, and the program picks another one:
 
 ```bash
-pingmock exec -config pingmock.yaml -rule '10.99.0.2=delay=20ms,pattern=.x' -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
+ghostwire exec -config ghostwire.yaml -rule '10.99.0.2=delay=20ms,pattern=.x' -- ./fastest 10.99.0.1 10.99.0.2 10.99.0.3
 ```
 
 ```
@@ -74,12 +74,12 @@ pingmock exec -config pingmock.yaml -rule '10.99.0.2=delay=20ms,pattern=.x' -- .
 fastest: 10.99.0.3
 ```
 
-**Build first, then run.** Programs inside `pingmock exec` have no network access beyond the mocked targets, so a `go run` there that needs to download dependencies fails with `network is unreachable`. Running `go build` (or `go mod download`) outside first avoids that. `go test -exec` always builds first, so it is not affected.
+**Build first, then run.** Programs inside `ghostwire exec` have no network access beyond the mocked targets, so a `go run` there that needs to download dependencies fails with `network is unreachable`. Running `go build` (or `go mod download`) outside first avoids that. `go test -exec` always builds first, so it is not affected.
 
 ## Using it in your own project
 
-1. In the tests, connect to pingmock with `client.FromEnv()` and `t.Skip` on error, as the `pingmock` function in [`fastest_test.go`](fastest_test.go) does
+1. In the tests, connect to ghostwire with `client.FromEnv()` and `t.Skip` on error, as the `ghostwire` function in [`fastest_test.go`](fastest_test.go) does
 2. Write a configuration file with the network the tests start from; add what each test needs with `SetRule` (`SetTCP` for connections) and remove it with `t.Cleanup`
-3. Run the tests with `go test -exec 'pingmock exec -config pingmock.yaml --' ./...`, in CI as well. [`examples/github-actions`](../github-actions/) is a workflow ready to copy
+3. Run the tests with `go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...`, in CI as well. [`examples/github-actions`](../github-actions/) is a workflow ready to copy
 
 The configuration sets `seed: 42`, so even random loss and jitter give the same results on every run.

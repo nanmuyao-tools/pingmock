@@ -8,7 +8,7 @@ import (
 
 // MaxData is the most bytes a TCP rule may send at once, with send= or
 // reply=: well below the window a client's kernel opens on a new
-// connection, since pingmock never sends anything again.
+// connection, since ghostwire never sends anything again.
 const MaxData = 16 << 10
 
 // splitUnquoted splits s at every sep outside double quotes, so that the

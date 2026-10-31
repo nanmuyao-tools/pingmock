@@ -3,10 +3,10 @@
 # e2e-exec.sh rootless and then as root. Run as a user who can sudo, on
 # Linux with everything the three scripts need:
 #   make e2e-all
-# e2e.sh and e2e-compat.sh both run pingmock as root, with the device
-# pingmock0, routes for 10.99.0.0/24 and the API on port 9100, so each gets
+# e2e.sh and e2e-compat.sh both run ghostwire as root, with the device
+# ghostwire0, routes for 10.99.0.0/24 and the API on port 9100, so each gets
 # a network namespace of its own; e2e-exec.sh checks that the host has no
-# pingmock0, which they would otherwise break. The two runs of e2e-exec.sh
+# ghostwire0, which they would otherwise break. The two runs of e2e-exec.sh
 # share the host's nscd, so they stay in order. Each script writes to its
 # own log, printed when it fails.
 set -uo pipefail

@@ -12,7 +12,7 @@ import (
 )
 
 // The device's addresses and routes are set over rtnetlink, the interface
-// the ip command (iproute2) uses itself, so pingmock needs no programs at
+// the ip command (iproute2) uses itself, so ghostwire needs no programs at
 // run time. Each function sends what the ip command named in its comment
 // would send.
 

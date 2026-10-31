@@ -2,8 +2,8 @@
 // to another one when it slows down or stops answering.
 //
 // It is the code under test in this example: it knows nothing about
-// pingmock and measures latency with the system's ping command, as many
-// programs do. fastest_test.go tests it against pingmock.
+// ghostwire and measures latency with the system's ping command, as many
+// programs do. fastest_test.go tests it against ghostwire.
 package fastest
 
 import (

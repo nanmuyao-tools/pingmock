@@ -1,5 +1,5 @@
 // Package api serves the HTTP control API used to change rules and read
-// statistics and history while pingmock runs.
+// statistics and history while ghostwire runs.
 package api
 
 import (
@@ -12,11 +12,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nanmuyao-tools/pingmock/internal/engine"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/engine"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
-// Routes are the routes that bring traffic for mocked targets to pingmock.
+// Routes are the routes that bring traffic for mocked targets to ghostwire.
 type Routes interface {
 	Ensure(netip.Prefix) error      // before a rule for the prefix is installed
 	Sync(want []netip.Prefix) error // after rules are removed: exactly these stay routed
@@ -25,11 +25,11 @@ type Routes interface {
 
 // NewHandler returns the HTTP control API. routes get the route a rule's
 // target needs before the rule is installed, so that its traffic reaches
-// pingmock, and lose the ones no rule needs once rules go. version is
+// ghostwire, and lose the ones no rule needs once rules go. version is
 // what GET /version reports. dnsTarget checks the name of a DNS rule and
 // whether such a rule can take effect, and returns it as rules are keyed.
 // facts are added to GET /rules as they are: what was set up at startup
-// and cannot change, such as pingmock exec's outside access.
+// and cannot change, such as ghostwire exec's outside access.
 func NewHandler(rs *engine.RuleSet, hist *engine.History, routes Routes, version string,
 	dnsTarget func(name string) (string, error), facts map[string]any) http.Handler {
 	h := &handler{rules: rs, history: hist, routes: routes, version: version, dnsTarget: dnsTarget, facts: facts}
@@ -49,7 +49,7 @@ func NewHandler(rs *engine.RuleSet, hist *engine.History, routes Routes, version
 	mux.HandleFunc("DELETE /tcp/{target...}", h.deleteTCP)    // connections to it are ignored again
 	mux.HandleFunc("PUT /udp/{target...}", h.setUDP)          // target as for /tcp/; body as for rules
 	mux.HandleFunc("DELETE /udp/{target...}", h.deleteUDP)    // datagrams to it are ignored again
-	mux.HandleFunc("PUT /dns/{name}", h.setDNS)               // pingmock exec only; body as for rules
+	mux.HandleFunc("PUT /dns/{name}", h.setDNS)               // ghostwire exec only; body as for rules
 	mux.HandleFunc("DELETE /dns/{name}", h.deleteDNS)         // queries for it are answered as without a rule
 	return mux
 }
@@ -274,7 +274,7 @@ type handler struct {
 	facts     map[string]any
 }
 
-// ensureRoute routes p to pingmock, for a rule about to be installed; the
+// ensureRoute routes p to ghostwire, for a rule about to be installed; the
 // caller holds h.routing.
 func (h *handler) ensureRoute(p netip.Prefix) error { return h.routes.Ensure(p) }
 

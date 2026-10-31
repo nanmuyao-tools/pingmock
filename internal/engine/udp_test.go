@@ -5,8 +5,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/nanmuyao-tools/pingmock/internal/icmp"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/icmp"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 func setUDP(t *testing.T, rs *RuleSet, target, text string) {

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // query builds a query for name of the given type, as a stub resolver
@@ -121,7 +121,7 @@ func TestUnknownNamesAreForwarded(t *testing.T) {
 	}
 	// A forwarder that fails means no answer, as when the host's resolver
 	// does not answer: the resolver asking times out as it would without
-	// pingmock, rather than getting a SERVFAIL it would not have got.
+	// ghostwire, rather than getting a SERVFAIL it would not have got.
 	s.Forward = func([]byte, bool) ([]byte, error) { return nil, errors.New("down") }
 	if resp := s.Answer(query(7, "real.example", typeA)); resp != nil {
 		t.Errorf("forwarder down: answered %+v", parse(t, resp))
@@ -408,7 +408,7 @@ func TestRules(t *testing.T) {
 }
 
 // A host resolver that refuses outright (nothing listens) gets the query
-// a SERVFAIL at once, as the C library fails at once without pingmock;
+// a SERVFAIL at once, as the C library fails at once without ghostwire;
 // one that does not answer gets none, so the asking resolver times out.
 func TestForwarderRefusedAndSilent(t *testing.T) {
 	closed, err := net.ListenPacket("udp", "127.0.0.1:0")

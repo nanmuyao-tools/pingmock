@@ -1,0 +1,17 @@
+# AppArmor profile that lets ghostwire create user namespaces, so that
+# "ghostwire exec" works without root on systems that restrict them
+# (Ubuntu 23.10 and later). It grants nothing else: ghostwire stays
+# unconfined, as it is without the profile.
+#
+# Change the path below if ghostwire is installed elsewhere, then:
+#   sudo cp contrib/apparmor/ghostwire /etc/apparmor.d/ghostwire
+#   sudo apparmor_parser -r /etc/apparmor.d/ghostwire
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile ghostwire /usr/local/bin/ghostwire flags=(unconfined) {
+  userns,
+
+  include if exists <local/ghostwire>
+}

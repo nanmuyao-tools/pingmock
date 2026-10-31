@@ -1,6 +1,6 @@
 # TODO
 
-已发布 v0.20.0（见 [Releases](https://github.com/nanmuyao-tools/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则、v0.14.0 冻结前的整理、v0.15.0 `exec` 访问外网、v0.15.1 路由跟着规则走、v0.16.0 没有规则的连接记进历史、v0.17.0 用 netlink 替代 `ip` 命令、v0.18.0 路径的中间跳和 ping 分开、v0.19.0 容器里没有权限的 root 也能用 `exec`、v0.20.0 搬到 nanmuyao-tools 并写了 WireGuard 网关，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
+已发布 v0.20.0（见 [Releases](https://github.com/nanmuyao-tools/ghostwire/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则、v0.14.0 冻结前的整理、v0.15.0 `exec` 访问外网、v0.15.1 路由跟着规则走、v0.16.0 没有规则的连接记进历史、v0.17.0 用 netlink 替代 `ip` 命令、v0.18.0 路径的中间跳和 ping 分开、v0.19.0 容器里没有权限的 root 也能用 `exec`、v0.20.0 搬到 nanmuyao-tools 并写了 WireGuard 网关，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
 接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。现在 0 issue、0 PR、0 star，"按用户数量排优先级"这条规则本身没有用户可排——所以推广这件事（见下面「现在最优先」）排在任何新功能之前。
 
@@ -14,7 +14,7 @@
 
 - [ ] **V2EX**：「分享创造」节点，用中文介绍
 - [ ] **Reddit r/golang**：英文，强调 Go 实现、依赖极少、`go test -exec` 的用法
-- [ ] **Hacker News**：标题用 `Show HN: Pingmock – mock ping latency, loss and unreachable errors on Linux` 这样的格式
+- [ ] **Hacker News**：标题用 `Show HN: Ghostwire – mock ping latency, loss and unreachable errors on Linux` 这样的格式
 - [ ] 投几个精选列表：awesome-go、awesome-testing、某个混沌工程相关列表，几乎零成本
 - [ ] （可选）掘金、Go 中文社区、Twitter / X
 
@@ -27,7 +27,7 @@
 ### 1. 升级 GitHub Actions 的版本
 
 - [x] CI 出现了 Node.js 20 弃用警告：`actions/checkout@v4`、`actions/setup-go@v5` 等使用的 Node.js 20 已被 GitHub 弃用，将来可能停止支持
-- [x] 升级 `.github/workflows/` 中的全部 action（包括 `setup-python`、`docker/*`），以及 [`examples/github-actions/pingmock-tests.yml`](examples/github-actions/pingmock-tests.yml)：用户复制这份示例时会遇到同样的问题
+- [x] 升级 `.github/workflows/` 中的全部 action（包括 `setup-python`、`docker/*`），以及 [`examples/github-actions/ghostwire-tests.yml`](examples/github-actions/ghostwire-tests.yml)：用户复制这份示例时会遇到同样的问题
 - [x] 只选择发布超过两周的版本；升级后确认 CI 的三个任务都通过，且不再出现弃用警告
 - [x] 在 Ubuntu 26.04 上测试：`ubuntu-latest` 在 2026-10-19 至 2026-11-19 之间从 24.04 迁移到 26.04。CI 的三个任务改为在 `ubuntu-24.04` 和 `ubuntu-26.04` 上各运行一遍，全部通过；新增的 Environment 步骤显示 26.04 上 AppArmor 依然限制用户命名空间，所以 AppArmor 配置在 26.04 上同样必要且有效。发布流程按原计划继续固定在 24.04
 - [x] 26.04 上的 iputils 是 20250605，会对校验和错误的回显应答标出 `(BAD CHECKSUM!)`（20240117 的 bug 在 20240905 修复），已更新[数据包详解](docs/packets.zh-CN.md#9-校验和算错会怎样)第 9 节
@@ -36,11 +36,11 @@
 
 - [x] 没有功能变化，但积累了不少改进（见上），发布后用户在 Releases 页面才能看到：已发布，对比 v0.5.0 和 v0.5.1 的构建，帮助信息、错误提示、退出码和 API 返回的数据都相同，更新说明中如实写明
 - [x] 升级 action 之后必须跑一次发布流程，才能确认发布流程依然正常，所以放在第 1 项之后：发布流程的两个任务都在 Ubuntu 24.04 上成功；文件校验、两种架构的镜像、`go install` 都验证过
-- [x] 发布后按 [CONTRIBUTING](CONTRIBUTING.md#releasing) 更新示例中的版本号：`examples/github-actions/pingmock-tests.yml` 的 `PINGMOCK_VERSION`，`examples/go-demo/go.mod` 的 `require`，都已改为 v0.5.1
+- [x] 发布后按 [CONTRIBUTING](CONTRIBUTING.md#releasing) 更新示例中的版本号：`examples/github-actions/ghostwire-tests.yml` 的 `GHOSTWIRE_VERSION`，`examples/go-demo/go.mod` 的 `require`，都已改为 v0.5.1
 
 ### 3. README 开头加一段演示动画
 
-- [x] 用真实的命令输出生成（[asciinema](https://asciinema.org) 或 SVG），展示一条 `pingmock exec` 命令怎样改变程序的选择，例如 [go-demo](examples/go-demo/) 的 `fastest` 程序在不同规则下选出不同的服务器：[`docs/demo/record.sh`](docs/demo/record.sh) 录制，结果在 [`docs/demo/demo.svg`](docs/demo/demo.svg)
+- [x] 用真实的命令输出生成（[asciinema](https://asciinema.org) 或 SVG），展示一条 `ghostwire exec` 命令怎样改变程序的选择，例如 [go-demo](examples/go-demo/) 的 `fastest` 程序在不同规则下选出不同的服务器：[`docs/demo/record.sh`](docs/demo/record.sh) 录制，结果在 [`docs/demo/demo.svg`](docs/demo/demo.svg)
 - [x] 重录演示：原来的录像在没有 IPv6 的容器里录制，开头有一行 IPv6 不可用的提示，版本号也是临时版本号。已在 GitHub 的机器上（有 IPv6）基于 v0.5.1 标签重录，用一个只存在于临时分支的工作流完成，录完后删除了这个分支
 - [x] 写一段 30 秒能看懂的介绍：解决什么问题 → 一个最短的示例 → 和 `tc netem` 的区别（按目标地址设置、运行中可修改、不需要 root）
 - [x] README 开头加一条 Docker 一键演示：不用安装任何东西、不用克隆仓库，一条 `docker run` 命令就能看到延迟变化和不可达。CI 从中英文 README 中提取这条命令，用本次构建的镜像和已发布的镜像，在 Ubuntu 24.04 和 26.04 上各运行一遍
@@ -56,8 +56,8 @@
 
 ## 已修复：root 模式会替换本机所在网络的路由
 
-- [x] 用 root 模式对**本机网卡所在的网络**设置规则时（比如本机是 `192.168.20.5/24`，规则写 `192.168.20.0/24`），v0.5.1 及之前的版本用 `ip route replace` 替换掉了这个网络原有的路由，退出后也不会恢复，本机就连不上那个网络了。`pingmock exec` 不受影响
-- [x] 修复：添加路由前先查询是否已有完全相同网段的路由；有的话拆成两个更精确的半网段（再冲突就继续拆），原有的路由保持不动，pingmock 被强制终止也不会留下问题；单个地址已有自己的路由时拒绝启动，并建议使用 `pingmock exec`。单元测试覆盖拆分逻辑，端到端测试覆盖 IPv4 和 IPv6，并确认 v0.5.1 会在这项测试上失败
+- [x] 用 root 模式对**本机网卡所在的网络**设置规则时（比如本机是 `192.168.20.5/24`，规则写 `192.168.20.0/24`），v0.5.1 及之前的版本用 `ip route replace` 替换掉了这个网络原有的路由，退出后也不会恢复，本机就连不上那个网络了。`ghostwire exec` 不受影响
+- [x] 修复：添加路由前先查询是否已有完全相同网段的路由；有的话拆成两个更精确的半网段（再冲突就继续拆），原有的路由保持不动，ghostwire 被强制终止也不会留下问题；单个地址已有自己的路由时拒绝启动，并建议使用 `ghostwire exec`。单元测试覆盖拆分逻辑，端到端测试覆盖 IPv4 和 IPv6，并确认 v0.5.1 会在这项测试上失败
 - [x] 发布 v0.5.2：已发布，用发布页下载的程序重复 VLAN 实验，运行中和退出后原有的路由都保留；示例中的版本号已更新为 v0.5.2
 
 ## 技术路线
@@ -73,13 +73,13 @@
 | 可复现 | 同样的设置，每次运行的结果都一样（`-seed`、确定性的 `pattern`、场景、`POST /reset`） |
 | 可控、可观察 | 测试中可以通过 API 改变网络状况，事后能从历史和统计中看到程序实际做了什么 |
 
-pingmock 将来支持的每一个协议都必须同时做到这四点。**新协议的设计如果做不到其中某一点，就要重新考虑。**（定义和例子见 [CONTRIBUTING](CONTRIBUTING.md#design-principles)）
+ghostwire 将来支持的每一个协议都必须同时做到这四点。**新协议的设计如果做不到其中某一点，就要重新考虑。**（定义和例子见 [CONTRIBUTING](CONTRIBUTING.md#design-principles)）
 
 **另一条原则**：测试应用，而不是测试协议。**用户**按人数从多到少：
 
 | 用户 | 他们要测什么 |
 |---|---|
-| ① 应用开发者 | 程序在网络变慢、断开、不可达时的表现。pingmock 的核心 |
+| ① 应用开发者 | 程序在网络变慢、断开、不可达时的表现。ghostwire 的核心 |
 | ② ping 库的开发者 | 超时、不可达、丢包、TTL 等行为（pro-bing 的测试依赖 `www.google.com`） |
 | ③ 运维人员 | 监控告警规则（宕机多久告警、丢几个包算故障）、线路切换脚本。他们测试告警和切换的办法是关机、拔线或加防火墙规则（Zabbix 工单 ZBX-19712）；Zabbix 和 Prometheus 能测规则的逻辑，缺的是端到端的测试。注意：原先写在这里的「Zabbix 用户只能改小阈值」「Uptime Kuma 每秒 ping」经核对不成立或找不到依据，见 [docs/planning 第二轮](docs/planning.zh-CN.md#第二轮2026-年-10-月-20-日)。他们最常用的切换工具 mwan3 把 ping 绑定到网卡，目前大概率无法模拟（见下一步 §2） |
 | ④ 网络诊断工具的开发者 | traceroute / mtr 类工具对路径的处理（Trippy #1552、#1554） |
@@ -104,18 +104,18 @@ v0.5.2 之后，原计划中 v0.6（测试体验）、v0.7（域名）、v0.8（
 **测试体验**
 
 - [x] `POST /reset`：规则、默认规则、统计和历史都恢复到启动时（命令行和配置文件）的样子，让每个测试从干净的状态开始。每个目标的场景位置和随机序列也重新开始，所以同一 seed 下 reset 之后的结果和刚启动时完全一样（有测试验证）
-- [x] `GET /version`：返回 pingmock 的版本，方便测试确认用的是哪个版本
+- [x] `GET /version`：返回 ghostwire 的版本，方便测试确认用的是哪个版本
 - [x] Go 客户端增加 `Reset` 和 `Version`；python-demo 的 fixture 改用 `/reset`：去掉了保存、逐条恢复规则的代码，改为每个测试开始前 reset
 - [x] 自定义回复的 TTL（比如 `ttl=128`）：测试程序对 TTL 的处理。证据：pro-bing #116（记录收到的 TTL）、#27（设置 TTL），go-ping #192（TTL 和预期不符）。已实现：规则多了一项 `ttl=1..255`，文本、YAML 映射和 API 的 JSON 都支持，每个阶段可以不同；回显应答和不可达消息的 TTL / hop limit 都用它；不写时仍是 64，行为和以前完全一样。单元测试覆盖解析、JSON、决策和数据包，端到端测试确认 `ping` 显示 `ttl=128`
-- [x] 定位说明：README 中说明 pingmock、`tc netem`、Toxiproxy 各适合什么场景（给真实流量加延迟用 netem，TCP 层的故障用 Toxiproxy，测试依赖 ping 的程序用 pingmock）；突出配置文件中声明故障、可复现的随机、按网段设置，这是 Toxiproxy 用户呼声最高的需求（#281、#447、#274、#273）。已加在中英文 README「原理」之后的「什么时候用它，什么时候用别的」一节：一张三行的表，加一段说明两者的局限和 pingmock 借鉴了什么
-- [x] 新示例：测试 ping 库的超时和不可达行为，服务用户 ②，场景参考 pro-bing #70（超时没有返回错误、不可达的主机让 `Run()` 一直阻塞）。已加 [`examples/pinglib-demo`](examples/pinglib-demo/)：原样测试 pro-bing v0.9.1，配置文件里五台主机各代表一种行为（回复、不回应、不可达、隔一个丢一个、TTL 128），五个测试验证了：超时通过统计体现而不是错误；不可达在库看来和丢包一样，pingmock 的历史能看出区别；`Count` 数的是回复，有丢包时会等到超时；TTL 原样到达。CI 在 exec 下免 root 运行（原始套接字在用户命名空间里可用）
+- [x] 定位说明：README 中说明 ghostwire、`tc netem`、Toxiproxy 各适合什么场景（给真实流量加延迟用 netem，TCP 层的故障用 Toxiproxy，测试依赖 ping 的程序用 ghostwire）；突出配置文件中声明故障、可复现的随机、按网段设置，这是 Toxiproxy 用户呼声最高的需求（#281、#447、#274、#273）。已加在中英文 README「原理」之后的「什么时候用它，什么时候用别的」一节：一张三行的表，加一段说明两者的局限和 ghostwire 借鉴了什么
+- [x] 新示例：测试 ping 库的超时和不可达行为，服务用户 ②，场景参考 pro-bing #70（超时没有返回错误、不可达的主机让 `Run()` 一直阻塞）。已加 [`examples/pinglib-demo`](examples/pinglib-demo/)：原样测试 pro-bing v0.9.1，配置文件里五台主机各代表一种行为（回复、不回应、不可达、隔一个丢一个、TTL 128），五个测试验证了：超时通过统计体现而不是错误；不可达在库看来和丢包一样，ghostwire 的历史能看出区别；`Count` 数的是回复，有丢包时会等到超时；TTL 原样到达。CI 在 exec 下免 root 运行（原始套接字在用户命名空间里可用）
 - [x] README 的限制中写明：绑定网卡的 ping（`ping -I eth0`）不会被模拟（已实验验证：绑定真实网卡时直接从那块网卡发出；绑定源地址时照常被模拟），因为 README 现在明确承诺了"透明"
 
-**域名：`pingmock exec` 中的 `-host`、按域名的规则和内置的 DNS 服务**
+**域名：`ghostwire exec` 中的 `-host`、按域名的规则和内置的 DNS 服务**
 
 - [x] 前提已验证：普通用户可以在用户命名空间 + 挂载命名空间中覆盖 `/etc/hosts`；glibc、Go（纯 Go 解析器）、Python 都读到新的内容；宿主机的文件不受影响
-- [x] `exec` 增加挂载命名空间，实现 `-host`：给了 `-host` 时父进程多加 `CLONE_NEWNS`，子进程先把挂载设为私有，再把「pingmock 的条目 + 系统的 `/etc/hosts`」写进一个临时文件，bind mount 到 `/etc/hosts` 上，然后删除临时文件（挂载让它继续存在，不留痕迹）。配置文件支持 `hosts:` 映射，`-host` 按名字覆盖。root 和普通用户都验证过；端到端测试检查 `getent`、按名字 ping 的延迟、系统文件的 md5 不变、`/tmp` 没有残留
-- [x] root 模式下继续推荐改 `/etc/hosts` 的做法，在 README 中写清楚：`sudo pingmock -host` 直接拒绝并提示改 `/etc/hosts`；README 的「域名：-host」一节写明
+- [x] `exec` 增加挂载命名空间，实现 `-host`：给了 `-host` 时父进程多加 `CLONE_NEWNS`，子进程先把挂载设为私有，再把「ghostwire 的条目 + 系统的 `/etc/hosts`」写进一个临时文件，bind mount 到 `/etc/hosts` 上，然后删除临时文件（挂载让它继续存在，不留痕迹）。配置文件支持 `hosts:` 映射，`-host` 按名字覆盖。root 和普通用户都验证过；端到端测试检查 `getent`、按名字 ping 的延迟、系统文件的 md5 不变、`/tmp` 没有残留
+- [x] root 模式下继续推荐改 `/etc/hosts` 的做法，在 README 中写清楚：`sudo ghostwire -host` 直接拒绝并提示改 `/etc/hosts`；README 的「域名：-host」一节写明
 - [x] 回答 `-host` 和按域名写的规则，自动分配模拟地址：`-rule api.example.com=80ms` 和配置文件 `rules:` 里的域名键都可以；地址从 `-addr` 网段的高端往下分配（`.253`、`.252`……，跳过已被明确规则或 `-host` 占用的地址），按域名排序所以每次一样；`-host` 指定的地址优先。`internal/dns` 是一个不依赖第三方库的小 DNS 服务（只处理单个问题的 UDP 查询，A/AAAA/PTR），监听在命令网络里的 `127.0.0.1:53`；`resolv.conf` 保留宿主机的 `search`/`options`，只换 `nameserver`；`nsswitch.conf` 里有 `resolve` 时同样替换成 `files dns`
 - [x] 为模拟的地址提供反向解析（v0.8 中 traceroute 显示中间节点的名字）：PTR 回答该地址的第一个名字，`getent hosts 10.99.0.253` 得到域名
 - [x] 不认识的域名，通过仍在宿主机网络中的父进程转发给真实的 DNS 服务器：父子进程之间一对 Unix 域套接字（子进程的 fd 3），子进程把原始查询按长度前缀转发，父进程按宿主机 `resolv.conf` 的顺序逐个询问（每个 2 秒），回答原样传回；都失败时回 SERVFAIL。用桩解析器验证过：模拟的域名从不转发，未知域名得到真实解析器的回答（含 NXDOMAIN）；端到端测试在能解析 `github.com` 的机器上检查它在 `exec` 里也能解析
@@ -141,7 +141,7 @@ v0.5.2 之后，原计划中 v0.6（测试体验）、v0.7（域名）、v0.8（
 
 | 前提 | 结果 |
 |---|---|
-| pingmock 读到的 TTL 是程序设置的原始值 | 成立：traceroute 发出的 TTL 1～5，原型都按原值看到 |
+| ghostwire 读到的 TTL 是程序设置的原始值 | 成立：traceroute 发出的 TTL 1～5，原型都按原值看到 |
 | traceroute -I、traceroute（UDP）、mtr 能看到伪造的中间节点和终点 | 成立：三种都正确显示了两个中间节点和终点 |
 | 严格的反向路径检查（`rp_filter=1`）下依然可用 | **只有为中间节点的地址添加指向 TUN 网卡的路由时才成立**。不加路由时，中间节点全部显示为 `*`，内核计数 `IPReversePathFilter` 显示丢弃了这些回复 |
 
@@ -164,28 +164,28 @@ IPv6（ICMPv6 Time Exceeded、Port Unreachable、hop limit）还没有验证。
 
 Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级](#最低优先级)：**所有示例都放到最后做**，技术项优先。
 
-- [x] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：原先的调研材料不在仓库里，由新的 [`pingmock-planning`](.claude/agents/pingmock-planning.md) agent 重新调研，结论逐条打开来源核对后写入「第二轮：2026 年 10 月 20 日」。运维人员的两条依据不成立或找不到；「七条技术路线」没有来源，按项目分组是七到八条，新增 LD_PRELOAD 拦截；绑定网卡的限制成立，而且 mwan3 用 LD_PRELOAD 绑定。WireMock 的类比、gVisor 的依赖代价、Testcontainers 的限制只是部分有依据，还没核对，没有写入，等做技术选型时再查
+- [x] 把市场调研的结果补充到 [docs/planning](docs/planning.zh-CN.md) 的证据部分：原先的调研材料不在仓库里，由新的 [`ghostwire-planning`](.claude/agents/ghostwire-planning.md) agent 重新调研，结论逐条打开来源核对后写入「第二轮：2026 年 10 月 20 日」。运维人员的两条依据不成立或找不到；「七条技术路线」没有来源，按项目分组是七到八条，新增 LD_PRELOAD 拦截；绑定网卡的限制成立，而且 mwan3 用 LD_PRELOAD 绑定。WireMock 的类比、gVisor 的依赖代价、Testcontainers 的限制只是部分有依据，还没核对，没有写入，等做技术选型时再查
 - [x] **新**：实验验证 mwan3 式的探测能不能被模拟（2026-10-20，开发容器，规则 `8.8.8.8=30ms`）：
 
   | 情况 | 结果 |
   |---|---|
-  | root 模式，`ping -I eth0` 绑定真实网卡 | 绕过 pingmock，真实延迟 57～70ms、ttl=63 |
+  | root 模式，`ping -I eth0` 绑定真实网卡 | 绕过 ghostwire，真实延迟 57～70ms、ttl=63 |
   | `exec` 里绑定不存在的网卡 `wan` | 失败：`SO_BINDTODEVICE wan: No such device` |
-  | `exec -dev wan`，pingmock 的网卡起名为 `wan`，再绑定它 | **被模拟**，30.8～32.0ms |
+  | `exec -dev wan`，ghostwire 的网卡起名为 `wan`，再绑定它 | **被模拟**，30.8～32.0ms |
   | 同上，加 `SO_MARK` 和源地址绑定（mwan3 包装器的做法） | 被模拟，31.5ms |
 
   结论：在 `exec` 里，只要网卡名字对得上，绑定网卡的探测今天就能模拟。多 WAN 切换还需要**多块网卡、规则按网卡区分**（同一个 8.8.8.8，经 wan 30ms、经 wanb 超时），mwan3 本身依赖 ubus、uci，能否在普通 Linux 上直接测它要另外验证。**多网卡暂缓**（维护者决定，2026-10-20），先看多协议方向
 
 ### 3. 开发环境：在 Mac 上用 Docker 开发（已完成）
 
-维护者用 Mac，pingmock 只能在 Linux 上运行。Mac 上的 Docker Desktop 在 Linux 虚拟机中运行容器，所以可以在容器里开发。Claude Code 官方文档中有开发容器的说明（命令在容器里执行，文件修改实时出现在本地仓库），参考配置以非 root 用户运行，并加了 `NET_ADMIN` 权限，这也正是 pingmock 需要的。
+维护者用 Mac，ghostwire 只能在 Linux 上运行。Mac 上的 Docker Desktop 在 Linux 虚拟机中运行容器，所以可以在容器里开发。Claude Code 官方文档中有开发容器的说明（命令在容器里执行，文件修改实时出现在本地仓库），参考配置以非 root 用户运行，并加了 `NET_ADMIN` 权限，这也正是 ghostwire 需要的。
 
 - [x] 增加 [`.devcontainer/`](.devcontainer/)：`Dockerfile`（`golang:1.27.0-bookworm`；iproute2、ping、curl、traceroute、mtr、fping、带 icmplib 和 pytest 的 Python、shellcheck、git；Claude Code 用原生安装脚本装给普通用户）和 `devcontainer.json`。以普通用户 `dev` 运行，免密码 `sudo`；Go 的模块缓存和构建缓存放在两个卷里，重建容器不用重新下载；登录 shell 的 PATH 里补上 Go，因为 Debian 的 `/etc/profile` 会覆盖镜像设置的 PATH，否则 VS Code 和 devcontainer CLI 的终端里找不到 `go`
 - [x] 先验证（在这台 Mac 上，Docker Desktop 4.68、Engine 29.3.1）：
 
   | 前提 | 结果 |
   |---|---|
-  | 只给 `NET_ADMIN` 和 `/dev/net/tun` | root 模式能跑；`pingmock exec` 免 root 和 root 都失败：Docker 默认的 seccomp 策略不允许创建命名空间（`clone` 带命名空间标志要容器有 `CAP_SYS_ADMIN`），连 root 也不行 |
+  | 只给 `NET_ADMIN` 和 `/dev/net/tun` | root 模式能跑；`ghostwire exec` 免 root 和 root 都失败：Docker 默认的 seccomp 策略不允许创建命名空间（`clone` 带命名空间标志要容器有 `CAP_SYS_ADMIN`），连 root 也不行 |
   | 再关掉 seccomp | 免 root 的 `exec` 能跑；root 的 `exec` 仍失败，容器里的 root 没有 `CAP_SYS_ADMIN`，创建网络命名空间本身需要它 |
   | 改为再加 `SYS_ADMIN`，seccomp 保持默认 | 全部能跑。**这就是最小权限**，不需要 `--privileged`，也不用关 seccomp |
   | Linux 主机上的 AppArmor（CI 发现） | Mac 上测不到：Ubuntu 上 Docker 默认的 AppArmor 配置 `docker-default` 禁止 `mount`，免 root 的 `exec` 设置私有 `/etc/hosts` 时报 `making mounts private: permission denied`。再加 `--security-opt apparmor=unconfined`；Mac 上没有 AppArmor，加了没影响 |
@@ -193,8 +193,8 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
   | 和 Linux 的差别 | Docker Desktop 的解析器对任何域名都回一个虚构地址（`fdfe:dcba:9876::/48`），「未知域名解析不到」的检查改为在宿主机也能解析该域名时跳过；`/proc/sys` 只读，兼容性检查改为只在需要时写 `ping_group_range`（容器本来就允许所有组）；虚拟机里的时间抖动让容差 ±3ms、±5ms 的检查各失败过一次，都发生在我同时构建镜像的时候，单独跑全过 |
   | 各项用时 | `make test` 约 15 秒，e2e 25 秒，e2e-exec 23 秒（两种模式），e2e-compat 第一次 51 秒、有缓存后 31 秒。时间都花在等超时和等 mtr 上 |
 
-  顺带发现：容器里的 root 没有 `CAP_SYS_ADMIN` 时，`pingmock exec` 走 root 路径直接失败。可以改成没有这个能力时就像普通用户一样走用户命名空间；暂不做，等有人遇到
-- [x] CI 增加 `devcontainer` 任务（Ubuntu 24.04 和 26.04）：构建开发容器，在里面以 `dev` 用户运行 `make lint`、`make test`、`make e2e`、`make e2e-exec`、`make e2e-compat`。容器用户取 runner 的 uid，才能写挂载进来的仓库；先在 runner 上关掉 Ubuntu 对非特权用户命名空间的 AppArmor 限制，因为容器里用不上宿主机的 profile，Mac 上也没有这个限制（`test` 任务继续覆盖 profile）。第一次在 CI 上运行时两个系统都失败在免 root 的 `exec`（Ubuntu 上 Docker 默认的 AppArmor 配置禁止 mount，见上表），加上 `--security-opt apparmor=unconfined` 后 [CI 全部通过](https://github.com/nanmuyao-tools/pingmock/actions/runs/39371647091)：devcontainer 任务在 24.04 和 26.04 上都跑完了五项检查
+  顺带发现：容器里的 root 没有 `CAP_SYS_ADMIN` 时，`ghostwire exec` 走 root 路径直接失败。可以改成没有这个能力时就像普通用户一样走用户命名空间；暂不做，等有人遇到
+- [x] CI 增加 `devcontainer` 任务（Ubuntu 24.04 和 26.04）：构建开发容器，在里面以 `dev` 用户运行 `make lint`、`make test`、`make e2e`、`make e2e-exec`、`make e2e-compat`。容器用户取 runner 的 uid，才能写挂载进来的仓库；先在 runner 上关掉 Ubuntu 对非特权用户命名空间的 AppArmor 限制，因为容器里用不上宿主机的 profile，Mac 上也没有这个限制（`test` 任务继续覆盖 profile）。第一次在 CI 上运行时两个系统都失败在免 root 的 `exec`（Ubuntu 上 Docker 默认的 AppArmor 配置禁止 mount，见上表），加上 `--security-opt apparmor=unconfined` 后 [CI 全部通过](https://github.com/nanmuyao-tools/ghostwire/actions/runs/39371647091)：devcontainer 任务在 24.04 和 26.04 上都跑完了五项检查
 - [x] 中英文使用说明：[`.devcontainer/README.md`](.devcontainer/README.md)（[中文](.devcontainer/README.zh-CN.md)）：怎样打开（VS Code、devcontainer CLI、纯 Docker）、哪些检查在容器里跑、哪些交给 CI、需要哪些权限、和 Linux 的差别、各项用时。在这台 Mac 上验证了纯 Docker 和 devcontainer CLI 0.89.0 两种方式；CLI 0.80.0 在 Docker Desktop 4.68 上启动容器后一直卡在等 `docker events`，文档里写明要用新版。VS Code 没有装，「Reopen in Container」没有试
 - [x] 增加 [`CLAUDE.md`](CLAUDE.md)：四个核心价值、测试应用而不是协议、证据优先、验证后再下结论、依赖要发布超过两周、中英文文档同步、seed 序列是行为的一部分、不提交来源不明的文件、TODO 保持最新、提交信息的格式，以及在哪里跑哪些测试
 
@@ -202,7 +202,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 
 ### 4. 多协议
 
-**名字保持 pingmock，后续支持更多的协议，这是已经确定的方向。** 每个协议都必须保持四个核心价值（见本节开头）；设计做不到其中某一点，就要重新考虑。
+**名字保持 ghostwire，后续支持更多的协议，这是已经确定的方向。** 每个协议都必须保持四个核心价值（见本节开头）；设计做不到其中某一点，就要重新考虑。
 
 现在的基础：`exec` 中已经有一个 DNS 服务（只回答模拟的域名、转发其他的）；路径模拟已经能解析 UDP 和 TCP SYN、回复 SYN-ACK。
 
@@ -215,7 +215,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 | v0.11.0 DNS 故障（**已发布**，2026-10-20） | 只在 `exec` 下（root 模式先拒绝，和 `-host` 一样）；设计见下 |
 | v1.0 之前 | 先把常用协议支持完整，兼容性承诺放在最后（维护者决定，2026-10-20）；路线见下「通往 v1.0」 |
 
-**v0.9.0 的实现**（2026-10-20，[已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.9.0)，CI 在 Ubuntu 24.04 和 26.04 上全部通过，含 Go 和 Python 的 TCP 兼容性检查；从发布页下载的 arm64 二进制在开发容器里验证了接受、拒绝和 ping）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首
+**v0.9.0 的实现**（2026-10-20，[已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.9.0)，CI 在 Ubuntu 24.04 和 26.04 上全部通过，含 Go 和 Python 的 TCP 兼容性检查；从发布页下载的 arm64 二进制在开发容器里验证了接受、拒绝和 ping）：`rule`（`TCPScenario`、`TCPTarget`、`refuse`、pattern 的 `r`，ping 的解析路径不变，变异测试确认 ping 的七个入口都拒绝 `refuse`）、`icmp`（`BuildRST`）、`engine`（TCP 规则表、按地址和端口的状态与随机流、重传 SYN 的缓存、`/reset`）、`api`、`config`、`app`、`client`，中英文 README 新增「TCP 连接」一节。开发容器里单元测试、lint、root 和 `exec`（免 root 与 root）的端到端测试都通过，含 IPv6；重传缓存关掉时，端到端测试在第一次连接 1060ms 处连上而失败，说明测试能发现问题。兼容性测试已加入 Go `net.Dial` 和 Python `socket`（把拒绝换成 SYN-ACK 时 Go 的检查失败，说明能发现问题）；README 开头的定位改为「从 ping 起步，以及 TCP 连接」，对比工具一节以「透明」为首
 
 **实现 v0.9.0 时采用的默认选择**（都是用户会写进配置的语法），维护者 2026-10-20 确认按现在的来：
 
@@ -227,7 +227,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 
 **`after=` 的设计**（planning agent 第四轮调研和原型实验，报告不在仓库里；维护者 2026-10-20 确认按推荐来）：
 
-依据：Toxiproxy [#238](https://github.com/Shopify/toxiproxy/issues/238) 要的是「connection reset」故障（Java 的 `Connection reset`），后来成了 `reset_peer`；[#195](https://github.com/Shopify/toxiproxy/issues/195) 要连接先正常传一段时间数据再断开，这要等「连接建立后的数据」那一步。这些用户都靠本地监听或改连代理解决，pingmock 的优势和 v0.9.0 一样：写死的地址和真实地址也能用、按端口、seed、历史、免 root。开发容器里用 Python 在 TUN 上做的原型（IPv4 和 IPv6；Python socket、`http.client`、curl、Go `net/http`、bash `/dev/tcp`，各 40 次）：
+依据：Toxiproxy [#238](https://github.com/Shopify/toxiproxy/issues/238) 要的是「connection reset」故障（Java 的 `Connection reset`），后来成了 `reset_peer`；[#195](https://github.com/Shopify/toxiproxy/issues/195) 要连接先正常传一段时间数据再断开，这要等「连接建立后的数据」那一步。这些用户都靠本地监听或改连代理解决，ghostwire 的优势和 v0.9.0 一样：写死的地址和真实地址也能用、按端口、seed、历史、免 root。开发容器里用 Python 在 TUN 上做的原型（IPv4 和 IPv6；Python socket、`http.client`、curl、Go `net/http`、bash `/dev/tcp`，各 40 次）：
 
 | 做法 | 结果 |
 |---|---|
@@ -247,7 +247,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 - [x] 实现时发现并修正：零延迟的回应原先各用一个定时器写出，FIN 和紧随其后的 RST 可能颠倒，root 模式下 curl 5 次里有 2 次得到 reset 而不是空回复。改为零延迟的回应在读循环里按顺序写出；单元测试在旧写法下 20 次全部失败
 - [x] 边界：空闲 10 分钟的连接被忘掉，之后不再回应，写进 README
 - [x] 验证（开发容器）：单元测试和 lint；root 的 e2e（IPv4 和 IPv6：curl 5 次全是 52 或 56，`close` 之后再写得到 `EPIPE`，不写就关闭的客户端没有留下半关闭的连接，统计和历史）；`exec` 免 root 和 root（域名目标）；兼容性测试中 Go `net.Dial` 和 Python `socket` 先写后读，`close` 读到 EOF、`reset` 读到 `ECONNRESET`。变异：在最后一个 ACK 上就 reset、不检查确认号、新的尝试不覆盖旧连接、动作取自最后一个阶段，单元测试都能发现；不回应客户端的 FIN，e2e 的半关闭检查能发现（起初的检查漏了 CLOSING 状态，没发现，已改为除 TIME-WAIT 外的所有状态）
-- [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/39416311154) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 after= 的检查都跑了；同一 seed 下 v0.9.0 发布版和新版本的 ping 与 TCP 结果、延迟完全相同；[v0.10.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.10.0)，下载的 arm64 二进制在开发容器里 close、reset、refuse 分别得到 curl 52、56、7
+- [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/39416311154) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 after= 的检查都跑了；同一 seed 下 v0.9.0 发布版和新版本的 ping 与 TCP 结果、延迟完全相同；[v0.10.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.10.0)，下载的 arm64 二进制在开发容器里 close、reset、refuse 分别得到 curl 52、56、7
 - 还没验证 Java、Node.js 客户端：移到「最低优先级」（维护者决定，2026-10-20）
 
 **DNS 故障的前提验证**（planning agent 第五轮，开发容器里实验：glibc 2.36、Go 1.27.0 纯 Go 与 cgo 解析器、curl、Python；报告不在仓库里，2026-10-20）：
@@ -264,7 +264,7 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
 需求：两个小项目（probeboard-api #74、network-doctor #368、#394）在 2026 年 9、10 月自己做了按域名注入错误的办法，反应数 0 到 1，证据弱。
 
 - [x] nscd 修复（见上表）
-- [x] `exec` 的 DNS 服务监听 TCP，TCP 查询也经 TCP 转发；每个查询各自处理，中继给查询加标签，可以同时转发多个；宿主机不回应时也不回应（中继等 5 秒，glibc 的默认超时，多个上游平分），不再 2 秒后回 SERVFAIL；上游直接拒绝（没有监听、不可达）时立即回 SERVFAIL，和没有 pingmock 时一样立即失败（advisor 发现的回归：改之前 exec 里一次查询等 20 秒，改之后 32ms，exec 外 0ms）。单元测试：慢查询不挡 UDP 和同一 TCP 连接上的其他查询、中继乱序返回、TCP 转发 3000 字节的回复；e2e：`RES_OPTIONS=use-vc` 下模拟的域名和转发的域名都能解析。变异：串行处理、串行中继、不监听 TCP 都会失败（不监听 TCP 时 glibc 读 TCP 不设超时会一直等，检查加了 `timeout 10`）
+- [x] `exec` 的 DNS 服务监听 TCP，TCP 查询也经 TCP 转发；每个查询各自处理，中继给查询加标签，可以同时转发多个；宿主机不回应时也不回应（中继等 5 秒，glibc 的默认超时，多个上游平分），不再 2 秒后回 SERVFAIL；上游直接拒绝（没有监听、不可达）时立即回 SERVFAIL，和没有 ghostwire 时一样立即失败（advisor 发现的回归：改之前 exec 里一次查询等 20 秒，改之后 32ms，exec 外 0ms）。单元测试：慢查询不挡 UDP 和同一 TCP 连接上的其他查询、中继乱序返回、TCP 转发 3000 字节的回复；e2e：`RES_OPTIONS=use-vc` 下模拟的域名和转发的域名都能解析。变异：串行处理、串行中继、不监听 TCP 都会失败（不监听 TCP 时 glibc 读 TCP 不设超时会一直等，检查加了 `timeout 10`）
 - [x] `-dns` 实现（2026-10-20）。语法维护者 2026-10-20 确认按推荐来：
   - `-dns NAME=RULE`、`dns:`、`PUT/DELETE /dns/{name}`，root 模式拒绝（和 `-host` 一样）
   - 故障先做 `nxdomain`、`servfail`，加上 `timeout`/`loss=`、延迟，pattern 的 `n`、`s`
@@ -275,13 +275,13 @@ Python 客户端包和 Prometheus 告警规则的示例移到了[最低优先级
   - 有 `-dns` 规则的域名不写进私有 `/etc/hosts`；`-dns` 本身也要打开 `exec` 的域名设置
   - 实现：`rule`（协议种类代替原来的 TCP 开关，`nxdomain`、`servfail`、pattern 的 `n`、`s`，DNS 规则拒绝 `unreachable`、`ttl`，ping 和 TCP 规则拒绝 DNS 设置）、`engine`（按名字的规则表，按（域名, 类型）的状态和随机流，`dns`/`dns_stats`，`/reset`）、`dns`（规则在查表和转发之前决定，故障不转发，延迟在转发之后）、`app`（`-dns`、`dns:`，root 拒绝，有规则的域名从私有 hosts 里拿掉、连系统 hosts 里的同名条目一起）、`api`（`PUT/DELETE /dns/{name}`，命令 hosts 里的域名和没有 DNS 服务的 exec 返回 400 并给出办法；`GET /history?target=域名`）、`client`（`SetDNS`、`DeleteDNS`、`DNSStats`；顺带补上 v0.10.0 漏掉的 `TCPStats.Closed`、`Reset`）
   - 验证（开发容器，root 和免 root）：nxdomain → `EAI_NONAME`、servfail → `EAI_AGAIN`、timeout（`timeout:1 attempts:1`）→ `EAI_AGAIN`、延迟 60ms 实测 62ms、`nxdomain for 2 requests` 让两次解析失败后第三次解析出地址、没有规则的域名照旧、有规则的域名不在 hosts 里、统计按类型计数、历史、API 设置和删除。变异：有规则的域名留在 hosts 里时延迟检查失败
-  - [x] CI：第一次推送在 Ubuntu 上失败，servfail 得到 EAI_NONAME：runner 的 resolv.conf 有 search 行，glibc 在 SERVFAIL 后去查 `NAME.<search>`，宿主机回 NXDOMAIN 并被报告。检查改为查带结尾点的域名，README 说明 search 域的影响。之后 [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/39431813519) 全部通过，13 项 DNS 检查在 4 个任务里免 root 和 root 各跑一次；同一 seed 下和 v0.10.0 发布版结果一致；[v0.11.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.11.0)，下载的 arm64 二进制在开发容器里 nxdomain、servfail、-host 分别得到 -2、-3、10.99.0.5
+  - [x] CI：第一次推送在 Ubuntu 上失败，servfail 得到 EAI_NONAME：runner 的 resolv.conf 有 search 行，glibc 在 SERVFAIL 后去查 `NAME.<search>`，宿主机回 NXDOMAIN 并被报告。检查改为查带结尾点的域名，README 说明 search 域的影响。之后 [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/39431813519) 全部通过，13 项 DNS 检查在 4 个任务里免 root 和 root 各跑一次；同一 seed 下和 v0.10.0 发布版结果一致；[v0.11.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.11.0)，下载的 arm64 二进制在开发容器里 nxdomain、servfail、-host 分别得到 -2、-3、10.99.0.5
 
 README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 ping 起步」的网络回应模拟。
 
 ### 通往 v1.0
 
-**维护者决定（2026-10-20）：先把常用协议支持完整，兼容性承诺最后做。** 依据：planning agent 第六轮调研（技术选型和实验，开发容器里内核 6.12.76；报告不在仓库里），关键结论人工核对过：TLS 握手超时用真实的 pingmock 实测（Python `ssl` 报 "The handshake operation timed out"，curl 退出码 28）；Toxiproxy [#195](https://github.com/Shopify/toxiproxy/issues/195) 2026-10-07 关闭未合并，[#50](https://github.com/Shopify/toxiproxy/issues/50)「Protocol aware toxics」2015 年起开着、9 个 👍；README 的 `GET /version` 示例还写着 v0.6.0。
+**维护者决定（2026-10-20）：先把常用协议支持完整，兼容性承诺最后做。** 依据：planning agent 第六轮调研（技术选型和实验，开发容器里内核 6.12.76；报告不在仓库里），关键结论人工核对过：TLS 握手超时用真实的 ghostwire 实测（Python `ssl` 报 "The handshake operation timed out"，curl 退出码 28）；Toxiproxy [#195](https://github.com/Shopify/toxiproxy/issues/195) 2026-10-07 关闭未合并，[#50](https://github.com/Shopify/toxiproxy/issues/50)「Protocol aware toxics」2015 年起开着、9 个 👍；README 的 `GET /version` 示例还写着 v0.6.0。
 
 | 协议或行为 | 结论 |
 |---|---|
@@ -290,104 +290,104 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 | gVisor netstack | **不用**：新版要把 `go` 行从 1.22 拉到 1.26.3、依赖图 127 个模块；保持低版本只能用 17 个月前的版本（wireguard-go 的做法，94 个模块）；最小程序约 4.8MB，普通 `net` 程序 1.7MB |
 | 通用 UDP | 不回应现在就是；端口不可达只在设了路径时顺带出现（有路径时连接的 UDP socket 得到 `ConnectionRefusedError`，没有时 `TimeoutError`）。`-udp`（refuse、timeout、unreachable）成本低，需求证据弱 |
 | 带内容的 UDP 回复（NTP、SNMP、QUIC） | 不做：等于模拟服务 |
-| QUIC 失败回退到 TCP | 不做：pingmock 接管整个地址，没法只让 UDP 失败而 TCP 通向真实服务器 |
+| QUIC 失败回退到 TCP | 不做：ghostwire 接管整个地址，没法只让 UDP 失败而 TCP 通向真实服务器 |
 | A/AAAA 以外的 DNS 记录 | 等需求：模拟的域名查 MX、SRV、TXT、HTTPS、CNAME 回「没有记录」（验证过），这本身是正确的回答 |
 | ICMP Packet Too Big、root 模式 DNS、多网卡 | 等需求：没有新的证据 |
 
-外部 issue 当天复查：pingmock 仍然没有 issue 和 PR；Toxiproxy #447、#610，pro-bing #70、#195，Trippy #1551、#1552、#1554 都没有变化。
+外部 issue 当天复查：ghostwire 仍然没有 issue 和 PR；Toxiproxy #447、#610，pro-bing #70、#195，Trippy #1551、#1552、#1554 都没有变化。
 
 路线（工作量是估计）：
 
-- [x] **0. 面向新手的文档**（2026-10-21，维护者要求「补充一些基础的网络知识，最好画点示意图，包结构之类的」）：新增 [docs/basics.md](docs/basics.md)（[中文](docs/basics.zh-CN.md)），讲地址、网段、端口，分层的数据包，ping、超时和不可达、TCP 握手和各种失败、traceroute 的 TTL、DNS 解析，以及 pingmock 怎样插到中间，配 6 张 Mermaid 图（用 mermaid-cli 11.4.2 渲染检查过）和 IPv4、ICMP、TCP、DNS 的包结构图，最后是术语表。README 开头改成先用大白话说它解决什么问题，新增「第一步」：5 条命令（延迟、不可达和超时、运行中改规则、TCP 拒绝和超时、DNS 不存在），输出都是开发容器里实际跑出来的。其他文档开头链接到网络基础
-- [x] **1. 文档**（2026-10-23，不打 tag）：README 写 TLS 握手超时的做法（2026-10-21）、UDP 现在得到什么（v0.13 的「UDP datagrams」一节）；「什么时候用别的」加上 QUIC 回退到 TCP（用防火墙规则丢 UDP）；「不做」里早已有带内容的 UDP 回复和 QUIC 回退。按第七轮调研新增 README「绑定网卡的探测」一节：用标记引导的探测在它的路由表里加 pingmock 的网段，绑定网卡的探测用 `tc` mirred 重定向，回程按那块网卡自己的地址匹配。Docker 一节写明 API 没有认证，建议 `-p 127.0.0.1:9100:9100`，镜像的默认值不变
-  - 验证（开发容器，IPv4）：`ping -I eth0` 0 个回应、pingmock 记到 0 个请求；加上重定向后 3/3、记到 3 个请求；回程按 eth0 地址匹配时，不绑定的 ping 和 `-I pingmock0` 照常；`curl --interface eth0` 连 `refuse` 规则的地址：不重定向时超时、pingmock 记到 0 个 TCP 请求，重定向后被拒绝（退出码 7）、记到 1 个；标记引导的路由表加上网段前 0/2、加上后 2/2；以普通用户（uid 1000）在 `pingmock exec` 里用 dummy 网卡 `wan1` 重定向，规则 `100ms` 收到回应、`loss=100%` 全丢，不绑定的 ping 不受影响。没有验证：mwan3 本身、IPv6、`rp_filter=1`
+- [x] **0. 面向新手的文档**（2026-10-21，维护者要求「补充一些基础的网络知识，最好画点示意图，包结构之类的」）：新增 [docs/basics.md](docs/basics.md)（[中文](docs/basics.zh-CN.md)），讲地址、网段、端口，分层的数据包，ping、超时和不可达、TCP 握手和各种失败、traceroute 的 TTL、DNS 解析，以及 ghostwire 怎样插到中间，配 6 张 Mermaid 图（用 mermaid-cli 11.4.2 渲染检查过）和 IPv4、ICMP、TCP、DNS 的包结构图，最后是术语表。README 开头改成先用大白话说它解决什么问题，新增「第一步」：5 条命令（延迟、不可达和超时、运行中改规则、TCP 拒绝和超时、DNS 不存在），输出都是开发容器里实际跑出来的。其他文档开头链接到网络基础
+- [x] **1. 文档**（2026-10-23，不打 tag）：README 写 TLS 握手超时的做法（2026-10-21）、UDP 现在得到什么（v0.13 的「UDP datagrams」一节）；「什么时候用别的」加上 QUIC 回退到 TCP（用防火墙规则丢 UDP）；「不做」里早已有带内容的 UDP 回复和 QUIC 回退。按第七轮调研新增 README「绑定网卡的探测」一节：用标记引导的探测在它的路由表里加 ghostwire 的网段，绑定网卡的探测用 `tc` mirred 重定向，回程按那块网卡自己的地址匹配。Docker 一节写明 API 没有认证，建议 `-p 127.0.0.1:9100:9100`，镜像的默认值不变
+  - 验证（开发容器，IPv4）：`ping -I eth0` 0 个回应、ghostwire 记到 0 个请求；加上重定向后 3/3、记到 3 个请求；回程按 eth0 地址匹配时，不绑定的 ping 和 `-I ghostwire0` 照常；`curl --interface eth0` 连 `refuse` 规则的地址：不重定向时超时、ghostwire 记到 0 个 TCP 请求，重定向后被拒绝（退出码 7）、记到 1 个；标记引导的路由表加上网段前 0/2、加上后 2/2；以普通用户（uid 1000）在 `ghostwire exec` 里用 dummy 网卡 `wan1` 重定向，规则 `100ms` 收到回应、`loss=100%` 全丢，不绑定的 ping 不受影响。没有验证：mwan3 本身、IPv6、`rp_filter=1`
 - [x] **2. v0.12：TCP 握手后的数据**（2026-10-23 实现，未发布）。维护者确认按推荐的语法：`send="..."` 握手后立即发，`reply="..."` 收到第一段数据后发，`limit=N` 收满 N 字节后按 `after=` 结束（必须配 `after=close` 或 `after=reset`，advisor 指出「收满后不再确认」没有被批准过），`wait=` 推迟数据；字节是 Go 的双引号字符串，最多 16 KiB；`after=hang` 保持沉默（维护者决定）。实现：`rule`（引号里的 `,` `;` ` for ` 不再被当成分隔符）、`icmp`（带数据的报文，每段最多 536 字节）、`engine`（`talk`：确认客户端数据，重传的数据再确认一次，关闭之后的新数据回 RST；握手后第一个报文就带数据时先当握手完成、再当数据）、`responder`（每个连接一条队列：确认立即写出，数据、FIN、RST 按顺序，`wait=` 期间的确认从未发出的数据开始编号）；历史新增 `sent` 事件和 `bytes`
   - 验证（开发容器）：Python 读到 SSH 欢迎语；curl 和 Go `net/http` 拿到 503 和响应体；`limit=1000,after=reset` 让 Python 得到 `ConnectionResetError`；3000 字节分 6 段送达，校验和一致；`wait=1s` 实测 1001ms，期间客户端重传 0 个报文；IPv6 也拿到 503；兼容性测试中 Go 和 Python 都读到 `reply=` 的数据。变异：去掉每个连接的队列，`wait=` 之后的 RST 抢在回复之前（5 次都失败）；`wait=` 期间不立即确认，客户端重传 1 次，e2e 失败。同一 seed 下和 v0.11.0 发布版结果一致
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/39897333613) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 send=、reply=、limit=、wait= 和「等待期间不重传」的检查都跑了；[v0.12.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.12.0)，下载的 arm64 二进制在开发容器里读到欢迎语、拿到 503 和响应体
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/39897333613) 在 Ubuntu 24.04 和 26.04 上全部通过，日志里 send=、reply=、limit=、wait= 和「等待期间不重传」的检查都跑了；[v0.12.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.12.0)，下载的 arm64 二进制在开发容器里读到欢迎语、拿到 503 和响应体
 - [x] **3. v0.13：`-udp`**（2026-10-23 实现，未发布）。维护者确认语法：目标和 `-tcp` 一样，`udp:`、`PUT/DELETE /udp/{目标}`、`SetUDP`/`DeleteUDP`/`UDPStats`；`refuse`（ICMP 端口不可达）、`unreachable[=net|admin]`、`timeout`/`loss=`、pattern 的 `x`、`u`、`r`、错误的 `delay` 和 `ttl`；每个数据报计一次；只写延迟、没有失败方式的规则报错；有路径时各跳先回应，终点由 UDP 规则决定；exec 的 DNS 服务不受影响
   - 验证（开发容器）：Python 已连接的 UDP socket：`refuse` 得到 `ECONNREFUSED`，`unreachable=admin` 得到 `EHOSTUNREACH`（IPv6 是 `EACCES`），`timeout for 1 request; refuse` 先超时再拒绝，没有规则的端口超时，IPv6 的 refuse，exec 里按域名的规则；统计按数据报计数。**发现**：普通的 `unreachable`（主机不可达）Linux 不报告给没有 `IP_RECVERR` 的 UDP socket，程序只看到超时，README 写明了
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/39913858988) 在 Ubuntu 24.04 和 26.04 上全部通过，9 项 UDP 检查在 4 个任务里都跑了；[v0.13.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.13.0)，下载的 arm64 二进制在开发容器里 refuse 得到 `ECONNREFUSED`，`unreachable=admin` 得到 `EHOSTUNREACH`
-- [x] **4. v0.14：冻结前的整理**（2026-10-23，已发布）。维护者决定：DNS 事件的 `src`、`dst` 留空，`id` 放查询的 DNS ID；`pingmock exec` 自己失败时退出码改为 125（和 docker run、env、timeout 一样），126、127 不变；其余不一致保持现状，写进兼容性承诺：各协议的结果用词（`reply`、`syn-ack`、`answer`）和统计字段（`replied`、`accepted`、`answered`）、规则标签（ping 是网段或 `default`，其他带协议前缀）、统计键的格式、阶段单位宽松接受、`reply` 布尔字段、路径一跳的回应 `phase` 为 0、配置文件的未知键报错
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/39913858988) 在 Ubuntu 24.04 和 26.04 上全部通过，9 项 UDP 检查在 4 个任务里都跑了；[v0.13.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.13.0)，下载的 arm64 二进制在开发容器里 refuse 得到 `ECONNREFUSED`，`unreachable=admin` 得到 `EHOSTUNREACH`
+- [x] **4. v0.14：冻结前的整理**（2026-10-23，已发布）。维护者决定：DNS 事件的 `src`、`dst` 留空，`id` 放查询的 DNS ID；`ghostwire exec` 自己失败时退出码改为 125（和 docker run、env、timeout 一样），126、127 不变；其余不一致保持现状，写进兼容性承诺：各协议的结果用词（`reply`、`syn-ack`、`answer`）和统计字段（`replied`、`accepted`、`answered`）、规则标签（ping 是网段或 `default`，其他带协议前缀）、统计键的格式、阶段单位宽松接受、`reply` 布尔字段、路径一跳的回应 `phase` 为 0、配置文件的未知键报错
   - 修正：`GET /rules` 里路径的 `>` 被转义成 `\u003e`（`Path.MarshalJSON` 用了会转义 HTML 的 `json.Marshal`），测试在去掉修正时失败
   - Go 自带的 fuzz：`FuzzParseScenario`（ping、TCP、UDP、DNS 四种规则，解析成功的必须原样往返）、`FuzzParsePathAndTargets`、`FuzzParseProbe`（报文解析和据此构造的所有回应）、`FuzzAnswer`（DNS 服务），各跑 2 分钟，没有发现问题
   - musl（Alpine 3.20，下载的 v0.13.0 二进制）：按（域名, 类型）计数成立，`nxdomain for 2 requests` 让两次解析失败、第三次解析出地址，和 glibc 一样；**但 musl 收到 SERVFAIL 会立即重问**，一次解析每种类型问了 6 次，所以 `servfail for 2 requests` 在 musl 下一次都不失败。README 写明了
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/39917348427) 在 Ubuntu 24.04 和 26.04 上全部通过，退出码 125 和 DNS 事件字段的检查在 4 个任务里都跑了；[v0.14.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.14.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在开发容器里：规则写错时退出码是 125，命令自己的退出码 3 原样返回，DNS 事件的 `src`、`dst` 为空，`id` 是 DNS ID
-- [x] **6. `exec` 访问外网**（2026-10-23，已发布）。维护者选定 `-outside` 显式开启、可重复的 `-outside-port PORT[/udp]`（隐含 `-outside`）、YAML `outside: {ports: [...]}` 或 `outside: true`、`GET /rules` 的 `outside` 字段和客户端的 `State.Outside`；找不到 pasta 时退出码 125；root 运行时接受把所有 uid/gid 映射成自身的用户命名空间。依据：planning agent 的选型（pasta、slirp4netns、gvisor-tap-vsock、veth+NAT、pingmock 内的中继，15 个实验；报告不在仓库里），关键结论人工重跑过：Ubuntu 24.04 容器里普通用户，挂上 pasta 后 100ms 的规则测得 100.4–101.4ms、github 返回 200，`-T 5432` 后宿主机 127.0.0.1:5432 返回 200，不挂 pasta 时域名解析不了、宿主机端口连不上。实现：父进程在子进程启动后、建网卡之前接上 pasta（子进程在管道上等），参数 `-t none -u none -T 端口 -U 端口 --no-map-gw -a 10.0.2.15 -n 24 -g 10.0.2.2 --ipv4-only`，root 时加 `--runas 0`；有外网时总是启动命令自己的 DNS 服务；用 `-P` 的 pid 文件在命令退出后停掉 pasta（Debian 12 的 pasta 在命名空间消失后不退出，实测）
-  - 验证（开发容器装上 passt、关掉 seccomp，普通用户和 root 各一遍）：`-outside-port` 访问宿主机端口返回 200、不加时 000，模拟的目标 100.4/100.7ms，子网里没有规则的端口不回应，`GET /rules` 列出端口，命令退出后 1.5 秒内 pasta 已停，没有 pasta 时退出码 125。变异：`-T` 总是 none 时访问宿主机端口的检查失败；去掉 `-t none -u none` 时，Ubuntu 24.04 的 pasta 把 API 暴露在宿主机 9100 端口（检查失败），Debian 12 的 pasta 不会。**发现**：容器里 Docker 默认的 seccomp 配置挡住 pasta 沙箱用的 `pivot_root`，开发容器里这些检查跳过，由 CI 的 test 任务运行。没有验证：真实 runner 上的 AppArmor、amd64、root 下全映射用户命名空间对程序的影响、杀掉 pingmock exec 父进程后旧版 pasta 是否残留。CI 的 Ubuntu 上 pasta 自己会退出，所以「pasta 随命令停止」在那里抓不到 pingmock 停 pasta 的逻辑坏掉，只有 Debian 12 的 pasta 能抓到（本地实测过）
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/39917348427) 在 Ubuntu 24.04 和 26.04 上全部通过，退出码 125 和 DNS 事件字段的检查在 4 个任务里都跑了；[v0.14.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.14.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在开发容器里：规则写错时退出码是 125，命令自己的退出码 3 原样返回，DNS 事件的 `src`、`dst` 为空，`id` 是 DNS ID
+- [x] **6. `exec` 访问外网**（2026-10-23，已发布）。维护者选定 `-outside` 显式开启、可重复的 `-outside-port PORT[/udp]`（隐含 `-outside`）、YAML `outside: {ports: [...]}` 或 `outside: true`、`GET /rules` 的 `outside` 字段和客户端的 `State.Outside`；找不到 pasta 时退出码 125；root 运行时接受把所有 uid/gid 映射成自身的用户命名空间。依据：planning agent 的选型（pasta、slirp4netns、gvisor-tap-vsock、veth+NAT、ghostwire 内的中继，15 个实验；报告不在仓库里），关键结论人工重跑过：Ubuntu 24.04 容器里普通用户，挂上 pasta 后 100ms 的规则测得 100.4–101.4ms、github 返回 200，`-T 5432` 后宿主机 127.0.0.1:5432 返回 200，不挂 pasta 时域名解析不了、宿主机端口连不上。实现：父进程在子进程启动后、建网卡之前接上 pasta（子进程在管道上等），参数 `-t none -u none -T 端口 -U 端口 --no-map-gw -a 10.0.2.15 -n 24 -g 10.0.2.2 --ipv4-only`，root 时加 `--runas 0`；有外网时总是启动命令自己的 DNS 服务；用 `-P` 的 pid 文件在命令退出后停掉 pasta（Debian 12 的 pasta 在命名空间消失后不退出，实测）
+  - 验证（开发容器装上 passt、关掉 seccomp，普通用户和 root 各一遍）：`-outside-port` 访问宿主机端口返回 200、不加时 000，模拟的目标 100.4/100.7ms，子网里没有规则的端口不回应，`GET /rules` 列出端口，命令退出后 1.5 秒内 pasta 已停，没有 pasta 时退出码 125。变异：`-T` 总是 none 时访问宿主机端口的检查失败；去掉 `-t none -u none` 时，Ubuntu 24.04 的 pasta 把 API 暴露在宿主机 9100 端口（检查失败），Debian 12 的 pasta 不会。**发现**：容器里 Docker 默认的 seccomp 配置挡住 pasta 沙箱用的 `pivot_root`，开发容器里这些检查跳过，由 CI 的 test 任务运行。没有验证：真实 runner 上的 AppArmor、amd64、root 下全映射用户命名空间对程序的影响、杀掉 ghostwire exec 父进程后旧版 pasta 是否残留。CI 的 Ubuntu 上 pasta 自己会退出，所以「pasta 随命令停止」在那里抓不到 ghostwire 停 pasta 的逻辑坏掉，只有 Debian 12 的 pasta 能抓到（本地实测过）
   - 复查（advisor）：`-outside-port 53/udp`、`53`、`9100` 和命令自己的 DNS 服务、API 冲突，实测都以 125 失败、没有说明原因，改为解析参数时就拒绝并说明（单元测试加变异检查）；默认开着 IPv6 时也试过：curl 和 Python urllib 访问 github 返回 200（域名有 IPv6 地址），`ping -6` 模拟的 fd99::1 得到 60.2ms；CI 加 `REQUIRE_OUTSIDE=1`，没装上 pasta 时检查失败而不是跳过
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/39949897275) 全部通过：Ubuntu 24.04 和 26.04 的 test 任务里，-outside 的检查在免 root 和 root 下都跑了、都通过，真实 runner 上 Ubuntu 给 pasta 的 AppArmor 配置没有挡住它；GitHub 的 runner 本来就装了 pasta（24.04 是 0.0~git20240220，26.04 是 0.0~git20260120）。同 seed 结果与 v0.14.0 发布版一致。[v0.15.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 26.04 容器里以普通用户运行：`-outside-port 5432` 访问宿主机端口返回 200，github 返回 200，模拟的目标 100.7ms；没有 pasta 时退出码 125
-- [x] **7. 路由跟着规则走**（2026-10-25，已发布）。第八轮调研（planning agent，报告不在仓库里）发现：通过 API 删除规则或 `POST /reset` 之后，pingmock 不撤掉为它加的路由，目标仍被接管，只是没有规则回应；有 `-outside` 时真实地址从此连不上。人工复现：`exec -outside` 里 1.1.1.1 本来 301，`refuse` 后 curl 退出码 7，删掉规则（204）后退出码 28、`1.1.1.1 dev pingmock0` 还在。维护者决定：路由跟着规则走，没有 `-outside` 时删掉规则的真实地址回到「Network is unreachable」，和启动时一样；`GET /rules` 新增 `routes`，客户端 `State.Routes`。实现：`RuleSet.Routed` 列出规则需要的前缀（ping、TCP、UDP 规则，路径的目标和每一跳），`Router.Sync` 在删除、替换路径和重置之后补上需要的、撤掉不再需要的，只撤自己加的，两个目标共用的半个网段在还有目标需要时保留；API 的修改加锁，删除不会撤掉另一个请求正要用的路由
-  - 验证（开发容器）：单元测试（共用半个网段、未掩码的前缀、API 的增删、替换路径、重置）；e2e：删掉宿主机所在网络的规则后 pingmock 的两半路由没了、宿主机的路由还在，重置后两半回来，API 加的真实地址删掉后路由没了；exec：没有 `-outside` 时删掉 8.8.8.8 的规则后 ping 报 Network is unreachable，有 `-outside` 时删掉规则后 1.1.1.1 的路由从 pingmock0 回到 pasta 的网卡（普通用户和 root 都跑过）。变异：路由同步改成什么都不做（v0.15.0 的行为），e2e 和 exec 的检查都失败；单个删除不同步、共用路由不保留，单元测试都失败。Python 客户端按维护者的决定仍放在最低优先级
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/40162594829) 全部通过，Ubuntu 24.04 和 26.04 上 7 项路由检查都跑了（e2e 3 项，exec 免 root 和 root 各 2 项，包括经 Ubuntu 自带 pasta 的那项）。同 seed 结果与 v0.15.0 发布版一致。[v0.15.1 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.15.1)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 26.04 容器里 `exec -outside`：1.1.1.1 本来 301，`refuse` 后被拒且 `routes` 列出 1.1.1.1/32，删掉规则后又是 301、路由回到 pasta 的网卡
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/39949897275) 全部通过：Ubuntu 24.04 和 26.04 的 test 任务里，-outside 的检查在免 root 和 root 下都跑了、都通过，真实 runner 上 Ubuntu 给 pasta 的 AppArmor 配置没有挡住它；GitHub 的 runner 本来就装了 pasta（24.04 是 0.0~git20240220，26.04 是 0.0~git20260120）。同 seed 结果与 v0.14.0 发布版一致。[v0.15.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.15.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 26.04 容器里以普通用户运行：`-outside-port 5432` 访问宿主机端口返回 200，github 返回 200，模拟的目标 100.7ms；没有 pasta 时退出码 125
+- [x] **7. 路由跟着规则走**（2026-10-25，已发布）。第八轮调研（planning agent，报告不在仓库里）发现：通过 API 删除规则或 `POST /reset` 之后，ghostwire 不撤掉为它加的路由，目标仍被接管，只是没有规则回应；有 `-outside` 时真实地址从此连不上。人工复现：`exec -outside` 里 1.1.1.1 本来 301，`refuse` 后 curl 退出码 7，删掉规则（204）后退出码 28、`1.1.1.1 dev ghostwire0` 还在。维护者决定：路由跟着规则走，没有 `-outside` 时删掉规则的真实地址回到「Network is unreachable」，和启动时一样；`GET /rules` 新增 `routes`，客户端 `State.Routes`。实现：`RuleSet.Routed` 列出规则需要的前缀（ping、TCP、UDP 规则，路径的目标和每一跳），`Router.Sync` 在删除、替换路径和重置之后补上需要的、撤掉不再需要的，只撤自己加的，两个目标共用的半个网段在还有目标需要时保留；API 的修改加锁，删除不会撤掉另一个请求正要用的路由
+  - 验证（开发容器）：单元测试（共用半个网段、未掩码的前缀、API 的增删、替换路径、重置）；e2e：删掉宿主机所在网络的规则后 ghostwire 的两半路由没了、宿主机的路由还在，重置后两半回来，API 加的真实地址删掉后路由没了；exec：没有 `-outside` 时删掉 8.8.8.8 的规则后 ping 报 Network is unreachable，有 `-outside` 时删掉规则后 1.1.1.1 的路由从 ghostwire0 回到 pasta 的网卡（普通用户和 root 都跑过）。变异：路由同步改成什么都不做（v0.15.0 的行为），e2e 和 exec 的检查都失败；单个删除不同步、共用路由不保留，单元测试都失败。Python 客户端按维护者的决定仍放在最低优先级
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/40162594829) 全部通过，Ubuntu 24.04 和 26.04 上 7 项路由检查都跑了（e2e 3 项，exec 免 root 和 root 各 2 项，包括经 Ubuntu 自带 pasta 的那项）。同 seed 结果与 v0.15.0 发布版一致。[v0.15.1 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.15.1)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 26.04 容器里 `exec -outside`：1.1.1.1 本来 301，`refuse` 后被拒且 `routes` 列出 1.1.1.1/32，删掉规则后又是 301、路由回到 pasta 的网卡
 - [x] **8. 没有规则的连接记进历史**（2026-10-25，已发布）。调研（planning agent，报告不在仓库里，关键代码人工核对过）：没有路径的目标、端口上没有 TCP/UDP 规则时，引擎判为 `none`，responder 在记录之前就返回（`engine/path.go`、`responder/responder.go`），没有事件、没有统计、`-v` 也没有日志；人工复现：连 10.99.0.7:5432 后历史为空。先例：WireMock 的 `/__admin/requests/unmatched`，MockServer 的校验统计所有请求。没有用户提过。维护者决定：现在就做，结果用词 `ignored`，只记事件、不加统计，重传的 SYN 标 `repeat`；空历史的 `"events": null` 改成 `[]`。实现：`rule.Ignored`；引擎的 `ignored` 只为 TCP 记一张有界的重传表，和有规则的端口共用清理，不碰目标的状态和随机序列
   - 验证：单元测试（TCP、UDP、重传、seed 不变、API 里的空列表）；e2e：连没有规则的端口和发往没有规则的 UDP 端口后，历史里各有一条 `ignored`。变异：不记录时事件测试失败，让 ignored 推进目标状态时 seed 测试失败，恢复 `null` 时空列表测试失败。顺带发现但不改：设了路径的目标，它的 TCP/UDP 探测也计进 ping 的请求数并推进场景，要改会改变 seed 序列
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/40167554637) 全部通过，Ubuntu 24.04 和 26.04 上两项 `ignored` 检查都跑了。同 seed 结果与 v0.15.1 发布版一致。[v0.16.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.16.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 26.04 容器里：连 10.99.0.1:5432 记下 `ignored`、端口 5432，重发的 SYN 带 `repeat`，有规则的 80 端口照常 `refused`。顺带看到：容器里没装 iproute2 时 pingmock 起不来（`exec: "ip": executable file not found`），这是 netlink 那一项的理由之一
-- [ ] **9. 按网卡或源地址区分的规则**：**暂缓**（维护者，2026-10-25）：「多网卡支持先不做，有点复杂了」。调研（planning agent，报告不在仓库里，关键实验人工核对过）：经 tc 重定向进来的探测不带网卡，但带源地址，所以只能按源地址区分；`ping -I wan1`、`-I wan2` 今天记在同一个目标下；root 模式下 pingmock 自己装 tc 重定向不可取，`kill -9` 后留在真实网卡上的过滤器会吞掉那条线路的真实流量。当时倾向的写法 `from SRC TARGET`、源地址优先、分两步、exec 选项 `-wan`，没有定稿
-- [x] **10. 用 netlink 替代 `ip` 命令**（2026-10-25，已发布）。维护者在剩下的技术项里选了它：服务所有用户，不碰 seed，也没有要用户写的新语法。调研（planning agent，报告不在仓库里，关键实验人工核对过）：pingmock 运行时只调用 `ip`（加地址、启用网卡、IPv6 地址加 nodad、`exec` 里启用 lo、`route replace`、`route del`、为「不替换宿主机路由」解析 `ip route show exact` 的文本），没有 `tc`、`sysctl`；标准库的 `syscall` 就够用，不需要 `golang.org/x/sys`。实验里发现的坑：删除路由必须带 `RT_SCOPE_NOWHERE`，否则内核返回 ESRCH、路由留着；`NLM_F_EXCL` 不能代替先查路由，宿主机有 metric 100 的同一网段路由时照样加得进去，所以 `planRoutes` 和查询都保留。发布 v0.16.0 时顺带看到：没装 iproute2 的 Ubuntu 26.04 容器里 pingmock 起不来
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/40167554637) 全部通过，Ubuntu 24.04 和 26.04 上两项 `ignored` 检查都跑了。同 seed 结果与 v0.15.1 发布版一致。[v0.16.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.16.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 26.04 容器里：连 10.99.0.1:5432 记下 `ignored`、端口 5432，重发的 SYN 带 `repeat`，有规则的 80 端口照常 `refused`。顺带看到：容器里没装 iproute2 时 ghostwire 起不来（`exec: "ip": executable file not found`），这是 netlink 那一项的理由之一
+- [ ] **9. 按网卡或源地址区分的规则**：**暂缓**（维护者，2026-10-25）：「多网卡支持先不做，有点复杂了」。调研（planning agent，报告不在仓库里，关键实验人工核对过）：经 tc 重定向进来的探测不带网卡，但带源地址，所以只能按源地址区分；`ping -I wan1`、`-I wan2` 今天记在同一个目标下；root 模式下 ghostwire 自己装 tc 重定向不可取，`kill -9` 后留在真实网卡上的过滤器会吞掉那条线路的真实流量。当时倾向的写法 `from SRC TARGET`、源地址优先、分两步、exec 选项 `-wan`，没有定稿
+- [x] **10. 用 netlink 替代 `ip` 命令**（2026-10-25，已发布）。维护者在剩下的技术项里选了它：服务所有用户，不碰 seed，也没有要用户写的新语法。调研（planning agent，报告不在仓库里，关键实验人工核对过）：ghostwire 运行时只调用 `ip`（加地址、启用网卡、IPv6 地址加 nodad、`exec` 里启用 lo、`route replace`、`route del`、为「不替换宿主机路由」解析 `ip route show exact` 的文本），没有 `tc`、`sysctl`；标准库的 `syscall` 就够用，不需要 `golang.org/x/sys`。实验里发现的坑：删除路由必须带 `RT_SCOPE_NOWHERE`，否则内核返回 ESRCH、路由留着；`NLM_F_EXCL` 不能代替先查路由，宿主机有 metric 100 的同一网段路由时照样加得进去，所以 `planRoutes` 和查询都保留。发布 v0.16.0 时顺带看到：没装 iproute2 的 Ubuntu 26.04 容器里 ghostwire 起不来
   - 实现：`internal/tun/netlink_linux.go`：`LinkUp`、`AddAddr`、`replaceRoute`、`deleteRoute`、`mainRoutes`（列出路由表，按地址族、前缀长度、目的地址、main 表挑出，跳过缓存的路由，多下一跳的路由列出每个网卡）；错误用 `%w` 包装，`explain` 只按 EPERM 判断，不再匹配 `ip` 的英文输出；Docker 镜像去掉 iproute2。开发容器和 CI 仍装 iproute2，因为测试脚本自己要用
-  - 验证（开发容器）：单元测试（路由表解析：宿主机路由、pingmock 自己的、半个网段、其他表、unreachable、多下一跳、缓存的路由、IPv6；消息编码；`explain` 对包装的 EPERM）；e2e 每次都以 `PATH=/nonexistent` 启动 pingmock，91 项全过；exec 加一项空 PATH 的检查，免 root 和 root 共 103 项全过；`ip monitor` 看到的地址和路由与原来的 `ip` 命令一致。变异：v0.16.0 发布版在空 PATH 下以 125 退出；`explain` 改回字符串匹配、不跳过缓存的路由、删除时 scope 用 0，各自让单元测试或 e2e 失败。同 seed 结果与 v0.16.0 发布版一致
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/40175714985) 全部通过：Ubuntu 24.04 和 26.04 上 e2e 都以空 PATH 启动 pingmock，exec 的空 PATH 检查在免 root 和 root 下都跑了（30.2ms，规则 30ms）；不装 iproute2 的 Docker 镜像 6 项检查全过。[v0.17.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.17.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在没有 `ip` 的 Ubuntu 26.04 容器里：网卡启用，8.8.8.8 的路由加上，10.99.0.1:80 和 8.8.8.8:53 的连接被拒，删掉规则后路由撤掉；发布的镜像里没有 iproute2 包
+  - 验证（开发容器）：单元测试（路由表解析：宿主机路由、ghostwire 自己的、半个网段、其他表、unreachable、多下一跳、缓存的路由、IPv6；消息编码；`explain` 对包装的 EPERM）；e2e 每次都以 `PATH=/nonexistent` 启动 ghostwire，91 项全过；exec 加一项空 PATH 的检查，免 root 和 root 共 103 项全过；`ip monitor` 看到的地址和路由与原来的 `ip` 命令一致。变异：v0.16.0 发布版在空 PATH 下以 125 退出；`explain` 改回字符串匹配、不跳过缓存的路由、删除时 scope 用 0，各自让单元测试或 e2e 失败。同 seed 结果与 v0.16.0 发布版一致
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/40175714985) 全部通过：Ubuntu 24.04 和 26.04 上 e2e 都以空 PATH 启动 ghostwire，exec 的空 PATH 检查在免 root 和 root 下都跑了（30.2ms，规则 30ms）；不装 iproute2 的 Docker 镜像 6 项检查全过。[v0.17.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.17.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在没有 `ip` 的 Ubuntu 26.04 容器里：网卡启用，8.8.8.8 的路由加上，10.99.0.1:80 和 8.8.8.8:53 的连接被拒，删掉规则后路由撤掉；发布的镜像里没有 iproute2 包
 - [x] **11. 路径的中间跳和 ping 分开**（2026-10-25，已发布）。第八轮顺带发现：设了路径的目标，发给各跳的探测和 ping 共用一条随机序列，也计进 `requests`，测试中途跑一次 traceroute 就会改变之后 ping 的随机结果和统计。细读后更正：最后一跳用目标的规则、计进场景，是 README 写明的行为（mtr 的 ICMP 模式下也和 ping 分不开），不改。维护者决定：中间跳单独一条随机序列（seed 加 `hops` 和地址派生），回应了才计进 `hops`，不计进 `requests`；在某一跳丢掉的探测只在历史里。改变了设了路径、且中间跳有 `loss`、`jitter` 或 `cut` 的目标的 seed 序列，没有路径的目标不变
   - 验证：单元测试（中途插入 traceroute 时 12 个 ping 的结果、延迟、阶段和请求数都和不插入时一样；路径统计改为 4 个请求、3 个 hops）。变异：中间跳改回用目标的随机序列、中间跳又计进 `requests`，各自让测试失败。`make e2e-all` 全过；没有路径的 seed 结果与 v0.17.0 发布版一致
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/40182606079) 全部通过（两个 Ubuntu 版本上 10 项）。[v0.18.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.18.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 24.04 容器里，seed 7、8.8.8.8 丢包 30%、三跳路径（第二跳 `cut=10%`）：先 ping 3 次，再 `traceroute -m 3`，再 ping 20 次，v0.18.0 回应的序号和不跑 traceroute 时完全一样，v0.17.0 不一样；不跑 traceroute 时两个版本一样。同时看到：完整的 traceroute 会到达目标，最后几个探测算目标的请求（维护者定的行为），之后的 ping 仍会变；README 和路线图里「测试中途跑 traceroute 不改变 ping」说过头了，已改成只说中间跳，并提示 `traceroute -m`。发布说明里同样说过头（标题和「不管有没有人追踪路由，ping 结果都一样」），tag 已公开，没有重打。另外：目标第一次收到 ping 时会重置随机序列，所以在第一个 ping 之前的 traceroute 本来就不影响 ping
-- [x] **12. 容器里没有权限的 root 也能用 `pingmock exec`**（2026-10-26，已发布）。起因：维护者问「用户可能没有 root 权限」时实测（v0.18.0 发布版，Ubuntu 24.04 容器）：普通用户在 `seccomp=unconfined` 加 `--device /dev/net/tun` 的容器里能用，同一个容器里 root 反而失败（`cannot create a network namespace: operation not permitted`），因为容器里的 root 没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`（`CapEff` 00000000a80425fb），`unshare -n` 被拒、`unshare -U -r -n` 成功；Docker 默认的 seccomp 配置下两者都失败。维护者否掉了「失败了再退回去」，选定：启动前按 `CapEff` 选路（有两项权限只建网络命名空间，否则和普通用户一样建用户命名空间），报错说清楚缺什么（两项权限、seccomp、`--device /dev/net/tun`）
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/40182606079) 全部通过（两个 Ubuntu 版本上 10 项）。[v0.18.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.18.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 24.04 容器里，seed 7、8.8.8.8 丢包 30%、三跳路径（第二跳 `cut=10%`）：先 ping 3 次，再 `traceroute -m 3`，再 ping 20 次，v0.18.0 回应的序号和不跑 traceroute 时完全一样，v0.17.0 不一样；不跑 traceroute 时两个版本一样。同时看到：完整的 traceroute 会到达目标，最后几个探测算目标的请求（维护者定的行为），之后的 ping 仍会变；README 和路线图里「测试中途跑 traceroute 不改变 ping」说过头了，已改成只说中间跳，并提示 `traceroute -m`。发布说明里同样说过头（标题和「不管有没有人追踪路由，ping 结果都一样」），tag 已公开，没有重打。另外：目标第一次收到 ping 时会重置随机序列，所以在第一个 ping 之前的 traceroute 本来就不影响 ping
+- [x] **12. 容器里没有权限的 root 也能用 `ghostwire exec`**（2026-10-26，已发布）。起因：维护者问「用户可能没有 root 权限」时实测（v0.18.0 发布版，Ubuntu 24.04 容器）：普通用户在 `seccomp=unconfined` 加 `--device /dev/net/tun` 的容器里能用，同一个容器里 root 反而失败（`cannot create a network namespace: operation not permitted`），因为容器里的 root 没有 `CAP_SYS_ADMIN` 和 `CAP_NET_ADMIN`（`CapEff` 00000000a80425fb），`unshare -n` 被拒、`unshare -U -r -n` 成功；Docker 默认的 seccomp 配置下两者都失败。维护者否掉了「失败了再退回去」，选定：启动前按 `CapEff` 选路（有两项权限只建网络命名空间，否则和普通用户一样建用户命名空间），报错说清楚缺什么（两项权限、seccomp、`--device /dev/net/tun`）
   - 验证：单元测试（`CapEff` 解析：宿主机的 root、容器里的 root、只加一项、两项都加、普通用户；各情况下的建议）；开发容器里 `make test`、`make lint`、`make e2e-exec` 全过（103 项）；`make e2e-docker` 新增 5 项，本机手工跑过：没有权限的 root 41.6ms（规则 40ms），加上两项权限 41.5ms，默认 seccomp 下退出码 125 并提示 `--cap-add`，缺 TUN 设备时提示 `--device`；没有权限的 root 加 `-outside` 也能 ping 到模拟目标、访问 github。变异：按 root 身份选路时容器检查失败（得到 v0.18.0 的报错），只查 `CAP_SYS_ADMIN` 时单元测试失败。Ubuntu 宿主机上 Docker 自己的 AppArmor 配置没有另外拦截（见下面的 CI）
-  - [x] [CI](https://github.com/nanmuyao-tools/pingmock/actions/runs/40278097194) 全部通过（两个 Ubuntu 版本上 10 项），docker 任务里新增的 5 项在 24.04 和 26.04 上都跑了、都通过：没有权限的 root 40.3ms 和 40.4ms，加上两项权限 40.4ms 和 40.3ms，默认 seccomp 下退出码 125 并提示两项权限，缺 TUN 设备时提示 `--device`
-  - [x] [v0.19.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.19.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 24.04 容器里（`seccomp=unconfined`、`--device /dev/net/tun`、不加权限）：root 和普通用户 ping 模拟的 www.google.com 都得到 50ms 的规则（52.0ms、50.9ms）；默认 seccomp 下 root 的报错提示 `--cap-add SYS_ADMIN --cap-add NET_ADMIN`
+  - [x] [CI](https://github.com/nanmuyao-tools/ghostwire/actions/runs/40278097194) 全部通过（两个 Ubuntu 版本上 10 项），docker 任务里新增的 5 项在 24.04 和 26.04 上都跑了、都通过：没有权限的 root 40.3ms 和 40.4ms，加上两项权限 40.4ms 和 40.3ms，默认 seccomp 下退出码 125 并提示两项权限，缺 TUN 设备时提示 `--device`
+  - [x] [v0.19.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.19.0)，下载的 arm64 二进制（SHA256SUMS 校验通过）在 Ubuntu 24.04 容器里（`seccomp=unconfined`、`--device /dev/net/tun`、不加权限）：root 和普通用户 ping 模拟的 www.google.com 都得到 50ms 的规则（52.0ms、50.9ms）；默认 seccomp 下 root 的报错提示 `--cap-add SYS_ADMIN --cap-add NET_ADMIN`
   - 没有解决：Docker 默认 seccomp 下仍然用不了，要靠在系统调用层拦截之类的别的路线。2026-10-26 调研过（见第 13 项）：机制可用，成本很高，等用户证据
-- [x] **13. 其他系统：WireGuard 网关**（2026-10-26，只改文档）。维护者问能不能让 ping 不用 root、在 Linux 以外也能被模拟，又问能不能把 pingmock 当代理（HTTP、SOCKS 代理带不了 ICMP），于是调研网关/VPN 和系统调用拦截两条路（planning agent，报告不在仓库里）。维护者按推荐决定：现在只写文档，网关不做 NAT、只让模拟的地址走隧道；一跳的偏移只写进文档，不做补偿；内置用户态 WireGuard 和系统调用拦截都等用户证据
-  - 需求：pingmock 0 个 issue；Toxiproxy 600 条、pro-bing 233 条 issue/PR 和 GitHub 搜索里，没人要在 macOS、Windows、手机上按目标模拟 ping，也没人要在无权限的 CI 容器里模拟。移动端已有整机的工具（Network Link Conditioner），不按目标、没有 seed
-  - 网关（实测，Docker Desktop 的 arm64 虚拟机，两端都是 Linux 容器，v0.19.0 发布版不改代码）：设备经 WireGuard 发来的 ping 50ms 的规则测得 51.0–53.6ms，`unreachable` 的 8.8.8.8 得到主机不可达，80 端口 `refuse` 得到 `ECONNREFUSED`，历史的 `src` 是设备的隧道地址 10.13.13.2；traceroute 的 UDP 和 ICMP 模式都先显示网关 10.13.13.1，再是路径的各跳和目标（往后挪一跳），回应的 TTL 是 63。网关把 FORWARD 设为 DROP 时 ping 全丢，放行 wg0 和 pingmock0 之间的转发后恢复。agent 另外测到：中间跳的地址不在设备的 AllowedIPs 里时显示 `*`；网关做 NAT 时连接跟踪丢掉并行的 ICMP 探测（`traceroute -I` 6 次全错，加 `notrack` 后 6 次全对，不做 NAT 时 4 次全对，我重跑的不做 NAT 的那次也对）
+- [x] **13. 其他系统：WireGuard 网关**（2026-10-26，只改文档）。维护者问能不能让 ping 不用 root、在 Linux 以外也能被模拟，又问能不能把 ghostwire 当代理（HTTP、SOCKS 代理带不了 ICMP），于是调研网关/VPN 和系统调用拦截两条路（planning agent，报告不在仓库里）。维护者按推荐决定：现在只写文档，网关不做 NAT、只让模拟的地址走隧道；一跳的偏移只写进文档，不做补偿；内置用户态 WireGuard 和系统调用拦截都等用户证据
+  - 需求：ghostwire 0 个 issue；Toxiproxy 600 条、pro-bing 233 条 issue/PR 和 GitHub 搜索里，没人要在 macOS、Windows、手机上按目标模拟 ping，也没人要在无权限的 CI 容器里模拟。移动端已有整机的工具（Network Link Conditioner），不按目标、没有 seed
+  - 网关（实测，Docker Desktop 的 arm64 虚拟机，两端都是 Linux 容器，v0.19.0 发布版不改代码）：设备经 WireGuard 发来的 ping 50ms 的规则测得 51.0–53.6ms，`unreachable` 的 8.8.8.8 得到主机不可达，80 端口 `refuse` 得到 `ECONNREFUSED`，历史的 `src` 是设备的隧道地址 10.13.13.2；traceroute 的 UDP 和 ICMP 模式都先显示网关 10.13.13.1，再是路径的各跳和目标（往后挪一跳），回应的 TTL 是 63。网关把 FORWARD 设为 DROP 时 ping 全丢，放行 wg0 和 ghostwire0 之间的转发后恢复。agent 另外测到：中间跳的地址不在设备的 AllowedIPs 里时显示 `*`；网关做 NAT 时连接跟踪丢掉并行的 ICMP 探测（`traceroute -I` 6 次全错，加 `notrack` 后 6 次全对，不做 NAT 时 4 次全对，我重跑的不做 NAT 的那次也对）
   - 没有测：真实的 macOS、iOS、Android、Windows 客户端，手机经 Wi-Fi 连 Docker Desktop 发布的 51820/udp，amd64 和真实的 Linux 宿主机
-  - 等用户要了再做：pingmock 内置用户态 WireGuard（wireguard-go 原型在没有任何权限、Docker 默认 seccomp 的容器里回答了 ping，50ms 测得 50.4–58.3ms；接 `Responder.Serve(io.ReadWriter)`；代价是 wireguard-go、x/crypto、x/net、x/sys 四个依赖，二进制多约 0.46MB，`go` 要升到 1.23.1，wireguard-go 的 tag 没有 `v` 前缀只能用伪版本；入口、客户端配置的生成、网关下的 DNS、多台设备的随机序列都要先和维护者定）。系统调用拦截（Docker 默认 seccomp 下 ptrace、seccomp 用户通知、`ADDFD`、`process_vm_readv` 可用，`unshare`、`pidfd_getfd`、io_uring 被拒；seccomp 用户通知必须设 no_new_privs，于是 setcap 的 ping 拿不到 `CAP_NET_RAW`；每次拦截约 51µs；要在用户态模拟大半个套接字层，端到端的 ping 原型没做完）
-  - [x] [v0.20.0 已发布](https://github.com/nanmuyao-tools/pingmock/releases/tag/v0.20.0)，同时仓库从 nanmuyao 搬到 nanmuyao-tools 组织（维护者，2026-10-27）：模块路径、import、链接和镜像名都改成 `nanmuyao-tools`；v0.19.0 的镜像由维护者重跑发版的 image 任务推到新地址。验证：SHA256SUMS 校验通过，arm64 二进制在 Ubuntu 24.04 容器里输出 `pingmock v0.20.0`；`golang:1.25` 容器里 `go install github.com/nanmuyao-tools/pingmock@latest` 装出 v0.20.0；不登录拉 `ghcr.io/nanmuyao-tools/pingmock:v0.20.0` 输出 `pingmock v0.20.0`；两个 Go 示例 `go mod tidy` 从 proxy 取到 v0.20.0。旧路径的 v0.19.0 及更早版本仍可用旧模块名安装
+  - 等用户要了再做：ghostwire 内置用户态 WireGuard（wireguard-go 原型在没有任何权限、Docker 默认 seccomp 的容器里回答了 ping，50ms 测得 50.4–58.3ms；接 `Responder.Serve(io.ReadWriter)`；代价是 wireguard-go、x/crypto、x/net、x/sys 四个依赖，二进制多约 0.46MB，`go` 要升到 1.23.1，wireguard-go 的 tag 没有 `v` 前缀只能用伪版本；入口、客户端配置的生成、网关下的 DNS、多台设备的随机序列都要先和维护者定）。系统调用拦截（Docker 默认 seccomp 下 ptrace、seccomp 用户通知、`ADDFD`、`process_vm_readv` 可用，`unshare`、`pidfd_getfd`、io_uring 被拒；seccomp 用户通知必须设 no_new_privs，于是 setcap 的 ping 拿不到 `CAP_NET_RAW`；每次拦截约 51µs；要在用户态模拟大半个套接字层，端到端的 ping 原型没做完）
+  - [x] [v0.20.0 已发布](https://github.com/nanmuyao-tools/ghostwire/releases/tag/v0.20.0)，同时仓库从 nanmuyao 搬到 nanmuyao-tools 组织（维护者，2026-10-27）：模块路径、import、链接和镜像名都改成 `nanmuyao-tools`；v0.19.0 的镜像由维护者重跑发版的 image 任务推到新地址。验证：SHA256SUMS 校验通过，arm64 二进制在 Ubuntu 24.04 容器里输出 `ghostwire v0.20.0`；`golang:1.25` 容器里 `go install github.com/nanmuyao-tools/ghostwire@latest` 装出 v0.20.0；不登录拉 `ghcr.io/nanmuyao-tools/ghostwire:v0.20.0` 输出 `ghostwire v0.20.0`；两个 Go 示例 `go mod tidy` 从 proxy 取到 v0.20.0。旧路径的 v0.19.0 及更早版本仍可用旧模块名安装
 - [ ] **5. v1.0：兼容性承诺**（1 天），中英文。**暂缓**（维护者，2026-10-23）：「不用考虑兼容性，项目还是内部开发阶段」。在那之前改动不必保持兼容，也不用为冻结做决定；镜像 API 的默认地址因此不再是 v1.0 前必须定的事，只在文档里提醒
 
 **维护者的决定**（括号里是当时 agent 的推荐；结果写在每项后面）：
 
-- [x] pingmock 可以发送数据吗？README 现在写「pingmock 不模拟任何服务」（推荐：可以，只发固定的字节，不匹配客户端发来的内容）。按推荐，v0.12
+- [x] ghostwire 可以发送数据吗？README 现在写「ghostwire 不模拟任何服务」（推荐：可以，只发固定的字节，不匹配客户端发来的内容）。按推荐，v0.12
 - [x] 数据的语法（推荐：`send=` 握手后立即发，`reply=` 收到客户端第一段数据后发，`limit=N` 发满 N 字节后断开，`wait=` 回复前等待；规则文本里字节用 Go 的带引号字符串，因为逗号和分号是分隔符，YAML 和 JSON 里是普通字符串；上限 16 KiB；之后怎样仍由 `after=` 决定；历史新增 `sent` 事件，带 `bytes`；逐字节慢发等需求）。按推荐，v0.12；`limit=` 必须配 `after=close` 或 `after=reset`
 - [x] `after=hang` 要不要像真实服务器那样确认数据、窗口逐渐变小？这会改变默认行为，v1.0 之后就是不兼容的改动，要在 v0.12 决定（推荐：保持现在的沉默，除非先和真实的挂起服务器对比过）。保持沉默
 - [x] 没有用户证据也做 `-udp` 吗？（推荐：做，排在数据之后，成本低，让 UDP 也能区分拒绝和超时）。做了，v0.13
-- [ ] v1.0 冻结哪些，随第 5 项暂缓（推荐：参数及默认值、规则文本、YAML 键和 JSON、API 路径、方法和状态码、事件字段和结果用词、`client` 包（只增不改）、seed 序列、退出码、`PINGMOCK_API`、默认地址；不冻结 `-v` 的日志、错误信息、键的顺序、`internal/`；弃用的写法至少保留一个小版本并给出警告，v2 才去掉；配置文件的未知键仍然报错，所以要写明旧版本会拒绝新版本的配置文件）
+- [ ] v1.0 冻结哪些，随第 5 项暂缓（推荐：参数及默认值、规则文本、YAML 键和 JSON、API 路径、方法和状态码、事件字段和结果用词、`client` 包（只增不改）、seed 序列、退出码、`GHOSTWIRE_API`、默认地址；不冻结 `-v` 的日志、错误信息、键的顺序、`internal/`；弃用的写法至少保留一个小版本并给出警告，v2 才去掉；配置文件的未知键仍然报错，所以要写明旧版本会拒绝新版本的配置文件）
 
-**冻结前要修正的不一致**（agent 列出，未逐条核对；v0.14 修正了 DNS 事件的地址、`>` 的转义、示例的版本和 exec 的退出码，其余保持现状）：DNS 事件的 `src`/`dst` 是 127.0.0.1；结果用词 DNS 是 `answer`、ping 是 `reply`；规则标签、目标和统计键的格式各协议不同；路径事件的 `phase` 是 0；每种协议都接受所有的阶段单位；`GET /rules` 把 `>` 转义；示例还写着 v0.6.0；`pingmock exec` 自己的退出码 1、2 和被测命令的退出码分不开（验证过）。
+**冻结前要修正的不一致**（agent 列出，未逐条核对；v0.14 修正了 DNS 事件的地址、`>` 的转义、示例的版本和 exec 的退出码，其余保持现状）：DNS 事件的 `src`/`dst` 是 127.0.0.1；结果用词 DNS 是 `answer`、ping 是 `reply`；规则标签、目标和统计键的格式各协议不同；路径事件的 `phase` 是 0；每种协议都接受所有的阶段单位；`GET /rules` 把 `>` 转义；示例还写着 v0.6.0；`ghostwire exec` 自己的退出码 1、2 和被测命令的退出码分不开（验证过）。
 
-没有做：GitHub Discussions 没查；需求搜索没有找到切题的 issue，几条搜索摘要（Micrometer #3563、Tor 的工单、QUIC 回退的指南）没有打开；IPv6 的数据、超过一个报文段的回复、Java/Node/Go 客户端对数据原型、gVisor 在 pingmock 里运行都没有测。Java、Node 客户端，Python 客户端包，macOS，示例，仍按原来的优先级。
+没有做：GitHub Discussions 没查；需求搜索没有找到切题的 issue，几条搜索摘要（Micrometer #3563、Tor 的工单、QUIC 回退的指南）没有打开；IPv6 的数据、超过一个报文段的回复、Java/Node/Go 客户端对数据原型、gVisor 在 ghostwire 里运行都没有测。Java、Node 客户端，Python 客户端包，macOS，示例，仍按原来的优先级。
 
 ### 之后：等需求再决定
 
 | 方向 | 说明 |
 |---|---|
 | 更多异常行为 | 重复回复（`DUP!`）、损坏的回复：没有找到明确的需求 |
-| Testcontainers 模块 | 只适用于被测代码运行在容器里的情况：pingmock 的容器影响不了宿主机上的测试进程 |
-| 分片重组、在其他系统（macOS 等）上运行 pingmock | 使用场景少，或者工作量大（`exec` 依赖 Linux 命名空间）。其他系统上的被测程序已经可以经 WireGuard 网关测试（第 13 项），不必移植 |
+| Testcontainers 模块 | 只适用于被测代码运行在容器里的情况：ghostwire 的容器影响不了宿主机上的测试进程 |
+| 分片重组、在其他系统（macOS 等）上运行 ghostwire | 使用场景少，或者工作量大（`exec` 依赖 Linux 命名空间）。其他系统上的被测程序已经可以经 WireGuard 网关测试（第 13 项），不必移植 |
 
 ### 不做
 
 | 方向 | 原因 |
 |---|---|
-| 通用的流量整形 | 需求最大，但 netem、Toxiproxy 等已经很成熟，做了会偏离定位：pingmock 伪造回应，不改变真实的网络 |
+| 通用的流量整形 | 需求最大，但 netem、Toxiproxy 等已经很成熟，做了会偏离定位：ghostwire 伪造回应，不改变真实的网络 |
 | 向 Toxiproxy 贡献 ping 支持 | 维护者认为三层代理需要 TUN、等于重写，而且他们看重跨平台（#39） |
 | 带内容的 UDP 回复（NTP、SNMP、QUIC） | 等于模拟服务，偏离定位（第六轮调研） |
-| QUIC 失败回退到 TCP | pingmock 接管整个地址，没法只让 UDP 失败、TCP 通向真实服务器（第六轮调研） |
+| QUIC 失败回退到 TCP | ghostwire 接管整个地址，没法只让 UDP 失败、TCP 通向真实服务器（第六轮调研） |
 
 ### 和外部项目的互动
 
-由作者本人进行；先在 issue 中问维护者是否欢迎，不直接提交依赖 pingmock 的代码。
+由作者本人进行；先在 issue 中问维护者是否欢迎，不直接提交依赖 ghostwire 的代码。
 
 | 时机 | 机会 |
 |---|---|
-| v0.8.0 发布之后 | [pro-bing #70](https://github.com/prometheus-community/pro-bing/issues/70)：贡献修复，附带用 pingmock 测试超时行为的用例（[pinglib-demo](examples/pinglib-demo/) 已经演示了这类测试） |
-| v0.8.0 发布之后 | [Trippy #1552](https://github.com/fujiapple852/trippy/issues/1552)：作者想要一个独立的模拟工具；路径模拟已经实现，可以介绍 pingmock 作为 Linux 上的选择 |
+| v0.8.0 发布之后 | [pro-bing #70](https://github.com/prometheus-community/pro-bing/issues/70)：贡献修复，附带用 ghostwire 测试超时行为的用例（[pinglib-demo](examples/pinglib-demo/) 已经演示了这类测试） |
+| v0.8.0 发布之后 | [Trippy #1552](https://github.com/fujiapple852/trippy/issues/1552)：作者想要一个独立的模拟工具；路径模拟已经实现，可以介绍 ghostwire 作为 Linux 上的选择 |
 
 ## 维护
 
 - [ ] 删除用于推送的 Fine-grained token（**2026-11-16 过期**）：它出现在过去的对话记录里，切换到新的工作方式后就应该删除；以后需要推送时，每个工作阶段新建一个有效期很短的 token
 - [ ] 每次发布后更新示例中的版本号（见第 2 项）
 - [x] 测试跑得太慢（维护者，2026-10-23）。在开发容器里计时，大部分时间花在等待上：curl 对接受了却不回应的连接等满整个 `-m`（每项约 3 秒），traceroute 每个不回应的跳等 1 秒，mtr 结束时等 5 秒，pro-bing 和 icmplib 逐个主机地 ping、每个丢失的回应都等满超时。改为只等规则延迟的几倍，两个库同时 ping 所有主机：e2e.sh 从 46 秒降到 25 秒，e2e-exec.sh 从 12 秒降到 8 秒，e2e-compat.sh 里两个库从 29 秒降到 7 秒；CI 少一次 `apt-get update`。缩短等待后，「`wait=` 期间客户端不重传」的检查失败了：它统计整个系统的重传次数，之前挂起的连接重传的 FIN 落进了它的时间窗口；改为从 `TCP_INFO` 读这条连接自己的重传次数（第 100 字节；在一条数据不被确认的连接上验证过，读到 3）。机器负载高时（负载均值 8），按 ±5ms 判断的延迟检查会失败，和这次改动无关
-- [x] 测试并行跑（维护者，2026-10-23）。`make e2e-all`（[test/e2e-all.sh](test/e2e-all.sh)）同时跑 e2e.sh、e2e-compat.sh，以及先普通用户、后 root 的 e2e-exec.sh。前两个都以 root 在宿主机上建 `pingmock0`、加 10.99.0.0/24 的路由、监听 9100 端口，所以各自进一个新的网络命名空间（`unshare --net --mount`：打开 lo；`ping_group_range` 每个网络命名空间一份，所以在自己的挂载命名空间里把只读的 `/proc/sys` 重新挂成可写）。命名空间不通外网，compat 的辅助程序用事先下载好的模块缓存编译（`GOPROXY=off`）。两次 e2e-exec.sh 共用宿主机的 nscd，所以按顺序跑。开发容器里按顺序约 60 秒，并行约 25 秒，连跑 3 次都通过；CI 的 devcontainer 任务改用它。并行时 CPU 争抢让 ±5ms 的 ping 检查（取几次 ping 的平均值）连续失败，改成取最小值：负载只会让回应变晚，不会变早，偶尔一次晚到不再影响结果。变异检查：60ms 的规则按 50±5 判断时失败（测得 61.2ms）
-- [x] 非必要的测试放到最后（维护者，2026-10-23）。CI 的 test 任务只留每次改动都需要的检查：格式、依赖、shellcheck、vet、单元测试、e2e、免 root 和 root 的 `pingmock exec`、`go test -exec`；4 个示例和工具/库的兼容性检查移到新的 `compat-and-examples` 任务，和其他任务并行跑，必要检查的结果不用等它们。拆分前 test 任务约 175 秒，是整个 CI 最慢的一个。开发时只跑单元测试和改动涉及的那个端到端套件，兼容性、示例和 Docker 在推送前最后跑一次，或交给 CI
+- [x] 测试并行跑（维护者，2026-10-23）。`make e2e-all`（[test/e2e-all.sh](test/e2e-all.sh)）同时跑 e2e.sh、e2e-compat.sh，以及先普通用户、后 root 的 e2e-exec.sh。前两个都以 root 在宿主机上建 `ghostwire0`、加 10.99.0.0/24 的路由、监听 9100 端口，所以各自进一个新的网络命名空间（`unshare --net --mount`：打开 lo；`ping_group_range` 每个网络命名空间一份，所以在自己的挂载命名空间里把只读的 `/proc/sys` 重新挂成可写）。命名空间不通外网，compat 的辅助程序用事先下载好的模块缓存编译（`GOPROXY=off`）。两次 e2e-exec.sh 共用宿主机的 nscd，所以按顺序跑。开发容器里按顺序约 60 秒，并行约 25 秒，连跑 3 次都通过；CI 的 devcontainer 任务改用它。并行时 CPU 争抢让 ±5ms 的 ping 检查（取几次 ping 的平均值）连续失败，改成取最小值：负载只会让回应变晚，不会变早，偶尔一次晚到不再影响结果。变异检查：60ms 的规则按 50±5 判断时失败（测得 61.2ms）
+- [x] 非必要的测试放到最后（维护者，2026-10-23）。CI 的 test 任务只留每次改动都需要的检查：格式、依赖、shellcheck、vet、单元测试、e2e、免 root 和 root 的 `ghostwire exec`、`go test -exec`；4 个示例和工具/库的兼容性检查移到新的 `compat-and-examples` 任务，和其他任务并行跑，必要检查的结果不用等它们。拆分前 test 任务约 175 秒，是整个 CI 最慢的一个。开发时只跑单元测试和改动涉及的那个端到端套件，兼容性、示例和 Docker 在推送前最后跑一次，或交给 CI
 
 ## 最低优先级
 
@@ -395,7 +395,7 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 
 ### 功能
 
-- [ ] 新示例：用 pingmock 测试 **Prometheus 的 ICMP 告警规则**（blackbox exporter 是最常用的 ping 监控），Docker Compose 即可运行。服务用户 ③，运维人员不写代码（原属 v0.6；Compose 文件和 Prometheus、blackbox 的配置已起草，暂存在本机、未入库）
+- [ ] 新示例：用 ghostwire 测试 **Prometheus 的 ICMP 告警规则**（blackbox exporter 是最常用的 ping 监控），Docker Compose 即可运行。服务用户 ③，运维人员不写代码（原属 v0.6；Compose 文件和 Prometheus、blackbox 的配置已起草，暂存在本机、未入库）
 - [ ] Python 客户端包：把 [python-demo](examples/python-demo/conftest.py) 的客户端整理成正式的包，只用标准库，附带 pytest fixture，发布到 PyPI（原属 v0.6）
 - [ ] Trippy 的 28 个场景文件作为验收清单：Trippy 是 Rust 程序，需要单独安装（原属 v0.8）
 - [ ] 自动生成中间节点的简化写法（比如只给跳数和总延迟）：有先例（traceroute-haiku），但还没有找到需求，等用户反馈（原属 v0.8）
@@ -412,8 +412,8 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 
 | 课 | 主题 | 状态 |
 |---|---|---|
-| 1 | 整体原理：TUN 网卡、路由，ping 请求怎样到达 pingmock | ✅ 已完成，整理为[一个 ping 的往返之旅](docs/packet-path.zh-CN.md) |
-| 2 | 数据包：每个字节的含义、pingmock 的检查、校验和、分片 | ✅ 已完成，整理为[数据包详解](docs/packets.zh-CN.md) |
+| 1 | 整体原理：TUN 网卡、路由，ping 请求怎样到达 ghostwire | ✅ 已完成，整理为[一个 ping 的往返之旅](docs/packet-path.zh-CN.md) |
+| 2 | 数据包：每个字节的含义、ghostwire 的检查、校验和、分片 | ✅ 已完成，整理为[数据包详解](docs/packets.zh-CN.md) |
 | 3 | 规则与决策：`internal/rule` 和 `internal/engine`，怎样决定回复、丢弃还是不可达 | 下一课。从课后思考题开始：规则存在哪里、怎样找到；`-seed` 怎样让随机结果可以复现 |
 | 4 | 主循环：`internal/responder`，延迟是怎么做到的，为什么一个慢回复不会挡住其他请求 | |
 | 5 | 启动与配置：`internal/app`、`internal/config`、`internal/api` 怎样组装起来 | |

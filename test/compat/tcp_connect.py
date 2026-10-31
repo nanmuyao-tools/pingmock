@@ -5,7 +5,7 @@ programs do, and prints one line per target for test/e2e-compat.sh:
     python 10.99.0.12:80 refused
 
 On an accepted connection the client writes a request and reads the
-answer, which shows what pingmock does after the handshake: nothing
+answer, which shows what ghostwire does after the handshake: nothing
 (timeout), close (closed) or reset (reset). Standard library only.
 """
 

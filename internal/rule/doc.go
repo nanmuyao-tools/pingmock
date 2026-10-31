@@ -1,4 +1,4 @@
-// Package rule defines how pingmock answers a ping, and how that is written.
+// Package rule defines how ghostwire answers a ping, and how that is written.
 //
 // A Spec says how to answer one request: after which Delay (plus or minus
 // Jitter), whether to drop it (Loss, or a deterministic Pattern) or to

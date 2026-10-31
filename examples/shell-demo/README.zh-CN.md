@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-这个示例演示怎样用 pingmock 测试一个**依赖 ping 结果的运维脚本**。被测脚本和测试都只用 `bash`、`ping` 和 `curl`，不需要任何编程语言，也不需要 root。
+这个示例演示怎样用 ghostwire 测试一个**依赖 ping 结果的运维脚本**。被测脚本和测试都只用 `bash`、`ping` 和 `curl`，不需要任何编程语言，也不需要 root。
 
 ## 被测脚本
 
@@ -20,10 +20,10 @@
 
 ## 运行测试
 
-需要先[安装 pingmock](../../README.zh-CN.md#安装)，然后在这个目录下执行：
+需要先[安装 ghostwire](../../README.zh-CN.md#安装)，然后在这个目录下执行：
 
 ```bash
-pingmock exec -config pingmock.yaml -- ./test.sh
+ghostwire exec -config ghostwire.yaml -- ./test.sh
 ```
 
 ```
@@ -33,13 +33,13 @@ PASS switches to the backup when the primary does not answer
 15 passed, 0 failed
 ```
 
-不在 pingmock 下运行时，测试会打印 `SKIP` 并正常退出。
+不在 ghostwire 下运行时，测试会打印 `SKIP` 并正常退出。
 
 ## 每个测试演示了什么
 
 [`test.sh`](test.sh) 中的每个测试，开头都用 `network 主线路规则 备用线路规则` **完整写出它需要的网络状况**，所以看一个测试就知道它模拟的是什么网络，测试之间也互不影响。
 
-| 测试 | 模拟的网络状况 | 用到的 pingmock 功能 |
+| 测试 | 模拟的网络状况 | 用到的 ghostwire 功能 |
 |---|---|---|
 | uses the primary while it is healthy | 两条都正常 | 固定延迟 |
 | switches to the backup when the primary does not answer | 主线路没有响应 | `timeout` |
@@ -65,20 +65,20 @@ FAIL flapping primary: stays on the backup (check 4): got "link=primary ..." (ex
 ## 运行脚本
 
 ```bash
-pingmock exec -config pingmock.yaml -- ./failover.sh 10.99.0.1 10.99.0.2
+ghostwire exec -config ghostwire.yaml -- ./failover.sh 10.99.0.1 10.99.0.2
 # link=primary primary healthy: 3/3 replies, 20ms
 
-pingmock exec -config pingmock.yaml -rule 10.99.0.1=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
+ghostwire exec -config ghostwire.yaml -rule 10.99.0.1=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
 # link=backup primary unhealthy (no reply); backup: 3/3 replies, 40ms
 
-pingmock exec -config pingmock.yaml -rule 10.99.0.1=unreachable -rule 10.99.0.2=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
+ghostwire exec -config ghostwire.yaml -rule 10.99.0.1=unreachable -rule 10.99.0.2=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
 # link=none primary unhealthy (unreachable); backup unhealthy (no reply)
 ```
 
 主线路断开后恢复，用状态文件连续检查 3 次，可以看到防抖动的效果：
 
 ```bash
-pingmock exec -config pingmock.yaml -rule '10.99.0.1=timeout for 3 pings; 20ms' -- \
+ghostwire exec -config ghostwire.yaml -rule '10.99.0.1=timeout for 3 pings; 20ms' -- \
   sh -c 'for i in 1 2 3; do ./failover.sh -s /tmp/link.state 10.99.0.1 10.99.0.2; done'
 ```
 
@@ -90,6 +90,6 @@ link=primary primary healthy: 3/3 replies, 20ms
 
 ## 用到自己的脚本里
 
-1. 测试中用 `curl -X PUT "$PINGMOCK_API/rules/地址" -d 规则` 设置网络状况，用 `curl "$PINGMOCK_API/history?target=地址"` 查看脚本实际发出的 ping
-2. 用 `pingmock exec -- ./你的测试脚本` 运行，pingmock 会以测试脚本的退出码退出，所以可以直接用在 CI 里
-3. 如果被测脚本 ping 的是真实地址（比如 8.8.8.8），直接为它设置规则即可，`pingmock exec` 里的模拟不会影响机器上的其他程序
+1. 测试中用 `curl -X PUT "$GHOSTWIRE_API/rules/地址" -d 规则` 设置网络状况，用 `curl "$GHOSTWIRE_API/history?target=地址"` 查看脚本实际发出的 ping
+2. 用 `ghostwire exec -- ./你的测试脚本` 运行，ghostwire 会以测试脚本的退出码退出，所以可以直接用在 CI 里
+3. 如果被测脚本 ping 的是真实地址（比如 8.8.8.8），直接为它设置规则即可，`ghostwire exec` 里的模拟不会影响机器上的其他程序

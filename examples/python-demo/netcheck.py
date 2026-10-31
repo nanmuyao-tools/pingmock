@@ -2,8 +2,8 @@
 well-known hosts.
 
 This is the code under test in this example. It knows nothing about
-pingmock and runs the system's ping command, as many tools do;
-test_netcheck.py tests it against pingmock.
+ghostwire and runs the system's ping command, as many tools do;
+test_netcheck.py tests it against ghostwire.
 
     python3 netcheck.py 8.8.8.8 1.1.1.1
 

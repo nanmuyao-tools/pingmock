@@ -14,19 +14,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/dns"
-	"github.com/nanmuyao-tools/pingmock/internal/tun"
+	"github.com/nanmuyao-tools/ghostwire/internal/dns"
+	"github.com/nanmuyao-tools/ghostwire/internal/tun"
 )
 
-// execChildArg marks the re-executed pingmock that runs inside the new
+// execChildArg marks the re-executed ghostwire that runs inside the new
 // namespaces. It is not meant to be typed by users.
-const execChildArg = "__pingmock-exec-child"
+const execChildArg = "__ghostwire-exec-child"
 
 // envRootless tells the child that it runs in a user namespace, and why
 // (a privileges value), so errors can explain what to do about it.
-const envRootless = "PINGMOCK_EXEC_ROOTLESS"
+const envRootless = "GHOSTWIRE_EXEC_ROOTLESS"
 
-// privileges says how pingmock exec gets to set up the command's network.
+// privileges says how ghostwire exec gets to set up the command's network.
 type privileges int
 
 const (
@@ -73,22 +73,22 @@ func hasNamespaceCaps(status string) bool {
 	return false
 }
 
-// envAPI is set in the environment of the command run by pingmock exec.
-const envAPI = "PINGMOCK_API"
+// envAPI is set in the environment of the command run by ghostwire exec.
+const envAPI = "GHOSTWIRE_API"
 
 func execUsage(w io.Writer, fs *flag.FlagSet) {
-	fmt.Fprint(w, `Usage: pingmock exec [flags] -- CMD [ARGS...]
+	fmt.Fprint(w, `Usage: ghostwire exec [flags] -- CMD [ARGS...]
 
-Runs CMD in a private network namespace with pingmock answering pings,
+Runs CMD in a private network namespace with ghostwire answering pings,
 TCP connections and UDP datagrams there, and DNS queries for names with
 a -dns rule.
 Root is not needed: as an unprivileged user, or as root without
-CAP_SYS_ADMIN and CAP_NET_ADMIN, pingmock creates a user namespace too.
+CAP_SYS_ADMIN and CAP_NET_ADMIN, ghostwire creates a user namespace too.
 The host network is not touched, several runs can happen at once, and
-pingmock exits with CMD's exit status, or 125 if it fails itself. When
+ghostwire exits with CMD's exit status, or 125 if it fails itself. When
 CMD exits, any processes it left running are stopped.
 
-CMD can reach the control API at the address in $PINGMOCK_API. It has no
+CMD can reach the control API at the address in $GHOSTWIRE_API. It has no
 network access other than the mocked targets, unless -outside gives it the
 host's network through pasta (package passt): real addresses and names then
 work, mocked ones keep their rules, and -outside-port makes 127.0.0.1:PORT
@@ -100,31 +100,31 @@ resolver; the system's files are not touched. -host picks the address.
 names alike.
 
 Examples:
-  pingmock exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
-  pingmock exec -seed 42 -rule 8.8.8.8=120ms -- ./my-app
-  pingmock exec -rule api.example.com=80ms -rule db.example.com=timeout -- ./my-app
-  pingmock exec -host api.example.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./my-app
-  pingmock exec -tcp db.example.com:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app
-  pingmock exec -tcp 10.99.0.3:443=after=reset -dns api.example.com=nxdomain -- ./my-app
-  pingmock exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
-  go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+  ghostwire exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
+  ghostwire exec -seed 42 -rule 8.8.8.8=120ms -- ./my-app
+  ghostwire exec -rule api.example.com=80ms -rule db.example.com=timeout -- ./my-app
+  ghostwire exec -host api.example.com=10.99.0.1 -rule 10.99.0.1=80ms -- ./my-app
+  ghostwire exec -tcp db.example.com:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app
+  ghostwire exec -tcp 10.99.0.3:443=after=reset -dns api.example.com=nxdomain -- ./my-app
+  ghostwire exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
+  go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...
 
 Flags:
 `)
 	fs.PrintDefaults()
 }
 
-// execFailed is the exit status of pingmock exec when it fails itself,
+// execFailed is the exit status of ghostwire exec when it fails itself,
 // before or around the command: bad flags or rules, or a network that
 // cannot be set up. As for docker run, env and timeout, it is 125, so
 // that it is not taken for the command's own status; 126 and 127 say the
 // command could not be run or found.
 const execFailed = 125
 
-// runExec starts a copy of pingmock in new namespaces, which then runs the
+// runExec starts a copy of ghostwire in new namespaces, which then runs the
 // command. It returns the command's exit status.
 func runExec(args []string) int {
-	s, cmdArgs, err := parseSettings("pingmock exec", args, execUsage, os.Stderr)
+	s, cmdArgs, err := parseSettings("ghostwire exec", args, execUsage, os.Stderr)
 	if isHelp(err) {
 		return 0
 	}
@@ -133,18 +133,18 @@ func runExec(args []string) int {
 		return execFailed
 	}
 	if len(cmdArgs) == 0 {
-		log.Print("pingmock exec: no command given; usage: pingmock exec [flags] -- CMD [ARGS...]")
+		log.Print("ghostwire exec: no command given; usage: ghostwire exec [flags] -- CMD [ARGS...]")
 		return execFailed
 	}
 	self, err := os.Executable()
 	if err != nil {
-		log.Printf("pingmock exec: %v", err)
+		log.Printf("ghostwire exec: %v", err)
 		return execFailed
 	}
 	var pasta string
 	if s.outside {
 		if pasta, err = exec.LookPath("pasta"); err != nil {
-			log.Print("pingmock exec: -outside needs pasta, from the package passt, which is not in $PATH")
+			log.Print("ghostwire exec: -outside needs pasta, from the package passt, which is not in $PATH")
 			return execFailed
 		}
 	}
@@ -154,7 +154,7 @@ func runExec(args []string) int {
 	// A PID namespace makes the child its init process: when it exits, the
 	// kernel kills every process left in the namespace, so nothing the
 	// command started in the background outlives the run. Pdeathsig does
-	// the same if pingmock exec itself is killed.
+	// the same if ghostwire exec itself is killed.
 	attr := &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET | syscall.CLONE_NEWPID, Pdeathsig: syscall.SIGKILL}
 	var childEnd *os.File
 	if s.names() {
@@ -165,14 +165,14 @@ func runExec(args []string) int {
 		attr.Cloneflags |= syscall.CLONE_NEWNS
 		fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
 		if err != nil {
-			log.Printf("pingmock exec: %v", err)
+			log.Printf("ghostwire exec: %v", err)
 			return execFailed
 		}
 		parentEnd := os.NewFile(uintptr(fds[0]), "dns-relay")
 		childEnd = os.NewFile(uintptr(fds[1]), "dns-relay")
 		child.ExtraFiles = []*os.File{childEnd} // relayFD in the child
 		// The C library's default timeout: a slower host resolver times
-		// out here as it would for the command without pingmock.
+		// out here as it would for the command without ghostwire.
 		forward := dns.Forwarder(dns.Nameservers(resolvFile), 5*time.Second)
 		go func() {
 			defer parentEnd.Close()
@@ -184,7 +184,7 @@ func runExec(args []string) int {
 	var outsideRead, outsideWrite *os.File
 	if s.outside {
 		if outsideRead, outsideWrite, err = os.Pipe(); err != nil {
-			log.Printf("pingmock exec: %v", err)
+			log.Printf("ghostwire exec: %v", err)
 			return execFailed
 		}
 		defer outsideWrite.Close()
@@ -214,24 +214,24 @@ func runExec(args []string) int {
 	if err != nil {
 		switch who {
 		case unprivileged:
-			log.Printf("pingmock exec: cannot create a user namespace: %v\n"+
-				"Unprivileged user namespaces seem to be disabled on this system. Run pingmock exec with sudo,\n"+
+			log.Printf("ghostwire exec: cannot create a user namespace: %v\n"+
+				"Unprivileged user namespaces seem to be disabled on this system. Run ghostwire exec with sudo,\n"+
 				"or enable them (for example sysctl kernel.unprivileged_userns_clone=1 or user.max_user_namespaces).", err)
 		case capless:
-			log.Printf("pingmock exec: cannot create a user namespace: %v\n"+
-				"Root here lacks CAP_SYS_ADMIN and CAP_NET_ADMIN, as in a container, so pingmock exec needs a user\n"+
+			log.Printf("ghostwire exec: cannot create a user namespace: %v\n"+
+				"Root here lacks CAP_SYS_ADMIN and CAP_NET_ADMIN, as in a container, so ghostwire exec needs a user\n"+
 				"namespace, which is not allowed here either (Docker's default seccomp profile forbids them). Give the\n"+
 				"container the capabilities (docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN), or a seccomp\n"+
 				"profile that allows user namespaces.", err)
 		default:
-			log.Printf("pingmock exec: cannot create a network namespace: %v", err)
+			log.Printf("ghostwire exec: cannot create a network namespace: %v", err)
 		}
 		return execFailed
 	}
 	if s.outside {
 		stopPasta, err := attachPasta(pasta, s.outsidePorts, os.Geteuid() == 0, child.Process.Pid)
 		if err != nil {
-			log.Printf("pingmock exec: %v", err)
+			log.Printf("ghostwire exec: %v", err)
 			child.Process.Kill()
 			child.Wait()
 			return execFailed
@@ -244,14 +244,14 @@ func runExec(args []string) int {
 	return exitStatus(child.Wait())
 }
 
-// runExecChild runs inside the new namespaces: it starts pingmock, runs the
+// runExecChild runs inside the new namespaces: it starts ghostwire, runs the
 // command, and cleans up when the command exits.
 func runExecChild(args []string) int {
-	log.SetPrefix("[pingmock] ")
+	log.SetPrefix("[ghostwire] ")
 	n, _ := strconv.Atoi(os.Getenv(envRootless))
 	who := privileges(n)
 	os.Unsetenv(envRootless)
-	s, cmdArgs, err := parseSettings("pingmock exec", args, execUsage, io.Discard)
+	s, cmdArgs, err := parseSettings("ghostwire exec", args, execUsage, io.Discard)
 	if err != nil {
 		log.Print(err)
 		return execFailed
@@ -362,15 +362,15 @@ func explain(err error, who privileges) error {
 		return err
 	case who == capless && errors.Is(err, syscall.EPERM):
 		return fmt.Errorf("%w\nRoot here lacks CAP_SYS_ADMIN and CAP_NET_ADMIN, as in a container, and the user namespace\n"+
-			"pingmock exec created instead has no network privileges either. Give the container the\n"+
+			"ghostwire exec created instead has no network privileges either. Give the container the\n"+
 			"capabilities: docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN", err)
 	case errors.Is(err, syscall.EACCES) && strings.Contains(msg, "/dev/net/tun"):
 		return fmt.Errorf("%w\n/dev/net/tun cannot be opened without root on this system. Most distributions make it\n"+
-			"readable and writable by everyone (crw-rw-rw-); run pingmock exec with sudo, or: sudo chmod 0666 /dev/net/tun", err)
+			"readable and writable by everyone (crw-rw-rw-); run ghostwire exec with sudo, or: sudo chmod 0666 /dev/net/tun", err)
 	case errors.Is(err, syscall.EPERM):
 		return fmt.Errorf("%w\nThe user namespace has no network privileges. On Ubuntu 23.10 and later, AppArmor restricts\n"+
-			"unprivileged user namespaces. Either run pingmock exec with sudo, or let pingmock use them with the\n"+
-			"AppArmor profile in contrib/apparmor/pingmock (see the README), or lift the restriction for all\n"+
+			"unprivileged user namespaces. Either run ghostwire exec with sudo, or let ghostwire use them with the\n"+
+			"AppArmor profile in contrib/apparmor/ghostwire (see the README), or lift the restriction for all\n"+
 			"programs with: sudo sysctl kernel.apparmor_restrict_unprivileged_userns=0", err)
 	}
 	return err

@@ -8,7 +8,7 @@ import (
 )
 
 // Target is what a rule applies to: an address or prefix, or a name that
-// pingmock exec resolves to a mocked address.
+// ghostwire exec resolves to a mocked address.
 type Target struct {
 	Prefix netip.Prefix // valid unless Name is set
 	Name   string       // canonical: lower case, no trailing dot
@@ -92,7 +92,7 @@ func ParsePrefix(s string) (netip.Prefix, error) {
 }
 
 // TCPTarget is what a TCP rule applies to: an address or prefix, or under
-// pingmock exec a name, and a port, or every port.
+// ghostwire exec a name, and a port, or every port.
 type TCPTarget struct {
 	Prefix netip.Prefix // valid unless Name is set
 	Name   string       // canonical: lower case, no trailing dot

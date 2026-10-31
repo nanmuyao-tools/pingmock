@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // fakeClock lets tests move time forward explicitly.

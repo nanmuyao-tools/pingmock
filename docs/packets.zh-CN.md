@@ -2,9 +2,9 @@
 
 [English](packets.md) | 中文
 
-这份文档把 ping 请求拆开来看（第 12 节还有一次 TCP 连接请求）：每个字节代表什么，pingmock 怎样判断"这是一个 ping 请求"，校验和怎样计算，以及几个值得注意的细节，比如标志与分片字段里的 `0x4000`、`0x3fff` 是怎么来的。文中所有字节都来自一个**真实抓到的** ping 请求，所有结论都做过实验验证。
+这份文档把 ping 请求拆开来看（第 12 节还有一次 TCP 连接请求）：每个字节代表什么，ghostwire 怎样判断"这是一个 ping 请求"，校验和怎样计算，以及几个值得注意的细节，比如标志与分片字段里的 `0x4000`、`0x3fff` 是怎么来的。文中所有字节都来自一个**真实抓到的** ping 请求，所有结论都做过实验验证。
 
-请求是怎样从 `ping` 到达 pingmock 的，参见[一个 ping 的往返之旅](packet-path.zh-CN.md)；pingmock 内部怎样处理，参见[代码导读](architecture.zh-CN.md)。
+请求是怎样从 `ping` 到达 ghostwire 的，参见[一个 ping 的往返之旅](packet-path.zh-CN.md)；ghostwire 内部怎样处理，参见[代码导读](architecture.zh-CN.md)。
 
 如果地址、数据包、TCP 或 DNS 对你来说还比较陌生，请先读[网络基础](basics.zh-CN.md)，那里配着示意图讲解了这些概念。
 
@@ -85,9 +85,9 @@
 | `x & m` | 按位与 | 每一位都是 1 才得 1，用来**只保留模板 `m` 里为 1 的位** | `0x45 & 0x0f` = 5 |
 | `binary.BigEndian.Uint16(b)` | 大端序读取 | 把 2 个字节拼成一个 16 位的数，第一个字节放在高位 | `40 00` → `0x4000` |
 
-## 5. pingmock 怎样认出 ping 请求
+## 5. ghostwire 怎样认出 ping 请求
 
-TUN 网卡上不只有 ping 请求：TCP 连接请求、traceroute 的 UDP 探测包也会被路由过来。所以 pingmock 先要确认读到的是什么，所有它可能回应的数据包都由同一个函数识别：[`ParseProbe`](../internal/icmp/probe.go)。这一节跟着一个 ping 请求走一遍；[第 12 节](#121-pingmock-怎样识别-tcpparseprobe)对 TCP 做了同样的事。
+TUN 网卡上不只有 ping 请求：TCP 连接请求、traceroute 的 UDP 探测包也会被路由过来。所以 ghostwire 先要确认读到的是什么，所有它可能回应的数据包都由同一个函数识别：[`ParseProbe`](../internal/icmp/probe.go)。这一节跟着一个 ping 请求走一遍；[第 12 节](#121-ghostwire-怎样识别-tcpparseprobe)对 TCP 做了同样的事。
 
 ### 5.1 先看版本号：`ParseProbe`
 
@@ -119,8 +119,8 @@ IPv6 包的第 0 个字节是 `0x60`，右移后得到 6，交给 `probe6`。其
 | 长度够不够一个 IP 头 | 整个包 | 84 ≥ 20 | 太短的包连 IP 头都读不完 |
 | IP 头有多长 | 第 0 字节 `& 0x0f`，再 × 4 | 5 × 4 = 20 | IP 头**可以带选项**，ICMP 从哪里开始要靠它算出来 |
 | 总长度是否合理 | 第 2-3 字节 | 84 | 防止格式错误的包让后面的代码读错位置 |
-| 是不是分片 | 第 6-7 字节 `& 0x3fff` | 0 | pingmock 不做分片重组，只处理完整的包（见第 6 节） |
-| 装的是什么 | 第 9 字节 | 1：ICMP | 1 进入下一项检查；6 是 TCP（[第 12 节](#12-tcp一次连接请求和-pingmock-的回应)），17 是 UDP，只有路径会回应；其他一律忽略 |
+| 是不是分片 | 第 6-7 字节 `& 0x3fff` | 0 | ghostwire 不做分片重组，只处理完整的包（见第 6 节） |
+| 装的是什么 | 第 9 字节 | 1：ICMP | 1 进入下一项检查；6 是 TCP（[第 12 节](#12-tcp一次连接请求和-ghostwire-的回应)），17 是 UDP，只有路径会回应；其他一律忽略 |
 | 是不是回显请求 | ICMP 第 0、1 字节 | 类型 8，代码 0 | ICMP 还有应答、不可达等其他消息 |
 
 全部通过后，这个包就是一个 `Echo` 类型的 `Probe`，带着源地址、目标地址、TTL、标识和序号，交给后面的决策环节（[`RuleSet.DecideProbe`](../internal/engine/path.go)，见[代码导读](architecture.zh-CN.md)）。
@@ -186,11 +186,11 @@ bit:   15   14   13   12 11 10  9  8  7  6  5  4  3  2  1  0
 
 和推算完全一致。长度也对得上：2000 字节数据加 8 字节 ICMP 头共 2008 字节；第一片装 1500 − 20 = 1480 字节，第二片装 548 − 20 = 528 字节，1480 + 528 = 2008。
 
-两片的"不要分片"都是 0：包太大，必须分片才能发出去，所以 `ping` 没有设置它。两片经过 `& 0x3fff` 都不是 0，所以 pingmock 会忽略它们，这就是 `ping -s 2000` 在 pingmock 下超时的原因，也是 README "限制"一节所说的"不支持分片的请求"。
+两片的"不要分片"都是 0：包太大，必须分片才能发出去，所以 `ping` 没有设置它。两片经过 `& 0x3fff` 都不是 0，所以 ghostwire 会忽略它们，这就是 `ping -s 2000` 在 ghostwire 下超时的原因，也是 README "限制"一节所说的"不支持分片的请求"。
 
 ## 7. 请求变应答：只改了 4 个字节
 
-[`BuildEchoReply`](../internal/icmp/icmp.go) 把请求变成应答。逐字节对比示例请求和 pingmock 写回的应答，84 个字节中只有 4 个不同：
+[`BuildEchoReply`](../internal/icmp/icmp.go) 把请求变成应答。逐字节对比示例请求和 ghostwire 写回的应答，84 个字节中只有 4 个不同：
 
 | 位置 | 请求 | 应答 | 字段 | 原因 |
 |---|---|---|---|---|
@@ -219,7 +219,7 @@ IP 头和 ICMP 都用 RFC 1071 规定的算法：**每 2 字节当作一个数�
 
 结果 `0xd8cf` 正是包里存的值。接收方检查时更简单：把**包含校验和在内**的整个头再算一遍，没有出错的话结果一定是 0。
 
-pingmock 中的实现：
+ghostwire 中的实现：
 
 ```go
 func Checksum(b []byte) uint16 { return ^fold(sum(0, b)) }  // 第 4 步：取反
@@ -247,7 +247,7 @@ IPv6 的 ICMP 校验和还要额外加上一个由源地址、目标地址、长
 
 ## 9. 校验和算错会怎样
 
-pingmock 必须把两个校验和都算对吗？实验的结论是：**取决于对方怎样接收**，所以必须都算对。
+ghostwire 必须把两个校验和都算对吗？实验的结论是：**取决于对方怎样接收**，所以必须都算对。
 
 | 应答里出错的是 | 内核的反应 | 系统 `ping` 命令（原始套接字） | 不需要 root 的 ping 套接字 |
 |---|---|---|---|
@@ -272,7 +272,7 @@ ICMP 校验和出错时，各方的表现不同，原因有两个：
 
 （这是从源码编译 iputils 20250605 后实测的结果；20240117 的输出是同一行，但没有末尾的提示。）
 
-被测软件可能用系统的 `ping` 命令，也可能用程序库发 ping，后者常常使用 ping 套接字。无论哪种方式，校验和错误都会被发现：要么应答被丢弃，要么被标为错误。所以 pingmock 的两个校验和都必须正确。这也是 `icmp` 包的测试会验证每一个构造出的包的校验和，并且用独立实现交叉验证 IPv6 校验和的原因。
+被测软件可能用系统的 `ping` 命令，也可能用程序库发 ping，后者常常使用 ping 套接字。无论哪种方式，校验和错误都会被发现：要么应答被丢弃，要么被标为错误。所以 ghostwire 的两个校验和都必须正确。这也是 `icmp` 包的测试会验证每一个构造出的包的校验和，并且用独立实现交叉验证 IPv6 校验和的原因。
 
 ## 10. 数据部分为什么必须原样保留
 
@@ -289,7 +289,7 @@ wrong data byte #16 should be 0x10 but was 0x0
 - **发送时间没了**：`ping` 用"收到应答的时间"减去"应答里带回来的发送时间"计算延迟。发送时间被清零，就算不出有效的延迟，只能显示 0
 - **填充不对**：`ping` 会核对填充的字节是不是它发出去的 `0x10, 0x11, 0x12...`
 
-所以 pingmock **不修改**数据部分，只是把应答**晚一点写回**，`ping` 算出的延迟自然就变大了。这是 pingmock 能精确控制延迟的根本原因。
+所以 ghostwire **不修改**数据部分，只是把应答**晚一点写回**，`ping` 算出的延迟自然就变大了。这是 ghostwire 能精确控制延迟的根本原因。
 
 ## 11. IPv6 的区别
 
@@ -303,11 +303,11 @@ IPv6 的 ping 结构相同，区别体现在 `parse6`、`reply6` 和 `checksum6`
 | 表示"里面装什么"的字段 | 协议 = 1 | 下一个头 = 58 |
 | 请求 / 应答的类型 | 8 / 0 | **128 / 129** |
 | ICMP 校验和的范围 | ICMP 部分 | ICMP 部分 + **伪头部**（源地址、目标地址、长度、协议号） |
-| 分片 | IP 头里的标志和偏移 | 单独的"分片扩展头"，pingmock 同样不处理 |
+| 分片 | IP 头里的标志和偏移 | 单独的"分片扩展头"，ghostwire 同样不处理 |
 
 伪头部里的源地址和目标地址也是"加起来"的，所以对调它们同样不会改变 ICMP 校验和，和第 7 节 IPv4 头校验和不变是同一个道理。
 
-## 12. TCP：一次连接请求和 pingmock 的回应
+## 12. TCP：一次连接请求和 ghostwire 的回应
 
 TCP 规则回应的是连接请求，数据包是 TCP 报文段，而不是 ICMP。下面的 SYN 是用附录里的脚本（改成保留 TCP，即协议号 6）从 `curl http://10.96.0.1/` 抓到的；后面的回应是 [`BuildSynAck`](../internal/icmp/probe.go)、[`BuildRST`](../internal/icmp/probe.go) 和 [`BuildSegment`](../internal/icmp/probe.go) 为它构造的。
 
@@ -329,7 +329,7 @@ TCP 规则回应的是连接请求，数据包是 TCP 报文段，而不是 ICMP
 | 16-17 | `de 12` | 校验和 | 覆盖伪头部和整个报文段，和第 11 节的 ICMPv6 一样 |
 | 20-39 | | 选项 | MSS 1460、允许 SACK、时间戳、窗口扩大因子 7 |
 
-### 12.1 pingmock 怎样识别 TCP：`ParseProbe`
+### 12.1 ghostwire 怎样识别 TCP：`ParseProbe`
 
 检查和第 5 节一样，在同一个 [`ParseProbe`](../internal/icmp/probe.go) 里，直到第 9 字节显示协议号是 6，即 TCP。以 IPv4（`probe4`）和上面的 SYN 为例：
 
@@ -350,19 +350,19 @@ TCP 规则回应的是连接请求，数据包是 TCP 报文段，而不是 ICMP
 | `flags & (SYN\|RST) == 0` | 既没有 SYN 也没有 RST | 连接上之后的报文：`Kind` 为 `Segment` |
 | 其他 | SYN-ACK 或 RST | 不回应 |
 
-- **有 SYN 没有 ACK**：每个连接都这样开始；pingmock 记下它的端口和序号，也就是 ISN。
-- **之后的报文**（握手的最后一个 ACK、数据、FIN）还要求数据偏移合理：至少 20 字节，而且不超出报文段，因为**数据长度**要靠它算：IP 总长度 − IP 头部 − 数据偏移。pingmock 记下它的标志位、序号、确认号和这个长度。
-- **SYN-ACK 和 RST 从不回应**。pingmock 自己会发 SYN-ACK 和 RST，客户端内核收到意料之外的 SYN-ACK 也会回 RST；回应它们只会引出一场没完没了的往来。
+- **有 SYN 没有 ACK**：每个连接都这样开始；ghostwire 记下它的端口和序号，也就是 ISN。
+- **之后的报文**（握手的最后一个 ACK、数据、FIN）还要求数据偏移合理：至少 20 字节，而且不超出报文段，因为**数据长度**要靠它算：IP 总长度 − IP 头部 − 数据偏移。ghostwire 记下它的标志位、序号、确认号和这个长度。
+- **SYN-ACK 和 RST 从不回应**。ghostwire 自己会发 SYN-ACK 和 RST，客户端内核收到意料之外的 SYN-ACK 也会回 RST；回应它们只会引出一场没完没了的往来。
 
 ### 12.2 这个报文是谁的
 
-是 TCP 报文还不够，pingmock 只回应规则或路径「认领」的报文：
+是 TCP 报文还不够，ghostwire 只回应规则或路径「认领」的报文：
 
 1. **发往有路径的地址、TTL 在半路耗尽的 SYN** 是 traceroute 或 mtr 的探测，由 TTL 耗尽处的那一跳回应，和 UDP 探测一样（[`DecideProbe`](../internal/engine/path.go)）。
 2. **到达有 TCP 规则的地址和端口的 SYN** 是连接请求，不论有没有路径（[`DecideTCP`](../internal/engine/tcp.go)）。一次连接尝试由地址、端口和 ISN 确定：客户端内核重发的 SYN 这五项都相同，得到第一次的回应，记为 `"repeat": true`，不重复计数。
 3. **到达有路径的地址、而端口没有 TCP 规则的 SYN** 得到 SYN-ACK，任何端口都是：对 traceroute 来说，就是到达了终点。
 4. **其他的 SYN 一律不理，也不记录**，所以没有规则的端口看起来像被丢包的防火墙挡住，和有 TCP 规则之前一样。
-5. **之后的报文**只有在它的连接以 `after=close` 或 `after=reset` 被接受时才回应（[`DecideSegment`](../internal/engine/tcp.go)）。连接按地址和端口找到，而且报文必须确认 pingmock 自己的序号：`70 69 6e 68`（SYN-ACK 之后）或 `70 69 6e 69`（FIN 之后）；相同端口之间别的连接的报文不会这样确认。默认的 `after=hang` 下，之后的报文永远不回应。
+5. **之后的报文**只有在它的连接以 `after=close` 或 `after=reset` 被接受时才回应（[`DecideSegment`](../internal/engine/tcp.go)）。连接按地址和端口找到，而且报文必须确认 ghostwire 自己的序号：`70 69 6e 68`（SYN-ACK 之后）或 `70 69 6e 69`（FIN 之后）；相同端口之间别的连接的报文不会这样确认。默认的 `after=hang` 下，之后的报文永远不回应。
 
 
 ### 12.3 回应
@@ -385,13 +385,13 @@ IPv6 的回应构造方法相同，用第 11 节的 40 字节 IPv6 头部，校�
 
 ## 附录：自己抓包
 
-下面这个脚本像 pingmock 一样创建一块 TUN 网卡，把收到的每个 IPv4 包的关键字段打印出来，可以用来亲手验证本文的内容。它只读取、不回复，所以 `ping` 会超时，这是正常的。
+下面这个脚本像 ghostwire 一样创建一块 TUN 网卡，把收到的每个 IPv4 包的关键字段打印出来，可以用来亲手验证本文的内容。它只读取、不回复，所以 `ping` 会超时，这是正常的。
 
 ```python
 # sudo python3 capture.py，然后在另一个终端执行 ping 10.96.0.1（或 ping -s 2000 10.96.0.1）
 import fcntl, os, struct, subprocess
 
-TUNSETIFF, IFF_TUN, IFF_NO_PI = 0x400454ca, 0x0001, 0x1000   # 和 pingmock 的 tun.Open 相同
+TUNSETIFF, IFF_TUN, IFF_NO_PI = 0x400454ca, 0x0001, 0x1000   # 和 ghostwire 的 tun.Open 相同
 fd = os.open('/dev/net/tun', os.O_RDWR)
 fcntl.ioctl(fd, TUNSETIFF, struct.pack('16sH22x', b'cap0', IFF_TUN | IFF_NO_PI))
 subprocess.run('ip addr add 10.96.0.254/24 dev cap0 && ip link set cap0 up', shell=True, check=True)

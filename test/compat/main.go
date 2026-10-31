@@ -5,7 +5,7 @@
 //	pro-bing raw 10.99.0.1 sent=4 recv=4 avg=50.5
 //
 // It is its own module so that pro-bing does not become a dependency of
-// pingmock.
+// ghostwire.
 package main
 
 import (

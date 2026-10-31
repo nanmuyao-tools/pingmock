@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 func TestParseEchoRequest(t *testing.T) {
@@ -203,9 +203,9 @@ func TestBuildUnreachable6(t *testing.T) {
 // TestChecksum6KnownValue checks checksum6 against a value computed by an
 // independent implementation of the RFC 8200 pseudo-header checksum.
 func TestChecksum6KnownValue(t *testing.T) {
-	pkt := BuildEchoRequest(netip.MustParseAddr("fd99::fe"), netip.MustParseAddr("fd99::1"), 0x1234, 1, []byte("pingmock"))
-	if got := binary.BigEndian.Uint16(pkt[ipv6Header+2 : ipv6Header+4]); got != 0xc1a1 {
-		t.Errorf("checksum %#04x, want 0xc1a1", got)
+	pkt := BuildEchoRequest(netip.MustParseAddr("fd99::fe"), netip.MustParseAddr("fd99::1"), 0x1234, 1, []byte("ghostwire"))
+	if got := binary.BigEndian.Uint16(pkt[ipv6Header+2 : ipv6Header+4]); got != 0x5786 {
+		t.Errorf("checksum %#04x, want 0x5786", got)
 	}
 }
 

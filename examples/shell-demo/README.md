@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-This example shows how to test an **operations script that depends on ping results** with pingmock. Both the script under test and its tests use only `bash`, `ping` and `curl`: no programming language, and no root.
+This example shows how to test an **operations script that depends on ping results** with ghostwire. Both the script under test and its tests use only `bash`, `ping` and `curl`: no programming language, and no root.
 
 ## The script under test
 
@@ -20,10 +20,10 @@ Environment variables adjust the thresholds: `COUNT` (pings per check), `MIN_REP
 
 ## Running the tests
 
-[Install pingmock](../../README.md#installation) first. Then, in this directory:
+[Install ghostwire](../../README.md#installation) first. Then, in this directory:
 
 ```bash
-pingmock exec -config pingmock.yaml -- ./test.sh
+ghostwire exec -config ghostwire.yaml -- ./test.sh
 ```
 
 ```
@@ -33,13 +33,13 @@ PASS switches to the backup when the primary does not answer
 15 passed, 0 failed
 ```
 
-Outside pingmock, the tests print `SKIP` and exit successfully.
+Outside ghostwire, the tests print `SKIP` and exit successfully.
 
 ## What each test shows
 
 Each test in [`test.sh`](test.sh) starts with `network PRIMARY_RULE BACKUP_RULE`, **stating the whole network it needs**, so each test shows at a glance what it simulates, and the tests do not depend on each other.
 
-| Test | Network conditions | pingmock feature |
+| Test | Network conditions | ghostwire feature |
 |---|---|---|
 | uses the primary while it is healthy | both links work | a fixed delay |
 | switches to the backup when the primary does not answer | the primary is silent | `timeout` |
@@ -65,20 +65,20 @@ FAIL flapping primary: stays on the backup (check 4): got "link=primary ..." (ex
 ## Running the script
 
 ```bash
-pingmock exec -config pingmock.yaml -- ./failover.sh 10.99.0.1 10.99.0.2
+ghostwire exec -config ghostwire.yaml -- ./failover.sh 10.99.0.1 10.99.0.2
 # link=primary primary healthy: 3/3 replies, 20ms
 
-pingmock exec -config pingmock.yaml -rule 10.99.0.1=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
+ghostwire exec -config ghostwire.yaml -rule 10.99.0.1=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
 # link=backup primary unhealthy (no reply); backup: 3/3 replies, 40ms
 
-pingmock exec -config pingmock.yaml -rule 10.99.0.1=unreachable -rule 10.99.0.2=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
+ghostwire exec -config ghostwire.yaml -rule 10.99.0.1=unreachable -rule 10.99.0.2=timeout -- ./failover.sh 10.99.0.1 10.99.0.2
 # link=none primary unhealthy (unreachable); backup unhealthy (no reply)
 ```
 
 The primary goes down and recovers; three checks in a row with a state file show the protection against flapping:
 
 ```bash
-pingmock exec -config pingmock.yaml -rule '10.99.0.1=timeout for 3 pings; 20ms' -- \
+ghostwire exec -config ghostwire.yaml -rule '10.99.0.1=timeout for 3 pings; 20ms' -- \
   sh -c 'for i in 1 2 3; do ./failover.sh -s /tmp/link.state 10.99.0.1 10.99.0.2; done'
 ```
 
@@ -90,6 +90,6 @@ link=primary primary healthy: 3/3 replies, 20ms
 
 ## Using it for your own scripts
 
-1. In the tests, set network conditions with `curl -X PUT "$PINGMOCK_API/rules/ADDRESS" -d RULE`, and see the pings the script sent with `curl "$PINGMOCK_API/history?target=ADDRESS"`
-2. Run them with `pingmock exec -- ./your-test.sh`; pingmock exits with the test script's status, so this works as is in CI
-3. If the script pings real addresses (8.8.8.8, say), just give them rules; mocking inside `pingmock exec` does not affect anything else on the machine
+1. In the tests, set network conditions with `curl -X PUT "$GHOSTWIRE_API/rules/ADDRESS" -d RULE`, and see the pings the script sent with `curl "$GHOSTWIRE_API/history?target=ADDRESS"`
+2. Run them with `ghostwire exec -- ./your-test.sh`; ghostwire exits with the test script's status, so this works as is in CI
+3. If the script pings real addresses (8.8.8.8, say), just give them rules; mocking inside `ghostwire exec` does not affect anything else on the machine

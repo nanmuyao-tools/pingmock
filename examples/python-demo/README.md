@@ -2,7 +2,7 @@
 
 English | [中文](README.zh-CN.md)
 
-This example shows how to test Python code that **depends on ping results** with pingmock. The code under test knows nothing about pingmock and is not changed for the tests, and no root is needed. The tests use only pytest and the standard library, calling pingmock's control API over HTTP; no Go is involved.
+This example shows how to test Python code that **depends on ping results** with ghostwire. The code under test knows nothing about ghostwire and is not changed for the tests, and no root is needed. The tests use only pytest and the standard library, calling ghostwire's control API over HTTP; no Go is involved.
 
 ## The code under test
 
@@ -16,24 +16,24 @@ This example shows how to test Python code that **depends on ping results** with
 
 `reach(name, port)` tells, in the same spirit, why a service cannot be reached: `no such name`, `refused`, `timed out`, or `reachable`.
 
-The code pings **real public addresses**. Inside `pingmock exec`, mocking 8.8.8.8 affects only the program under test; everything else on the machine still reaches the real 8.8.8.8.
+The code pings **real public addresses**. Inside `ghostwire exec`, mocking 8.8.8.8 affects only the program under test; everything else on the machine still reaches the real 8.8.8.8.
 
 ## Running the tests
 
-[Install pingmock](../../README.md#installation) first. Then, in this directory:
+[Install ghostwire](../../README.md#installation) first. Then, in this directory:
 
 ```bash
-pip install -r requirements.txt      # outside first: there is no network inside pingmock exec
-pingmock exec -config pingmock.yaml -- python3 -m pytest -v
+pip install -r requirements.txt      # outside first: there is no network inside ghostwire exec
+ghostwire exec -config ghostwire.yaml -- python3 -m pytest -v
 ```
 
-`pingmock exec` runs pytest in pingmock's private network and tells it the control API's address in the `PINGMOCK_API` environment variable. [`pingmock.yaml`](pingmock.yaml) makes both servers answer quickly, and each test changes what it needs.
+`ghostwire exec` runs pytest in ghostwire's private network and tells it the control API's address in the `GHOSTWIRE_API` environment variable. [`ghostwire.yaml`](ghostwire.yaml) makes both servers answer quickly, and each test changes what it needs.
 
-Outside pingmock (a plain `python3 -m pytest`, say), the tests skip themselves instead of failing.
+Outside ghostwire (a plain `python3 -m pytest`, say), the tests skip themselves instead of failing.
 
 ## What each test shows
 
-| Test | Network conditions | pingmock feature |
+| Test | Network conditions | ghostwire feature |
 |---|---|---|
 | `test_online_when_hosts_answer_quickly` | both answer quickly | rules in the [configuration file](../../README.md#configuration-file) |
 | `test_online_while_one_host_is_down` | 8.8.8.8 does not answer, 1.1.1.1 does | `timeout` |
@@ -52,23 +52,23 @@ Note the difference between unreachable and timeout: both mean offline, but an u
 
 ## The test helper
 
-[`conftest.py`](conftest.py) has a pytest fixture, `pingmock`: a small client written with the standard library alone, ready to copy into your own project. It covers what these tests use, ping, TCP and DNS rules, the history and `reset`; the other endpoints (`/udp/`, `/paths/`) take a method of the same few lines:
+[`conftest.py`](conftest.py) has a pytest fixture, `ghostwire`: a small client written with the standard library alone, ready to copy into your own project. It covers what these tests use, ping, TCP and DNS rules, the history and `reset`; the other endpoints (`/udp/`, `/paths/`) take a method of the same few lines:
 
 ```python
-def test_something(pingmock):
-    pingmock.set_rule("8.8.8.8", "timeout")    # for this test only
+def test_something(ghostwire):
+    ghostwire.set_rule("8.8.8.8", "timeout")    # for this test only
     ...
-    events = pingmock.history("8.8.8.8")       # the pings the code under test sent
+    events = ghostwire.history("8.8.8.8")       # the pings the code under test sent
 ```
 
-The API takes addresses, not names, so [`pingmock.yaml`](pingmock.yaml) gives `api.example.com` a fixed address with `hosts:`, and the tests change the TCP rule of `10.99.0.10:443`. Its DNS rule, `0ms`, answers as usual and is there from the start so that a test can change the answers.
+The API takes addresses, not names, so [`ghostwire.yaml`](ghostwire.yaml) gives `api.example.com` a fixed address with `hosts:`, and the tests change the TCP rule of `10.99.0.10:443`. Its DNS rule, `0ms`, answers as usual and is there from the start so that a test can change the answers.
 
 Before each test it calls `POST /reset`, so **every test starts from the rules in the configuration file**, with no statistics or history, whatever the tests before it changed. The code under test pings fixed addresses that the configuration file has rules for; a reset puts those rules back, where deleting a changed rule would leave the default in its place.
 
 ## Running the command
 
 ```bash
-pingmock exec -config pingmock.yaml -- python3 netcheck.py
+ghostwire exec -config ghostwire.yaml -- python3 netcheck.py
 ```
 
 ```
@@ -80,7 +80,7 @@ online: 8.8.8.8 answers in 15ms
 Other network conditions, without changing any code:
 
 ```bash
-pingmock exec -config pingmock.yaml -rule 8.8.8.8=350ms -rule '1.1.1.1=delay=500ms,pattern=..x' -- python3 netcheck.py
+ghostwire exec -config ghostwire.yaml -rule 8.8.8.8=350ms -rule '1.1.1.1=delay=500ms,pattern=..x' -- python3 netcheck.py
 ```
 
 ```
@@ -90,7 +90,7 @@ degraded: best is 8.8.8.8: 351ms, 0% lost
 ```
 
 ```bash
-pingmock exec -config pingmock.yaml -rule 8.8.8.8=unreachable -rule 1.1.1.1=unreachable=admin -- python3 netcheck.py
+ghostwire exec -config ghostwire.yaml -rule 8.8.8.8=unreachable -rule 1.1.1.1=unreachable=admin -- python3 netcheck.py
 ```
 
 ```
@@ -101,8 +101,8 @@ offline: no host answers (6 unreachable errors)
 
 ## Using it in your own project
 
-1. Copy [`conftest.py`](conftest.py) into your tests' directory; tests get the client by taking a `pingmock` argument
+1. Copy [`conftest.py`](conftest.py) into your tests' directory; tests get the client by taking a `ghostwire` argument
 2. Write a configuration file with the network the tests start from
-3. Install the dependencies first, then run the tests with `pingmock exec -config pingmock.yaml -- python3 -m pytest`, in CI as well. [`examples/github-actions`](../github-actions/) is a workflow ready to copy
+3. Install the dependencies first, then run the tests with `ghostwire exec -config ghostwire.yaml -- python3 -m pytest`, in CI as well. [`examples/github-actions`](../github-actions/) is a workflow ready to copy
 
-The same approach works in any language: read the address from `PINGMOCK_API` and call the [control API](../../README.md#runtime-control-api) with that language's HTTP library.
+The same approach works in any language: read the address from `GHOSTWIRE_API` and call the [control API](../../README.md#runtime-control-api) with that language's HTTP library.

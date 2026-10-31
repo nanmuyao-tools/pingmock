@@ -11,14 +11,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/api"
-	"github.com/nanmuyao-tools/pingmock/internal/engine"
-	"github.com/nanmuyao-tools/pingmock/internal/responder"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
-	"github.com/nanmuyao-tools/pingmock/internal/tun"
+	"github.com/nanmuyao-tools/ghostwire/internal/api"
+	"github.com/nanmuyao-tools/ghostwire/internal/engine"
+	"github.com/nanmuyao-tools/ghostwire/internal/responder"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/tun"
 )
 
-// instance is a running pingmock: the TUN device, the responder answering
+// instance is a running ghostwire: the TUN device, the responder answering
 // on it and the control API.
 type instance struct {
 	dev    *os.File
@@ -150,7 +150,7 @@ func (in *instance) startAPI(addr string, h http.Handler) error {
 }
 
 func logStartup(s *settings, ifName string, addr6 netip.Prefix, apiURL string) {
-	log.Printf("pingmock %s: device %s up with %s; ping any other address in %s (not %s itself, that one is local)",
+	log.Printf("ghostwire %s: device %s up with %s; ping any other address in %s (not %s itself, that one is local)",
 		buildVersion(), ifName, s.addr, s.addr.Masked(), s.addr.Addr())
 	if addr6.IsValid() {
 		log.Printf("IPv6: %s; ping any other address in %s", addr6, addr6.Masked())

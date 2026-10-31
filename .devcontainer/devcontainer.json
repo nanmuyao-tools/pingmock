@@ -1,19 +1,19 @@
-// The development container of pingmock: see README.md next to this file.
+// The development container of ghostwire: see README.md next to this file.
 {
-  "name": "pingmock",
+  "name": "ghostwire",
   "build": {
     "dockerfile": "Dockerfile",
     // The repository root, so that the Dockerfile can copy the tests'
     // Python requirements.
     "context": ".."
   },
-  // pingmock needs NET_ADMIN and the TUN device. SYS_ADMIN is for
-  // pingmock exec: Docker's default seccomp profile lets a container
+  // ghostwire needs NET_ADMIN and the TUN device. SYS_ADMIN is for
+  // ghostwire exec: Docker's default seccomp profile lets a container
   // create namespaces only when it has that capability, and the root
   // path of exec needs the capability itself. Neither --privileged nor
   // turning seccomp off is needed (verified with Docker Desktop 4.68).
   // On Linux hosts with AppArmor, such as Ubuntu, Docker's default profile
-  // forbids mount, which pingmock exec uses for the command's /etc/hosts;
+  // forbids mount, which ghostwire exec uses for the command's /etc/hosts;
   // where there is no AppArmor, as on a Mac, the option changes nothing.
   "runArgs": [
     "--cap-add=NET_ADMIN",
@@ -27,12 +27,12 @@
   "mounts": [
     // The Go module and build caches (and pip's), so that a rebuilt
     // container does not download or compile everything again.
-    "source=pingmock-gomod,target=/go/pkg/mod,type=volume",
-    "source=pingmock-cache,target=/home/dev/.cache,type=volume",
+    "source=ghostwire-gomod,target=/go/pkg/mod,type=volume",
+    "source=ghostwire-cache,target=/home/dev/.cache,type=volume",
     // Claude Code's login and settings, and the shell history, outlive
     // the container.
-    "source=pingmock-claude-${devcontainerId},target=/home/dev/.claude,type=volume",
-    "source=pingmock-history-${devcontainerId},target=/commandhistory,type=volume"
+    "source=ghostwire-claude-${devcontainerId},target=/home/dev/.claude,type=volume",
+    "source=ghostwire-history-${devcontainerId},target=/commandhistory,type=volume"
   ],
   "customizations": {
     "vscode": {

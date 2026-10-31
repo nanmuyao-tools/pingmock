@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Outside gives the command of pingmock exec the host's network, and the
+// Outside gives the command of ghostwire exec the host's network, and the
 // host's loopback ports it reaches:
 //
 //	outside: true
@@ -52,7 +52,7 @@ func (o *Outside) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// ParseOutsidePort checks a host loopback port for pingmock exec's outside
+// ParseOutsidePort checks a host loopback port for ghostwire exec's outside
 // access, PORT or PORT/tcp or PORT/udp, and returns it as PORT/PROTOCOL.
 func ParseOutsidePort(s string) (string, error) {
 	port, proto, ok := strings.Cut(strings.TrimSpace(s), "/")

@@ -4,7 +4,7 @@ How to work in this repository. The documents named here are the source of truth
 
 ## What this is
 
-pingmock mocks network answers on Linux, per target, for testing software that decides things from them: ping (ICMP and ICMPv6 echo), with paths for traceroute and mtr, TCP connections (accepted, refused, unanswered, then closed or reset, with fixed bytes sent on them), the ICMP errors of UDP datagrams, and DNS failures under `pingmock exec`. [README.md](README.md) says what it does, [docs/basics.md](docs/basics.md) explains the networking it relies on for newcomers, [docs/architecture.md](docs/architecture.md) is the tour of the code, [docs/roadmap.md](docs/roadmap.md) is the roadmap at a glance, with the competitors, [docs/planning.md](docs/planning.md) is how the roadmap is worked out, and [TODO.md](TODO.md) (in Chinese) is the roadmap itself, with what was verified at each step. [CONTRIBUTING.md](CONTRIBUTING.md) has the design principles and the release procedure.
+ghostwire mocks network answers on Linux, per target, for testing software that decides things from them: ping (ICMP and ICMPv6 echo), with paths for traceroute and mtr, TCP connections (accepted, refused, unanswered, then closed or reset, with fixed bytes sent on them), the ICMP errors of UDP datagrams, and DNS failures under `ghostwire exec`. [README.md](README.md) says what it does, [docs/basics.md](docs/basics.md) explains the networking it relies on for newcomers, [docs/architecture.md](docs/architecture.md) is the tour of the code, [docs/roadmap.md](docs/roadmap.md) is the roadmap at a glance, with the competitors, [docs/planning.md](docs/planning.md) is how the roadmap is worked out, and [TODO.md](TODO.md) (in Chinese) is the roadmap itself, with what was verified at each step. [CONTRIBUTING.md](CONTRIBUTING.md) has the design principles and the release procedure.
 
 ## Principles that decide what gets built
 
@@ -16,7 +16,7 @@ pingmock mocks network answers on Linux, per target, for testing software that d
 ## How the maintainer expects the work to be done
 
 - **Verify before concluding.** Say what was run and what it showed. An experiment whose setup failed is not a result. Never report CI as passing without having seen it pass.
-- **Dependencies are pinned to releases more than two weeks old**: Go modules, GitHub Actions, container images, tools in the dev container. pingmock itself depends only on the standard library and `go.yaml.in/yaml/v3`; `client/` uses the standard library alone. Discuss before adding anything.
+- **Dependencies are pinned to releases more than two weeks old**: Go modules, GitHub Actions, container images, tools in the dev container. ghostwire itself depends only on the standard library and `go.yaml.in/yaml/v3`; `client/` uses the standard library alone. Discuss before adding anything.
 - **Both languages change together**: `README.md` and `README.zh-CN.md`, `docs/*.md` and `docs/*.zh-CN.md`, every example's two READMEs.
 - **Seeded sequences are behavior.** With the same seed and rules, a target keeps getting the same results across versions.
 - **Tests come with the change**, and a bug fix comes with a test that fails without it. Mutation-check new tests when it is cheap: make them fail once on purpose.

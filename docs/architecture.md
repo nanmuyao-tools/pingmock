@@ -1,16 +1,16 @@
-# A tour of the pingmock code
+# A tour of the ghostwire code
 
 English | [中文](architecture.zh-CN.md)
 
-This document helps you read the pingmock code: what it is made of, how a ping is handled step by step, and in which order to read it. The code is about 6,600 lines without tests; ping is the heart of it, and read in the order below, the ping path takes an hour or two. TCP connections and DNS queries follow the same pattern and are described after it.
+This document helps you read the ghostwire code: what it is made of, how a ping is handled step by step, and in which order to read it. The code is about 6,600 lines without tests; ping is the heart of it, and read in the order below, the ping path takes an hour or two. TCP connections and DNS queries follow the same pattern and are described after it.
 
 If addresses, packets, TCP or DNS are new to you, read [Network basics](basics.md) first: it explains them with diagrams.
 
 ## The idea in one paragraph
 
-pingmock creates a **virtual network device** (a TUN device) and routes the addresses it mocks to it. From then on, whenever a program pings one of those addresses, the kernel hands the ping packet to pingmock. pingmock decides how to answer from the rules (reply after some delay, drop it, or report the destination unreachable), builds the answer itself and writes it back to the device, and the kernel delivers it to the program that pinged.
+ghostwire creates a **virtual network device** (a TUN device) and routes the addresses it mocks to it. From then on, whenever a program pings one of those addresses, the kernel hands the ping packet to ghostwire. ghostwire decides how to answer from the rules (reply after some delay, drop it, or report the destination unreachable), builds the answer itself and writes it back to the device, and the kernel delivers it to the program that pinged.
 
-The mocked "hosts" do not exist: every answer is made up by pingmock.
+The mocked "hosts" do not exist: every answer is made up by ghostwire.
 
 ## Map of the repository
 
@@ -25,7 +25,7 @@ internal/
   rule/                   rules: what a rule is and how it is written    ┘
   api/                    the HTTP API that changes rules while running
   config/                 the YAML configuration file
-  dns/                    the DNS server pingmock exec runs for its command, with DNS rules
+  dns/                    the DNS server ghostwire exec runs for its command, with DNS rules
 client/                   Go client for the API, for tests (the only public package)
 test/                     end-to-end and compatibility checks
 examples/                 programs and tests to copy from, one per language or tool
@@ -41,7 +41,7 @@ With the rule `10.99.0.1=50ms`, a program runs `ping 10.99.0.1`:
 
 ```mermaid
 flowchart TD
-    A["ping 10.99.0.1"] -->|"the kernel routes it<br>to the virtual device"| B["virtual device pingmock0"]
+    A["ping 10.99.0.1"] -->|"the kernel routes it<br>to the virtual device"| B["virtual device ghostwire0"]
     B --> C["responder: Serve reads the packet"]
     C --> D["icmp: ParseProbe<br>a ping? to which address?"]
     D --> E["engine: RuleSet.DecideProbe, then Decide<br>which rule, which phase for this target"]
@@ -62,7 +62,7 @@ In the code:
 
 The ping program measures the round trip and finds the configured 50ms.
 
-This is what happens **inside** pingmock. For how the request travels from ping through the kernel to pingmock0, and the reply back, see [The round trip of one ping](packet-path.md).
+This is what happens **inside** ghostwire. For how the request travels from ping through the kernel to ghostwire0, and the reply back, see [The round trip of one ping](packet-path.md).
 
 ## Connections and DNS queries
 
@@ -77,7 +77,7 @@ TCP and DNS rules reuse everything above: the same `Spec`, `Phase` and `Scenario
 
 **A UDP datagram** to an address and port with a UDP rule goes the same way as a SYN, without the cache: [`RuleSet.DecideUDP`](../internal/engine/udp.go) decides `Refused` (answered with ICMP port unreachable), `Unreachable` or `Drop`, and with a path the hops answer first.
 
-**A DNS query** never reaches the device. Under `pingmock exec`, the command's `resolv.conf` points at a small DNS server in the [`dns`](../internal/dns/dns.go) package, which the child starts in [`serveDNS`](../internal/app/names_linux.go):
+**A DNS query** never reaches the device. Under `ghostwire exec`, the command's `resolv.conf` points at a small DNS server in the [`dns`](../internal/dns/dns.go) package, which the child starts in [`serveDNS`](../internal/app/names_linux.go):
 
 1. `Server.Serve` (UDP) and `Server.ServeTCP` answer each query on its own goroutine.
 2. If the name has a DNS rule, `Server.Rule` asks [`RuleSet.DecideDNS`](../internal/engine/dns.go), which keeps phases per name and query type: an error (`NXDomain`, `ServFail`), no answer (`Drop`), or the usual answer after a delay.
@@ -119,33 +119,33 @@ YAML configuration is converted to JSON first ([`yamlToJSON`](../internal/config
 ```
 main.go: main
   └─ app.Main                    dispatches on the first argument
-       ├─ runServer              sudo pingmock [flags]
+       ├─ runServer              sudo ghostwire [flags]
        │    ├─ parseSettings     flags → configuration file → validation, giving settings
        │    └─ start             device → addresses → rules → API → main loop
-       └─ runExec                pingmock exec [flags] -- CMD
+       └─ runExec                ghostwire exec [flags] -- CMD
 ```
 
 [`parseSettings`](../internal/app/settings.go) gives precedence to **flags on the command line, then the configuration file, then defaults**. When [`start`](../internal/app/instance.go) returns, pings are answered and the API is listening.
 
-## pingmock exec
+## ghostwire exec
 
-`pingmock exec` needs no root thanks to Linux **namespaces**:
+`ghostwire exec` needs no root thanks to Linux **namespaces**:
 
 ```
 your terminal
-  └─ pingmock exec (the parent, runExec)
+  └─ ghostwire exec (the parent, runExec)
        │  creates new user, network and PID namespaces and starts itself again inside them
-       └─ pingmock (the child, runExecChild; root and process 1 in the new namespaces)
+       └─ ghostwire (the child, runExecChild; root and process 1 in the new namespaces)
             ├─ start: creates the virtual device in this private network
-            └─ CMD (for example ./my-app), with PINGMOCK_API pointing at the API
+            └─ CMD (for example ./my-app), with GHOSTWIRE_API pointing at the API
 ```
 
 - The **user namespace** gives an unprivileged user root inside it, and only there, so it can create the device.
 - The **network namespace** is a separate set of devices and routes, so the host is not affected.
 - The **PID namespace** makes the child process 1. When it exits, the kernel ends every process in the namespace, so nothing is left behind.
-- With **`-outside`**, the parent attaches pasta to the child's namespaces ([`outside_linux.go`](../internal/app/outside_linux.go)) before the child sets up its device: the child waits on a pipe until pasta is done, so that pingmock's routes for mocked targets come after pasta's default route and, being more specific, win.
+- With **`-outside`**, the parent attaches pasta to the child's namespaces ([`outside_linux.go`](../internal/app/outside_linux.go)) before the child sets up its device: the child waits on a pipe until pasta is done, so that ghostwire's routes for mocked targets come after pasta's default route and, being more specific, win.
 
-The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../internal/app/exec_linux.go) is the parent and [`runExecChild`](../internal/app/exec_linux.go) the child, which recognizes itself by the special first argument `__pingmock-exec-child`.
+The code is in [`exec_linux.go`](../internal/app/exec_linux.go): [`runExec`](../internal/app/exec_linux.go) is the parent and [`runExecChild`](../internal/app/exec_linux.go) the child, which recognizes itself by the special first argument `__ghostwire-exec-child`.
 
 ## Suggested reading order
 

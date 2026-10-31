@@ -27,7 +27,7 @@ func (k Kind) String() string {
 	return "?"
 }
 
-// Probe describes a packet read from the TUN device that pingmock may
+// Probe describes a packet read from the TUN device that ghostwire may
 // answer: an echo request, or, for targets with a path, a UDP datagram or
 // a TCP SYN. TTL is the IPv4 TTL or IPv6 hop limit as the sender set it,
 // which is how traceroute asks each router in turn to answer.
@@ -63,7 +63,7 @@ const (
 	icmp6TimeExceeded = 3
 )
 
-// ParseProbe reports whether pkt is a packet pingmock may answer, and
+// ParseProbe reports whether pkt is a packet ghostwire may answer, and
 // describes it.
 func ParseProbe(pkt []byte) (Probe, bool) {
 	if len(pkt) < 1 {
@@ -232,8 +232,8 @@ func BuildSynAck(req []byte, ttl uint8) []byte {
 	return buildTCPAnswer(req, ttl, FlagSYN|FlagACK, SynAckSeq, 65535, tcpSeq(req)+1)
 }
 
-// SynAckSeq is the sequence number of every SYN-ACK pingmock sends: "ping".
-// The SYN-ACK uses it up, so what pingmock sends next on the connection
+// SynAckSeq is the sequence number of every SYN-ACK ghostwire sends: "ping".
+// The SYN-ACK uses it up, so what ghostwire sends next on the connection
 // starts at SynAckSeq+1.
 const SynAckSeq = 0x70696e67
 
@@ -253,7 +253,7 @@ func BuildSegment(req []byte, ttl uint8, flags byte, seq, ack uint32, data []byt
 	return buildTCPAnswer(req, ttl, flags, seq, 65535, ack, data...)
 }
 
-// MaxSegment is the most data pingmock puts in one TCP segment: the
+// MaxSegment is the most data ghostwire puts in one TCP segment: the
 // maximum segment size every IPv4 host accepts (RFC 9293 3.7.1), so that
 // no client's MSS needs to be read.
 const MaxSegment = 536

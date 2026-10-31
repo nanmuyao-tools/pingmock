@@ -1,7 +1,7 @@
-# The development container: a Linux with everything pingmock and its tests
+# The development container: a Linux with everything ghostwire and its tests
 # need, so that the work can be done on a Mac, or on any machine with
 # Docker. How to use it is in README.md next to this file; devcontainer.json
-# gives the container the privileges pingmock needs.
+# gives the container the privileges ghostwire needs.
 #
 # Built from the repository root (devcontainer.json sets the context), so
 # that the Python requirements of the tests can be installed here.
@@ -9,11 +9,11 @@
 # Pinned, like every dependency, to a release more than two weeks old.
 FROM golang:1.27.0-bookworm
 
-# What pingmock uses at run time (the TUN device), what the end-to-end
+# What ghostwire uses at run time (the TUN device), what the end-to-end
 # and compatibility checks run (iproute2, ping, curl, traceroute, mtr,
 # fping, Python), and what make lint needs (shellcheck). sudo is for the
 # checks that need root; the rest of the time the container runs as the
-# unprivileged user dev, like pingmock exec's users.
+# unprivileged user dev, like ghostwire exec's users.
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
       iproute2 iputils-ping curl ca-certificates traceroute mtr-tiny fping nscd \
       python3 python3-pip python3-venv shellcheck \

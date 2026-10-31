@@ -1,5 +1,5 @@
 # The network the tests start from: both hosts answer quickly. Run with:
-#   pingmock exec -config pingmock.yaml -- python3 -m pytest
+#   ghostwire exec -config ghostwire.yaml -- python3 -m pytest
 # Each test changes what it needs through the control API.
 
 seed: 42   # random loss and jitter are the same on every run

@@ -1,5 +1,5 @@
 # Build output
-/pingmock
+/ghostwire
 *.test
 *.out
 test.out

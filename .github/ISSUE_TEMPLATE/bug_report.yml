@@ -1,5 +1,5 @@
 name: Bug report
-description: pingmock does not do what the documentation says
+description: ghostwire does not do what the documentation says
 labels: [bug]
 body:
   - type: markdown
@@ -9,8 +9,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: pingmock version
-      description: The output of `pingmock -version`, or the image tag.
+      label: ghostwire version
+      description: The output of `ghostwire -version`, or the image tag.
       placeholder: v0.5.1
     validations:
       required: true
@@ -25,11 +25,11 @@ body:
   - type: dropdown
     id: mode
     attributes:
-      label: How pingmock was run
+      label: How ghostwire was run
       options:
-        - pingmock exec (without root)
-        - sudo pingmock
-        - Container image (ghcr.io/nanmuyao-tools/pingmock)
+        - ghostwire exec (without root)
+        - sudo ghostwire
+        - Container image (ghcr.io/nanmuyao-tools/ghostwire)
         - Go client package only
     validations:
       required: true
@@ -39,14 +39,14 @@ body:
       label: Steps to reproduce
       description: The exact commands, the rules or configuration file, and what the program under test does (a `ping` command is enough).
       placeholder: |
-        pingmock exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
+        ghostwire exec -rule 10.99.0.1=50ms -- ping -c 3 10.99.0.1
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
       label: What happened
-      description: The full output, including pingmock's log lines. Running with `-v` logs every request, which helps.
+      description: The full output, including ghostwire's log lines. Running with `-v` logs every request, which helps.
       render: text
     validations:
       required: true

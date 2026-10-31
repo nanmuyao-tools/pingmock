@@ -1,5 +1,5 @@
 # The hosts the ping library is tested against. Run the tests with:
-#   go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+#   go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...
 # Each host stands for one behavior a ping library has to get right.
 
 seed: 7   # the same random outcomes on every run (none of these rules are random, but keep the habit)

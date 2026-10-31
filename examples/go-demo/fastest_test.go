@@ -12,16 +12,16 @@ import (
 	"github.com/nanmuyao-tools/pingmock/client"
 )
 
-// These tests run inside pingmock exec, which mocks the pings they cause:
+// These tests run inside ghostwire exec, which mocks the pings they cause:
 //
-//	go test -exec 'pingmock exec -config pingmock.yaml --' ./...
+//	go test -exec 'ghostwire exec -config ghostwire.yaml --' ./...
 //
-// pingmock.yaml sets up three servers; each test adds the conditions it
-// needs through pingmock's control API and removes them when it ends.
+// ghostwire.yaml sets up three servers; each test adds the conditions it
+// needs through ghostwire's control API and removes them when it ends.
 
-// pingmock connects to the pingmock running the tests, or skips the test
+// ghostwire connects to the ghostwire running the tests, or skips the test
 // when there is none.
-func pingmock(t *testing.T) *client.Client {
+func ghostwire(t *testing.T) *client.Client {
 	t.Helper()
 	pm, err := client.FromEnv()
 	if err != nil {
@@ -47,7 +47,7 @@ func near(t *testing.T, what string, got, want time.Duration) {
 }
 
 func TestPicksFastest(t *testing.T) {
-	pingmock(t) // the servers come from pingmock.yaml
+	ghostwire(t) // the servers come from ghostwire.yaml
 
 	best, results, err := fastest.Pick(context.Background(), []string{"10.99.0.1", "10.99.0.2", "10.99.0.3"}, fastest.Options{})
 	if err != nil {
@@ -65,7 +65,7 @@ func TestPicksFastest(t *testing.T) {
 }
 
 func TestSkipsUnreachableServer(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	rule(t, pm, "10.99.0.21", "delay=10ms,unreachable") // fastest to answer, but with an error
 	rule(t, pm, "10.99.0.22", "40ms")
 
@@ -79,7 +79,7 @@ func TestSkipsUnreachableServer(t *testing.T) {
 }
 
 func TestSkipsServerThatTimesOut(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	rule(t, pm, "10.99.0.31", "timeout")
 	rule(t, pm, "10.99.0.32", "30ms")
 
@@ -95,7 +95,7 @@ func TestSkipsServerThatTimesOut(t *testing.T) {
 }
 
 func TestAvoidsLossyServer(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	// pattern=.x drops every second ping: always exactly half, unlike
 	// loss=50%, which is random (though reproducible with the seed).
 	rule(t, pm, "10.99.0.41", "delay=10ms,pattern=.x")
@@ -111,7 +111,7 @@ func TestAvoidsLossyServer(t *testing.T) {
 }
 
 func TestSwitchesWhenCurrentServerSlowsDown(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	ctx := context.Background()
 	rule(t, pm, "10.99.0.51", "15ms")
 	rule(t, pm, "10.99.0.52", "40ms")
@@ -132,7 +132,7 @@ func TestSwitchesWhenCurrentServerSlowsDown(t *testing.T) {
 }
 
 func TestSwitchesWhenCurrentServerGoesDown(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	// A scenario: the server answers the first 3 pings, then stops. No API
 	// call is needed in the middle of the test.
 	rule(t, pm, "10.99.0.61", "15ms for 3 pings; timeout")
@@ -148,7 +148,7 @@ func TestSwitchesWhenCurrentServerGoesDown(t *testing.T) {
 }
 
 func TestSendsConfiguredNumberOfPings(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	ctx := context.Background()
 	rule(t, pm, "10.99.0.71", "5ms")
 	if err := pm.ClearHistory(ctx); err != nil {
@@ -157,7 +157,7 @@ func TestSendsConfiguredNumberOfPings(t *testing.T) {
 
 	fastest.Measure(ctx, "10.99.0.71", fastest.Options{Count: 4})
 
-	// pingmock's history shows what the code under test actually did.
+	// ghostwire's history shows what the code under test actually did.
 	events, err := pm.History(ctx, "10.99.0.71", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func tcp(t *testing.T, pm *client.Client, target, r string) {
 }
 
 func TestConnectFailsOverWhenTheConnectionTimesOut(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	tcp(t, pm, "10.99.0.81:5432", "timeout") // this database hangs
 
 	start := time.Now()
@@ -199,14 +199,14 @@ func TestConnectFailsOverWhenTheConnectionTimesOut(t *testing.T) {
 		t.Errorf("failures %v, want one timeout", failed)
 	}
 	// 300ms waiting for the first, then 50ms to connect to the second
-	// (pingmock.yaml), and a little time for the program itself.
+	// (ghostwire.yaml), and a little time for the program itself.
 	if d := time.Since(start); d < 350*time.Millisecond || d > 400*time.Millisecond {
 		t.Errorf("time to connect: %v, want 350ms to 400ms", d)
 	}
 }
 
 func TestConnectFailsOverAtOnceWhenRefused(t *testing.T) {
-	pm := pingmock(t)
+	pm := ghostwire(t)
 	ctx := context.Background()
 	if err := pm.ClearHistory(ctx); err != nil {
 		t.Fatal(err)
@@ -224,7 +224,7 @@ func TestConnectFailsOverAtOnceWhenRefused(t *testing.T) {
 	}
 	near(t, "time to connect", time.Since(start), 50*time.Millisecond)
 
-	// pingmock's history shows what the code under test did: one attempt,
+	// ghostwire's history shows what the code under test did: one attempt,
 	// refused, and no retry.
 	events, err := pm.History(ctx, "10.99.0.82", 0)
 	if err != nil {

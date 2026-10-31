@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# End-to-end checks for "pingmock exec". Run it as an unprivileged user to
+# End-to-end checks for "ghostwire exec". Run it as an unprivileged user to
 # test the rootless path, and as root to test the root path:
-#   go build -o pingmock . && test/e2e-exec.sh && sudo test/e2e-exec.sh
+#   go build -o ghostwire . && test/e2e-exec.sh && sudo test/e2e-exec.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
-PM=./pingmock
+PM=./ghostwire
 
-# pingmock's own log goes to a file, printed whenever a check fails, so a
+# ghostwire's own log goes to a file, printed whenever a check fails, so a
 # failure in CI always shows its cause.
 LOG=$(mktemp)
-trap 'status=$?; echo "FAIL at line $LINENO (exit $status)"; echo "--- pingmock log:"; tail -n 20 "$LOG"; exit $status' ERR
+trap 'status=$?; echo "FAIL at line $LINENO (exit $status)"; echo "--- ghostwire log:"; tail -n 20 "$LOG"; exit $status' ERR
 
 pass() { echo "PASS $1"; }
-fail() { echo "FAIL $1"; echo "--- pingmock log:"; tail -n 20 "$LOG"; exit 1; }
+fail() { echo "FAIL $1"; echo "--- ghostwire log:"; tail -n 20 "$LOG"; exit 1; }
 same() { [ "$2" = "$3" ] && pass "$1" || fail "$1: got '$2', want '$3'"; }
 # Ping results are the shortest round trip of a few pings, as in e2e.sh.
 near() {
@@ -29,42 +29,42 @@ if [ "$(id -u)" = 0 ]; then echo "running as root"; else echo "running as $(id -
 rtt=$(run -rule 10.99.0.1=45ms -- sh -c "ping -c 3 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
 near "ping inside exec" "$rtt" 45 5
 
-# pingmock exec needs no programs either: with an empty PATH it still sets
+# ghostwire exec needs no programs either: with an empty PATH it still sets
 # up the namespace, and only the command needs a full path.
 ping=$(command -v ping)
 rtt=$(env PATH=/nonexistent "$PM" exec -addr6 "" -rule 10.99.0.1=30ms -- "$ping" -c 3 -i 0.2 10.99.0.1 2>>"$LOG" | awk -F'[ /=]+' '/^rtt/ {print $6}')
-near "pingmock exec without ip on the PATH" "$rtt" 30 5
+near "ghostwire exec without ip on the PATH" "$rtt" 30 5
 
 status=0
 run -- sh -c 'exit 7' || status=$?
 same "exit status of the command is passed on" "$status" 7
 
 status=0
-run -- no-such-command-pingmock || status=$?
+run -- no-such-command-ghostwire || status=$?
 same "missing command exits 127" "$status" 127
 
 status=0
 run -tcp 10.99.0.1:80=nonsense -- true || status=$?
-same "pingmock exec's own failure exits 125, not a status the command could have" "$status" 125
+same "ghostwire exec's own failure exits 125, not a status the command could have" "$status" 125
 status=0
 run -- sh -c 'exit 2' || status=$?
 same "the command's exit status 2 is its own" "$status" 2
 
-api=$(run -rule 10.99.0.1=10ms -- sh -c 'echo "$PINGMOCK_API"')
-same "PINGMOCK_API is set for the command" "$api" "http://127.0.0.1:9100"
+api=$(run -rule 10.99.0.1=10ms -- sh -c 'echo "$GHOSTWIRE_API"')
+same "GHOSTWIRE_API is set for the command" "$api" "http://127.0.0.1:9100"
 
 changed=$(run -rule 10.99.0.1=10ms -- sh -c "
-  curl -sf -X PUT \"\$PINGMOCK_API/rules/10.99.0.1\" -d 120ms >/dev/null
+  curl -sf -X PUT \"\$GHOSTWIRE_API/rules/10.99.0.1\" -d 120ms >/dev/null
   ping -c 2 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
 near "rules change through the API inside exec" "$changed" 120 6
 
 # POST /reset puts the startup rules back; GET /version names the build.
 reset=$(run -rule 10.99.0.1=10ms -- sh -c "
-  curl -sf -X PUT \"\$PINGMOCK_API/rules/10.99.0.1\" -d 120ms >/dev/null
-  curl -sf -X POST \"\$PINGMOCK_API/reset\"
+  curl -sf -X PUT \"\$GHOSTWIRE_API/rules/10.99.0.1\" -d 120ms >/dev/null
+  curl -sf -X POST \"\$GHOSTWIRE_API/reset\"
   ping -c 2 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'")
 near "POST /reset restores the startup rules" "$reset" 10 5
-version=$(run -- sh -c 'curl -sf "$PINGMOCK_API/version"' | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
+version=$(run -- sh -c 'curl -sf "$GHOSTWIRE_API/version"' | grep -o '"version": *"[^"]*"' | cut -d'"' -f4)
 same "GET /version reports the build" "$version" "$("$PM" -version | cut -d' ' -f2)"
 
 # -host gives the command a private /etc/hosts; the system's is untouched.
@@ -75,7 +75,7 @@ resolved=$(run -host test.example=10.99.0.1 -rule 10.99.0.1=35ms -- sh -c "
 same "-host resolves the name for the command" "$(echo "$resolved" | head -1)" "10.99.0.1"
 near "-host: ping by name gets the rule's delay" "$(echo "$resolved" | tail -1)" 35 5
 same "-host leaves the system's /etc/hosts alone" "$(md5sum /etc/hosts)" "$before"
-same "-host leaves no file behind" "$(ls /tmp/pingmock-hosts-* 2>/dev/null | wc -l)" 0
+same "-host leaves no file behind" "$(ls /tmp/ghostwire-hosts-* 2>/dev/null | wc -l)" 0
 
 # nscd, where it runs, resolves on the host for every program using the C
 # library: -host must win over it. Run as root, where nscd can be started.
@@ -121,7 +121,7 @@ else
   echo "SKIP forwarding to the host's resolver (this host cannot resolve github.com)"
 fi
 leftover=0
-for f in /tmp/pingmock-*; do [ -e "$f" ] && [ "$f" != /tmp/pingmock-e2e.log ] && leftover=$((leftover + 1)); done
+for f in /tmp/ghostwire-*; do [ -e "$f" ] && [ "$f" != /tmp/ghostwire-e2e.log ] && leftover=$((leftover + 1)); done
 same "no temporary file is left behind" "$leftover" 0
 
 # TCP rules inside exec: a connection to an address is accepted after the
@@ -217,7 +217,7 @@ fi
 run -- sleep 1 &
 bg=$!
 sleep 0.5
-if ip link show pingmock0 >/dev/null 2>&1; then fail "a pingmock0 device appeared on the host"; fi
+if ip link show ghostwire0 >/dev/null 2>&1; then fail "a ghostwire0 device appeared on the host"; fi
 wait "$bg"
 pass "the host network is untouched"
 
@@ -241,7 +241,7 @@ same "background processes are stopped" "$after" "$before"
 # command's network is as before it had one, here with no way out.
 same "a deleted rule's address is unreachable again, as before the rule" "$(run -rule 8.8.8.8=5ms -- bash -c "
   ping -c 1 -W 1 8.8.8.8 >/dev/null && echo -n 'answered, '
-  curl -sf -X DELETE \"\$PINGMOCK_API/rules/8.8.8.8\" >/dev/null
+  curl -sf -X DELETE \"\$GHOSTWIRE_API/rules/8.8.8.8\" >/dev/null
   ping -c 1 -W 1 8.8.8.8 2>&1 | grep -o 'Network is unreachable' | head -1")" "answered, Network is unreachable"
 
 # Outside access, through pasta: the command reaches a service on the
@@ -250,7 +250,7 @@ same "a deleted rule's address is unreachable again, as before the rule" "$(run 
 # None of it needs the internet. Without pasta, exec fails as itself, and
 # the checks are skipped, unless REQUIRE_OUTSIDE=1 (as in CI) makes that a
 # failure.
-same "-outside without pasta fails as pingmock exec itself (125)" \
+same "-outside without pasta fails as ghostwire exec itself (125)" \
   "$(PATH=/nonexistent "$PM" exec -addr6 "" -outside -- true 2>>"$LOG"; echo $?)" 125
 if command -v pasta >/dev/null; then
   python3 -m http.server 18765 --bind 127.0.0.1 -d /tmp >/dev/null 2>&1 &
@@ -260,21 +260,21 @@ if command -v pasta >/dev/null; then
     curl -s -o /dev/null -m 2 -w '%{http_code}\n' http://127.0.0.1:18765/ || true
     ping -c 3 -i 0.2 10.99.0.1 | awk -F'[ /=]+' '/^rtt/ {print \$6}'
     curl -s -o /dev/null --connect-timeout 0.5 -m 0.5 -w '%{time_connect}\n' http://10.99.0.9/ || true
-    curl -s \"\$PINGMOCK_API/rules\" | python3 -c 'import json, sys; print(json.load(sys.stdin)[\"outside\"][\"ports\"])'")
+    curl -s \"\$GHOSTWIRE_API/rules\" | python3 -c 'import json, sys; print(json.load(sys.stdin)[\"outside\"][\"ports\"])'")
   same "-outside-port reaches a service on the host's loopback" "$(sed -n 1p <<<"$inside")" 200
   near "a mocked target keeps its rule with outside access" "$(sed -n 2p <<<"$inside")" 100 5
   same "an unmocked port of the subnet is not answered with outside access" "$(sed -n 3p <<<"$inside")" "0.000000"
   same "GET /rules shows the outside access" "$(sed -n 4p <<<"$inside")" "['18765/tcp']"
   # A real address mocked through the API goes back to pasta's route once
   # its rule is deleted.
-  # pasta's device takes the name of the host's, so only pingmock0 is known.
+  # pasta's device takes the name of the host's, so only ghostwire0 is known.
   devs=$(run -outside -- bash -c "
-    curl -sf -X PUT \"\$PINGMOCK_API/tcp/1.1.1.1:80\" -d refuse >/dev/null
+    curl -sf -X PUT \"\$GHOSTWIRE_API/tcp/1.1.1.1:80\" -d refuse >/dev/null
     ip route get 1.1.1.1 | grep -o 'dev [^ ]*' | head -1
-    curl -sf -X DELETE \"\$PINGMOCK_API/tcp/1.1.1.1:80\" >/dev/null
+    curl -sf -X DELETE \"\$GHOSTWIRE_API/tcp/1.1.1.1:80\" >/dev/null
     ip route get 1.1.1.1 | grep -o 'dev [^ ]*' | head -1")
-  same "with outside access, a mocked real address goes to pingmock" "$(sed -n 1p <<<"$devs")" "dev pingmock0"
-  same "and once its rule is deleted, out through pasta again" "$(sed -n 2p <<<"$devs" | grep -c -v -e pingmock0 -e '^$' || true)" 1
+  same "with outside access, a mocked real address goes to ghostwire" "$(sed -n 1p <<<"$devs")" "dev ghostwire0"
+  same "and once its rule is deleted, out through pasta again" "$(sed -n 2p <<<"$devs" | grep -c -v -e ghostwire0 -e '^$' || true)" 1
   same "without -outside-port, the host's loopback is out of reach" \
     "$(run -outside -- curl -s -o /dev/null -m 2 -w '%{http_code}' http://127.0.0.1:18765/ || true)" 000
   kill "$srv" 2>/dev/null || true

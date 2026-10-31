@@ -12,8 +12,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nanmuyao-tools/pingmock/internal/config"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/config"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 type ruleFlags []string
@@ -49,7 +49,7 @@ type settings struct {
 	dns           []config.DNSRule // exec only
 	outside       bool             // exec only: the command gets the host's network through pasta
 	outsidePorts  []string         // host loopback ports it reaches, such as "5432/tcp"
-	exec          bool             // running under pingmock exec
+	exec          bool             // running under ghostwire exec
 }
 
 // targetTCP is a TCP rule to install at startup; a rule given for a name
@@ -131,23 +131,23 @@ func defineFlags(name string, usage func(io.Writer, *flag.FlagSet), out io.Write
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(out)
 	f := &flagValues{given: map[string]bool{}}
-	f.dev = fs.String("dev", "pingmock0", "TUN device name")
+	f.dev = fs.String("dev", "ghostwire0", "TUN device name")
 	f.addr = fs.String("addr", "10.99.0.254/24", "IPv4 address/prefix of the TUN device; other addresses in this subnet are mocked hosts")
-	f.addr6 = fs.String("addr6", "fd99::fe/64", "IPv6 address/prefix of the TUN device (empty disables IPv6); if IPv6 is unavailable and this flag is not given, pingmock continues with IPv4 only")
+	f.addr6 = fs.String("addr6", "fd99::fe/64", "IPv6 address/prefix of the TUN device (empty disables IPv6); if IPv6 is unavailable and this flag is not given, ghostwire continues with IPv4 only")
 	f.defRule = fs.String("default", "0ms", "rule for targets without a matching -rule")
 	f.api = fs.String("api", "127.0.0.1:9100", "listen address of the HTTP control API (empty disables it)")
 	f.seed = fs.Uint64("seed", 0, "seed for loss and jitter; the same seed reproduces the same sequence per target (default: random, printed at startup)")
 	f.verbose = fs.Bool("v", false, "log every request")
 	f.config = fs.String("config", "", "YAML configuration file; flags given on the command line override it")
 	f.history = fs.Int("history", 1000, "number of recent requests kept for GET /history (0 disables)")
-	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR, or under pingmock exec a name. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, ttl=128, or phases such as \"50ms for 3 pings; timeout\"")
-	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, pingmock exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
+	fs.Var(&f.rules, "rule", "TARGET=RULE, repeatable. TARGET is an IPv4 or IPv6 address or CIDR, or under ghostwire exec a name. RULE is e.g. 120ms, delay=120ms,jitter=10ms,loss=5%, pattern=..x, unreachable, timeout, ttl=128, or phases such as \"50ms for 3 pings; timeout\"")
+	fs.Var(&f.hosts, "host", "NAME=ADDR, repeatable, ghostwire exec only: CMD resolves NAME to ADDR through a private /etc/hosts, e.g. api.example.com=10.99.0.1")
 	fs.Var(&f.paths, "path", "TARGET=PATH, repeatable: the route traceroute and mtr see to TARGET, hops separated by \">\", each ADDR@SETTINGS (delay, jitter, loss, cut, ttl) or * for one that never answers, e.g. '8.8.8.8=192.168.1.1@2ms > * > 72.14.0.1@25ms'")
-	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443), or under pingmock exec NAME[:PORT]; no port means every port. RULE is as for -rule, plus refuse (answer with a reset), r in a pattern, after=close|reset|hang (what happens once a connection is accepted), send=\"...\" and reply=\"...\" (bytes to send at once or on the first data), limit=N and wait=, e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
-	fs.Var(&f.udp, "udp", "TARGET=RULE, repeatable: how UDP datagrams to TARGET fail, written as for -tcp. RULE is refuse (ICMP port unreachable), unreachable[=net|admin], timeout or loss=, x, u and r in a pattern, and the delay and ttl of the error; pingmock sends no UDP answers, e.g. 10.99.0.1:514=refuse or '10.99.0.2:123=timeout for 2 requests; refuse'")
-	f.outside = fs.Bool("outside", false, "pingmock exec only: give CMD the host's network through pasta (package passt), for real addresses and names; mocked targets keep their rules")
-	fs.Var(&f.outsidePorts, "outside-port", "PORT[/tcp|/udp], repeatable, pingmock exec only: CMD's connections to 127.0.0.1:PORT reach the host's, e.g. a database published there; implies -outside")
-	fs.Var(&f.dns, "dns", "NAME=RULE, repeatable, pingmock exec only: how CMD's DNS queries for NAME are answered. RULE is as for -rule, without unreachable and ttl, plus nxdomain (the name does not exist), servfail (the server failed) and n and s in a pattern; other settings apply to the usual answer, e.g. api.example.com=nxdomain or 'db.example.com=servfail for 2 requests; 10ms'")
+	fs.Var(&f.tcp, "tcp", "TARGET=RULE, repeatable: how TCP connections to TARGET are answered. TARGET is ADDR[:PORT] or PREFIX[:PORT], IPv6 in brackets ([fd99::1]:443), or under ghostwire exec NAME[:PORT]; no port means every port. RULE is as for -rule, plus refuse (answer with a reset), r in a pattern, after=close|reset|hang (what happens once a connection is accepted), send=\"...\" and reply=\"...\" (bytes to send at once or on the first data), limit=N and wait=, e.g. 10.99.0.1:5432=timeout or '10.99.0.2:443=refuse for 3 requests; 20ms'")
+	fs.Var(&f.udp, "udp", "TARGET=RULE, repeatable: how UDP datagrams to TARGET fail, written as for -tcp. RULE is refuse (ICMP port unreachable), unreachable[=net|admin], timeout or loss=, x, u and r in a pattern, and the delay and ttl of the error; ghostwire sends no UDP answers, e.g. 10.99.0.1:514=refuse or '10.99.0.2:123=timeout for 2 requests; refuse'")
+	f.outside = fs.Bool("outside", false, "ghostwire exec only: give CMD the host's network through pasta (package passt), for real addresses and names; mocked targets keep their rules")
+	fs.Var(&f.outsidePorts, "outside-port", "PORT[/tcp|/udp], repeatable, ghostwire exec only: CMD's connections to 127.0.0.1:PORT reach the host's, e.g. a database published there; implies -outside")
+	fs.Var(&f.dns, "dns", "NAME=RULE, repeatable, ghostwire exec only: how CMD's DNS queries for NAME are answered. RULE is as for -rule, without unreachable and ttl, plus nxdomain (the name does not exist), servfail (the server failed) and n and s in a pattern; other settings apply to the usual answer, e.g. api.example.com=nxdomain or 'db.example.com=servfail for 2 requests; 10ms'")
 	fs.Usage = func() { usage(out, fs) }
 	return f, fs
 }
@@ -519,9 +519,9 @@ func (s *settings) dnsTarget(name string) (string, error) {
 	case err != nil:
 		return "", err
 	case !s.exec:
-		return "", fmt.Errorf("DNS rules are for pingmock exec only: for the whole machine, pingmock cannot get between programs and the machine's resolver")
+		return "", fmt.Errorf("DNS rules are for ghostwire exec only: for the whole machine, ghostwire cannot get between programs and the machine's resolver")
 	case !s.names():
-		return "", fmt.Errorf("this pingmock exec runs no DNS server for its command: start it with a -dns rule, a -host or a rule for a name (a rule that changes nothing will do: -dns %s=0ms)", n)
+		return "", fmt.Errorf("this ghostwire exec runs no DNS server for its command: start it with a -dns rule, a -host or a rule for a name (a rule that changes nothing will do: -dns %s=0ms)", n)
 	}
 	for _, h := range s.hostsFile() {
 		if h.Name == n {
@@ -579,7 +579,7 @@ func parseRuleFlag(s string) (rule.Target, rule.Scenario, error) {
 
 // names reports whether the command needs name resolution: hosts given,
 // rules written for names, or DNS rules.
-// checkOutsidePorts refuses host ports that pingmock itself listens on in
+// checkOutsidePorts refuses host ports that ghostwire itself listens on in
 // the command's network: pasta binds them there first, so the command's
 // DNS server or API could not start.
 func (s *settings) checkOutsidePorts() error {

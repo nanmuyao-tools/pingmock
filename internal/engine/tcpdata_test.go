@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/icmp"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/icmp"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 const (
@@ -22,29 +22,29 @@ func segData(dst string, port, srcPort uint16, seq, acked uint32, n int) icmp.Pr
 
 func TestTCPSend(t *testing.T) {
 	rs, _ := newTestRuleSet(t, "0ms", 1)
-	setTCP(t, rs, "10.99.0.1:22", `send="SSH-2.0-pingmock\r\n"`)
+	setTCP(t, rs, "10.99.0.1:22", `send="SSH-2.0-ghostwire\r\n"`)
 	rs.DecideProbe(syn("10.99.0.1", 22, 40000, 100))
-	// The handshake's last ACK: the banner, from pingmock's first number.
+	// The handshake's last ACK: the banner, from ghostwire's first number.
 	a, ok := rs.DecideSegment(seg("10.99.0.1", 22, 40000, ack, 101, next, 0))
-	if !ok || len(a.Ordered) != 1 || len(a.Now) != 0 || a.Sent != 18 || a.Delay != 0 || a.Action != nil {
+	if !ok || len(a.Ordered) != 1 || len(a.Now) != 0 || a.Sent != 19 || a.Delay != 0 || a.Action != nil {
 		t.Fatalf("final ACK: %+v", a)
 	}
 	s := a.Ordered[0]
-	if s.Flags != ack|psh || s.Seq != next || s.Ack != 101 || string(s.Data) != "SSH-2.0-pingmock\r\n" {
+	if s.Flags != ack|psh || s.Seq != next || s.Ack != 101 || string(s.Data) != "SSH-2.0-ghostwire\r\n" {
 		t.Errorf("banner segment %+v", s)
 	}
 	// The client's data is acknowledged, from after the banner.
-	a, ok = rs.DecideSegment(segData("10.99.0.1", 22, 40000, 101, next+18, 30))
-	if !ok || len(a.Now) != 1 || a.Now[0].Flags != ack || a.Now[0].Seq != next+18 || a.Now[0].Ack != 131 || len(a.Ordered) != 0 {
+	a, ok = rs.DecideSegment(segData("10.99.0.1", 22, 40000, 101, next+19, 30))
+	if !ok || len(a.Now) != 1 || a.Now[0].Flags != ack || a.Now[0].Seq != next+19 || a.Now[0].Ack != 131 || len(a.Ordered) != 0 {
 		t.Errorf("client data: %+v", a)
 	}
 	// The same data again: acknowledged again, not counted twice.
-	a, _ = rs.DecideSegment(segData("10.99.0.1", 22, 40000, 101, next+18, 30))
+	a, _ = rs.DecideSegment(segData("10.99.0.1", 22, 40000, 101, next+19, 30))
 	if len(a.Now) != 1 || a.Now[0].Ack != 131 {
 		t.Errorf("data sent again: %+v", a)
 	}
-	// A half close under hang: acknowledged, pingmock's side stays open.
-	a, _ = rs.DecideSegment(seg("10.99.0.1", 22, 40000, finAck, 131, next+18, 0))
+	// A half close under hang: acknowledged, ghostwire's side stays open.
+	a, _ = rs.DecideSegment(seg("10.99.0.1", 22, 40000, finAck, 131, next+19, 0))
 	if len(a.Now) != 1 || a.Now[0].Ack != 132 || len(a.Ordered) != 0 {
 		t.Errorf("client's FIN: %+v", a)
 	}
@@ -147,7 +147,7 @@ func TestTCPLimit(t *testing.T) {
 
 // wait= delays the data, not the acknowledgment: the client's data is
 // acknowledged at once, from the number the delayed data will start at,
-// so that the client does not send it again while pingmock waits.
+// so that the client does not send it again while ghostwire waits.
 func TestTCPWait(t *testing.T) {
 	rs, clock := newTestRuleSet(t, "0ms", 1)
 	setTCP(t, rs, "10.99.0.1:80", `reply="late",wait=2s,after=close`)
@@ -168,7 +168,7 @@ func TestTCPWait(t *testing.T) {
 }
 
 // after=reset with data: the reset comes on the client's first data once
-// pingmock has sent all it has to send.
+// ghostwire has sent all it has to send.
 func TestTCPSendThenReset(t *testing.T) {
 	rs, _ := newTestRuleSet(t, "0ms", 1)
 	setTCP(t, rs, "10.99.0.1:22", `send="banner",after=reset`)

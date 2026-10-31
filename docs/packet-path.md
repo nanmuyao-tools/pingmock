@@ -2,11 +2,11 @@
 
 English | [中文](packet-path.zh-CN.md)
 
-This document follows one ping request from the `ping` program through the kernel to pingmock, and the reply back to `ping`. Once you understand this, you understand why pingmock controls the latency software sees **without any change to that software**.
+This document follows one ping request from the `ping` program through the kernel to ghostwire, and the reply back to `ping`. Once you understand this, you understand why ghostwire controls the latency software sees **without any change to that software**.
 
 If addresses, packets, TCP or DNS are new to you, read [Network basics](basics.md) first: it explains them with diagrams.
 
-The example uses the defaults: pingmock's virtual device is `pingmock0` with the address `10.99.0.254/24`, there is a rule `10.99.0.1=50ms`, and a program runs `ping 10.99.0.1`.
+The example uses the defaults: ghostwire's virtual device is `ghostwire0` with the address `10.99.0.254/24`, there is a rule `10.99.0.1=50ms`, and a program runs `ping 10.99.0.1`.
 
 ## The whole picture
 
@@ -15,50 +15,50 @@ Outbound (the request)
   ping ──sendto("10.99.0.1")──► kernel
                                  │ ① route lookup
                                  │    the local table first: 10.99.0.1 is not an address of this machine
-                                 │    then the main table: longest prefix match → 10.99.0.0/24 dev pingmock0 src 10.99.0.254
+                                 │    then the main table: longest prefix match → 10.99.0.0/24 dev ghostwire0 src 10.99.0.254
                                  │ ② IP header: destination 10.99.0.1, source taken from the route, 10.99.0.254
                                  ▼
-                           pingmock0 (TUN driver) ──► queue ──► pingmock's Read() gets it
+                           ghostwire0 (TUN driver) ──► queue ──► ghostwire's Read() gets it
 
-Inside pingmock
+Inside ghostwire
   decide from the rules → build the reply → wait 50ms
 
 Return (the reply)
-  pingmock's Write() ──► pingmock0 ──► the kernel treats it as "a packet received on pingmock0"
-                                        │ ③ reverse path check: a reply to 10.99.0.1 would also leave through pingmock0, so it passes
+  ghostwire's Write() ──► ghostwire0 ──► the kernel treats it as "a packet received on ghostwire0"
+                                        │ ③ reverse path check: a reply to 10.99.0.1 would also leave through ghostwire0, so it passes
                                         │ ④ destination 10.99.0.254 is in the local table: for this machine, accept it
                                         │ ⑤ an ICMP echo reply: deliver it to ping's socket
                                         ▼
                                       ping's recvmsg() gets the reply and computes the latency: 50ms
 ```
 
-`ping` only ever talks to the kernel and never knows pingmock exists. The kernel hands the request to pingmock because of the routing table, and hands pingmock's reply to `ping` as if it came from the network.
+`ping` only ever talks to the kernel and never knows ghostwire exists. The kernel hands the request to ghostwire because of the routing table, and hands ghostwire's reply to `ping` as if it came from the network.
 
-## Setting up: what pingmock does at startup
+## Setting up: what ghostwire does at startup
 
-What pingmock does to the system at startup comes down to **creating a TUN device in code and doing what a few `ip` commands would do for you**.
+What ghostwire does to the system at startup comes down to **creating a TUN device in code and doing what a few `ip` commands would do for you**.
 
 ### The commands it stands for
 
-pingmock runs no programs: it sends these changes to the kernel over netlink, the interface the `ip` program uses itself. Written as the `ip` commands that do the same, for `pingmock -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms`:
+ghostwire runs no programs: it sends these changes to the kernel over netlink, the interface the `ip` program uses itself. Written as the `ip` commands that do the same, for `ghostwire -rule 10.99.0.1=10ms -rule 8.8.8.8=20ms`:
 
 ```bash
-ip addr add 10.99.0.254/24 dev pingmock0          # ① give the device its address and network
-ip link set pingmock0 up                          # ② bring the device up
-ip -6 addr add fd99::fe/64 dev pingmock0 nodad    # ③ the IPv6 address
+ip addr add 10.99.0.254/24 dev ghostwire0          # ① give the device its address and network
+ip link set ghostwire0 up                          # ② bring the device up
+ip -6 addr add fd99::fe/64 dev ghostwire0 nodad    # ③ the IPv6 address
 ip -o -4 route show exact 8.8.8.8/32 table main  # ④ does the host already route this address?
-ip route replace 8.8.8.8/32 dev pingmock0         # ⑤ a route for a real address outside the network
+ip route replace 8.8.8.8/32 dev ghostwire0         # ⑤ a route for a real address outside the network
 ```
 
 | Command | Code | Notes |
 |---|---|---|
 | ① ② | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr` (or `addr` in a configuration file), `10.99.0.254/24` by default |
-| ③ | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr6`, `fd99::fe/64` by default. If the kernel has no IPv6, this command fails and pingmock says so and continues with IPv4 only |
-| ④ ⑤ | [`Router.Ensure`](../internal/tun/tun_linux.go) | Only for targets **outside the network**. 10.99.0.1 is in 10.99.0.0/24, for which the kernel already added a route after command ①, so nothing is run for it. ④ asks whether the host has a route for exactly that prefix: if it does, pingmock routes the prefix as two halves instead (`/25` and `/25` for a `/24`), so that the host's own route stays, or refuses a single address ([Mocking real addresses](../README.md#mocking-real-addresses)). The hops of a path get routes the same way |
+| ③ | [`configureDevice`](../internal/app/instance.go) | The address comes from `-addr6`, `fd99::fe/64` by default. If the kernel has no IPv6, this command fails and ghostwire says so and continues with IPv4 only |
+| ④ ⑤ | [`Router.Ensure`](../internal/tun/tun_linux.go) | Only for targets **outside the network**. 10.99.0.1 is in 10.99.0.0/24, for which the kernel already added a route after command ①, so nothing is run for it. ④ asks whether the host has a route for exactly that prefix: if it does, ghostwire routes the prefix as two halves instead (`/25` and `/25` for a `/24`), so that the host's own route stays, or refuses a single address ([Mocking real addresses](../README.md#mocking-real-addresses)). The hops of a path get routes the same way |
 
-Each command is one netlink message, in [`netlink_linux.go`](../internal/tun/netlink_linux.go): ① `AddAddr`, ② `LinkUp`, ③ `AddAddr` again, ④ `mainRoutes`, which lists the routes and picks those for exactly the prefix, ⑤ `replaceRoute`. When no rule needs a route any more, `deleteRoute` removes it, as `ip route del` would. To watch them, run `ip monitor` in another terminal while pingmock starts.
+Each command is one netlink message, in [`netlink_linux.go`](../internal/tun/netlink_linux.go): ① `AddAddr`, ② `LinkUp`, ③ `AddAddr` again, ④ `mainRoutes`, which lists the routes and picks those for exactly the prefix, ⑤ `replaceRoute`. When no rule needs a route any more, `deleteRoute` removes it, as `ip route del` would. To watch them, run `ip monitor` in another terminal while ghostwire starts.
 
-Under `pingmock exec`, one more command comes first:
+Under `ghostwire exec`, one more command comes first:
 
 ```bash
 ip link set lo up                                 # bring up the loopback device
@@ -68,20 +68,20 @@ exec creates a brand new network namespace, in which even the loopback device `l
 
 ### Creating the device: in code, not with `ip`
 
-The commands above do not create the device. pingmock does that in code, in [`tun.Open`](../internal/tun/tun_linux.go):
+The commands above do not create the device. ghostwire does that in code, in [`tun.Open`](../internal/tun/tun_linux.go):
 
 1. it opens `/dev/net/tun`, the kernel's entry point for TUN devices;
-2. it calls `ioctl(TUNSETIFF)` to tell the kernel "create a TUN device named pingmock0 and bind it to the file I just opened".
+2. it calls `ioctl(TUNSETIFF)` to tell the kernel "create a TUN device named ghostwire0 and bind it to the file I just opened".
 
-From then on, reading and writing the file means receiving and sending packets on the device. `ip tuntap add dev pingmock0 mode tun` can create a TUN device too; the difference is how long the device lives:
+From then on, reading and writing the file means receiving and sending packets on the device. `ip tuntap add dev ghostwire0 mode tun` can create a TUN device too; the difference is how long the device lives:
 
-| | `ip tuntap add` | pingmock's `ioctl` |
+| | `ip tuntap add` | ghostwire's `ioctl` |
 |---|---|---|
-| When the device goes away | Never on its own; it must be deleted | **When the file that opened it is closed**, that is, when pingmock exits |
+| When the device goes away | Never on its own; it must be deleted | **When the file that opened it is closed**, that is, when ghostwire exits |
 | `ip -d link` shows | `persist on` | `persist off` |
-| Who reads and writes the other end | Nobody; without a program the device shows `NO-CARRIER` | The pingmock process |
+| Who reads and writes the other end | Nobody; without a program the device shows `NO-CARRIER` | The ghostwire process |
 
-pingmock uses the second, so **however it exits, the kernel removes the device with its addresses and routes**, and nothing is left on the system.
+ghostwire uses the second, so **however it exits, the kernel removes the device with its addresses and routes**, and nothing is left on the system.
 
 ### The routes the kernel adds
 
@@ -89,14 +89,14 @@ After command ①, **the kernel itself** adds an entry to two tables:
 
 | Table | Entry | Meaning |
 |---|---|---|
-| local | `local 10.99.0.254 dev pingmock0` | 10.99.0.254 is an address of this machine |
-| main | `10.99.0.0/24 dev pingmock0 src 10.99.0.254` | 10.99.0.0 to 10.99.0.255 are reached through pingmock0 |
+| local | `local 10.99.0.254 dev ghostwire0` | 10.99.0.254 is an address of this machine |
+| main | `10.99.0.0/24 dev ghostwire0 src 10.99.0.254` | 10.99.0.0 to 10.99.0.255 are reached through ghostwire0 |
 
-pingmock does not edit the routing table. `10.99.0.254/24` says two things at once: the device's own address is 10.99.0.254, and its network is the addresses that share the first 24 bits (`10.99.0`). The kernel concludes that this network is on pingmock0's side and adds the route in the main table.
+ghostwire does not edit the routing table. `10.99.0.254/24` says two things at once: the device's own address is 10.99.0.254, and its network is the addresses that share the first 24 bits (`10.99.0`). The kernel concludes that this network is on ghostwire0's side and adds the route in the main table.
 
 ### Try it: build the same setup by hand
 
-Without pingmock, a few `ip` commands build almost the same setup and show at which step the route appears (with `10.97.0.x`, to keep clear of pingmock):
+Without ghostwire, a few `ip` commands build almost the same setup and show at which step the route appears (with `10.97.0.x`, to keep clear of ghostwire):
 
 ```bash
 sudo ip tuntap add dev demo0 mode tun          # 1. create a TUN device
@@ -115,9 +115,9 @@ ip route get 10.97.0.1                         #    → the route is gone, back 
 sudo ip tuntap del dev demo0 mode tun          # clean up
 ```
 
-**The route appears in step 3, when the address is set**, not when the device is created or brought up. The only difference from pingmock's setup is that no program reads and writes the other end of the device, so a ping to 10.97.0.1 gets no reply. A program that opens the device, reads the request, swaps its addresses and writes it back is enough for ping to get a reply, and that is what pingmock does.
+**The route appears in step 3, when the address is set**, not when the device is created or brought up. The only difference from ghostwire's setup is that no program reads and writes the other end of the device, so a ping to 10.97.0.1 gets no reply. A program that opens the device, reads the request, swaps its addresses and writes it back is enough for ping to get a reply, and that is what ghostwire does.
 
-## Outbound: how the request reaches pingmock
+## Outbound: how the request reaches ghostwire
 
 ### Step 0: ping hands the request to the kernel
 
@@ -138,21 +138,21 @@ The kernel decides where the packet goes. The routing rules are consulted in ord
 | Route | Contains 10.99.0.1? | Specificity |
 |---|---|---|
 | `default` (0.0.0.0/0) | yes | /0, every address |
-| `10.99.0.0/24 dev pingmock0` | yes | **/24, more specific: chosen** |
+| `10.99.0.0/24 dev ghostwire0` | yes | **/24, more specific: chosen** |
 
-The result is `10.99.0.1 dev pingmock0 src 10.99.0.254`: leave through pingmock0, with 10.99.0.254 as the source address.
+The result is `10.99.0.1 dev ghostwire0 src 10.99.0.254`: leave through ghostwire0, with 10.99.0.254 as the source address.
 
 ### Step ②: the IP header
 
 The kernel puts a 20-byte IP header in front of the 64 bytes of ICMP: destination 10.99.0.1 and **the source address from the route lookup, 10.99.0.254**. The route has to be looked up before the source can be filled in, because the source depends on the device the packet leaves through. The result is an 84-byte IP packet.
 
-### Step ③: to the TUN driver, and to pingmock
+### Step ③: to the TUN driver, and to ghostwire
 
-The kernel asks pingmock0's driver to send the packet. A real network card's driver would turn it into signals on a wire; **the TUN driver puts it in a queue** attached to the `/dev/net/tun` file pingmock opened.
+The kernel asks ghostwire0's driver to send the packet. A real network card's driver would turn it into signals on a wire; **the TUN driver puts it in a queue** attached to the `/dev/net/tun` file ghostwire opened.
 
-pingmock's main loop, [`Responder.Serve`](../internal/responder/responder.go), keeps reading that file, so it reads these 84 bytes. To the kernel, it "sent" a packet, and the device's transmit counter (`tx_packets`) goes up by one; to pingmock, it "read" a packet.
+ghostwire's main loop, [`Responder.Serve`](../internal/responder/responder.go), keeps reading that file, so it reads these 84 bytes. To the kernel, it "sent" a packet, and the device's transmit counter (`tx_packets`) goes up by one; to ghostwire, it "read" a packet.
 
-## Inside pingmock
+## Inside ghostwire
 
 Having read the packet, [`Responder.handle`](../internal/responder/responder.go):
 
@@ -166,13 +166,13 @@ Having read the packet, [`Responder.handle`](../internal/responder/responder.go)
 
 ### Step ④: the kernel receives a packet
 
-When pingmock `Write`s the reply to the file, the TUN driver hands it to the kernel as "a packet pingmock0 received from the network", and the device's receive counter (`rx_packets`) goes up by one. For the kernel this is no different from a real network card receiving a packet.
+When ghostwire `Write`s the reply to the file, the TUN driver hands it to the kernel as "a packet ghostwire0 received from the network", and the device's receive counter (`rx_packets`) goes up by one. For the kernel this is no different from a real network card receiving a packet.
 
 ### Step ⑤: the reverse path check
 
 Many Linux systems perform a **reverse path check** (`rp_filter`): on receiving a packet from 10.99.0.1, the kernel asks "if I replied to 10.99.0.1, which device would that leave through?" If it is not the device the packet came in on, it may drop the packet as spoofed.
 
-A reply to 10.99.0.1 leaves through pingmock0, the very device the reply came in on, so the check passes, even in its strictest mode. The same holds for hijacked real addresses (below), because the route pingmock adds for them also points to pingmock0.
+A reply to 10.99.0.1 leaves through ghostwire0, the very device the reply came in on, so the check passes, even in its strictest mode. The same holds for hijacked real addresses (below), because the route ghostwire adds for them also points to ghostwire0.
 
 ### Step ⑥: is it for this machine?
 
@@ -182,40 +182,40 @@ The reply's destination is 10.99.0.254. The kernel finds it in the local table, 
 
 The kernel sees an ICMP echo reply and delivers it to ping's socket. Several pings may run at once; ping recognizes its own replies by the **identifier** in the ICMP header, which differs between ping processes, and the **sequence number** tells it which request a reply answers.
 
-Finally, ping subtracts the **time of sending**, carried back in the reply's data, from the current time. pingmock waited 50ms before writing the reply, so ping finds 50ms. pingmock never touches the timestamp; it only **writes the reply later**.
+Finally, ping subtracts the **time of sending**, carried back in the reply's data, from the current time. ghostwire waited 50ms before writing the reply, so ping finds 50ms. ghostwire never touches the timestamp; it only **writes the reply later**.
 
 ## Two follow-up questions
 
 ### Why is the device's own address, 10.99.0.254, not mocked?
 
-Because the local table stops it in step ①: 10.99.0.254 is an address of this machine, so the kernel answers it itself over the loopback device `lo` and the packet never reaches pingmock0. That is why every address in the subnet **except the device's own** is a mocked host.
+Because the local table stops it in step ①: 10.99.0.254 is an address of this machine, so the kernel answers it itself over the loopback device `lo` and the packet never reaches ghostwire0. That is why every address in the subnet **except the device's own** is a mocked host.
 
-### How does pingmock mock a real address such as 8.8.8.8?
+### How does ghostwire mock a real address such as 8.8.8.8?
 
 8.8.8.8 is not in 10.99.0.0/24, so it normally follows the default route to the real network. When a rule targets it, [`Router.Ensure`](../internal/tun/tun_linux.go) runs:
 
 ```bash
-ip route replace 8.8.8.8/32 dev pingmock0
+ip route replace 8.8.8.8/32 dev ghostwire0
 ```
 
-`/32` contains only 8.8.8.8, the most specific route there can be, so it wins over `default` in the longest prefix match of step ①, and packets to 8.8.8.8 go to pingmock0 too. Its neighbor 8.8.4.4 is not affected. When the last rule or path that needs the route is deleted through the API, [`Router.Sync`](../internal/tun/tun_linux.go) runs `ip route del 8.8.8.8/32 dev pingmock0`, and 8.8.8.8 follows the default route again; it removes only routes pingmock added. When pingmock exits, the device is removed and its routes with it.
+`/32` contains only 8.8.8.8, the most specific route there can be, so it wins over `default` in the longest prefix match of step ①, and packets to 8.8.8.8 go to ghostwire0 too. Its neighbor 8.8.4.4 is not affected. When the last rule or path that needs the route is deleted through the API, [`Router.Sync`](../internal/tun/tun_linux.go) runs `ip route del 8.8.8.8/32 dev ghostwire0`, and 8.8.8.8 follows the default route again; it removes only routes ghostwire added. When ghostwire exits, the device is removed and its routes with it.
 
 ## IPv6
 
-IPv6 follows the same path, except that the device's address is `fd99::fe/64`, for which the kernel likewise adds the route `fd99::/64 dev pingmock0`, and ping requests and replies are ICMPv6 types 128 and 129. pingmock adds the IPv6 address with `nodad`, which skips duplicate address detection (DAD); otherwise the address would only be usable once detection finishes, after about a second by default on Linux.
+IPv6 follows the same path, except that the device's address is `fd99::fe/64`, for which the kernel likewise adds the route `fd99::/64 dev ghostwire0`, and ping requests and replies are ICMPv6 types 128 and 129. ghostwire adds the IPv6 address with `nodad`, which skips duplicate address detection (DAD); otherwise the address would only be usable once detection finishes, after about a second by default on Linux.
 
 ## See it for yourself
 
-While pingmock runs, these commands show each step above:
+While ghostwire runs, these commands show each step above:
 
 | To see | Command | You should see |
 |---|---|---|
-| The device and its address | `ip addr show pingmock0` | `inet 10.99.0.254/24` |
-| The route the kernel added | `ip route show` | `10.99.0.0/24 dev pingmock0 proto kernel` |
+| The device and its address | `ip addr show ghostwire0` | `inet 10.99.0.254/24` |
+| The route the kernel added | `ip route show` | `10.99.0.0/24 dev ghostwire0 proto kernel` |
 | The order of the routing rules | `ip rule` | `0: lookup local` before `32766: lookup main` |
-| The route lookup of step ① | `ip route get 10.99.0.1` | `dev pingmock0 src 10.99.0.254` |
+| The route lookup of step ① | `ip route get 10.99.0.1` | `dev ghostwire0 src 10.99.0.254` |
 | The device's own address stays local | `ip route get 10.99.0.254` | `local 10.99.0.254 dev lo` |
 | What ping hands the kernel | `strace -e sendto ping -c 1 10.99.0.1` | 64 bytes starting with `\10\0` (type 8) |
-| Packets each way | `cat /sys/class/net/pingmock0/statistics/{tx,rx}_packets` | each answered request adds one to both; a dropped one only to tx |
-| The route for a hijacked address | `ip route show` with `-rule 8.8.8.8=30ms` | `8.8.8.8 dev pingmock0` |
-| The commands pingmock runs | `sudo strace -f -e trace=execve pingmock -rule 8.8.8.8=30ms` | `ip addr add`, `ip link set ... up`, `ip -6 addr add`, `ip route show exact`, `ip route replace` |
+| Packets each way | `cat /sys/class/net/ghostwire0/statistics/{tx,rx}_packets` | each answered request adds one to both; a dropped one only to tx |
+| The route for a hijacked address | `ip route show` with `-rule 8.8.8.8=30ms` | `8.8.8.8 dev ghostwire0` |
+| The commands ghostwire runs | `sudo strace -f -e trace=execve ghostwire -rule 8.8.8.8=30ms` | `ip addr add`, `ip link set ... up`, `ip -6 addr add`, `ip route show exact`, `ip route replace` |

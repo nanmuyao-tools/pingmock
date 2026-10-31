@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // Stats counts what happened to requests for one target address.

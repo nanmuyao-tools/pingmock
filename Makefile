@@ -4,7 +4,7 @@ GO ?= go
 .PHONY: build test e2e e2e-exec e2e-compat e2e-all e2e-docker lint clean
 
 build:
-	$(GO) build -o pingmock .
+	$(GO) build -o ghostwire .
 
 test:
 	$(GO) vet ./...
@@ -13,7 +13,7 @@ test:
 e2e: build
 	sudo test/e2e.sh
 
-# pingmock exec, rootless as the current user and then as root.
+# ghostwire exec, rootless as the current user and then as root.
 e2e-exec: build
 	test/e2e-exec.sh
 	sudo test/e2e-exec.sh
@@ -37,4 +37,4 @@ lint:
 	shellcheck -S warning test/*.sh scripts/*.sh examples/*/*.sh
 
 clean:
-	rm -f pingmock
+	rm -f ghostwire

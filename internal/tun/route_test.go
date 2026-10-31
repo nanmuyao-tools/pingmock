@@ -69,8 +69,8 @@ func TestPlanRoutesAddressRoutedAlready(t *testing.T) {
 			table["192.168.20.99/32"] = "dev vlan21" // ...one of which is routed too
 		}
 		_, _, err := planRoutes(netip.MustParsePrefix(c.target), routesOf(table))
-		if err == nil || !strings.Contains(err.Error(), "use pingmock exec") {
-			t.Errorf("%s: error %v, want one that suggests pingmock exec", c.target, err)
+		if err == nil || !strings.Contains(err.Error(), "use ghostwire exec") {
+			t.Errorf("%s: error %v, want one that suggests ghostwire exec", c.target, err)
 		}
 	}
 }

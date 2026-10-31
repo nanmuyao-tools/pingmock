@@ -1,5 +1,5 @@
 name: Feature request
-description: Something you need to test that pingmock cannot mock yet
+description: Something you need to test that ghostwire cannot mock yet
 labels: [enhancement]
 body:
   - type: markdown

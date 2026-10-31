@@ -1,4 +1,4 @@
-module github.com/nanmuyao-tools/pingmock
+module github.com/nanmuyao-tools/ghostwire
 
 go 1.22
 

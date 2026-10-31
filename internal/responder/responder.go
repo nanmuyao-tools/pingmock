@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/engine"
-	"github.com/nanmuyao-tools/pingmock/internal/icmp"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/engine"
+	"github.com/nanmuyao-tools/ghostwire/internal/icmp"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // Responder answers echo requests read from a device.
@@ -126,7 +126,7 @@ func (r *Responder) decide(pkt []byte) plan {
 	if req.Kind == icmp.Segment {
 		a, ok := r.Rules.DecideSegment(req)
 		if !ok {
-			return plan{} // not a connection pingmock answers after the handshake
+			return plan{} // not a connection ghostwire answers after the handshake
 		}
 		if a.Sent > 0 {
 			d := a.Accepted
@@ -150,7 +150,7 @@ func (r *Responder) decide(pkt []byte) plan {
 	d := r.Rules.DecideProbe(req)
 	if d.Outcome == rule.Ignored {
 		// A UDP or TCP packet to a port no rule covers: not answered, as
-		// without pingmock, but recorded.
+		// without ghostwire, but recorded.
 		r.record(req, d, false)
 		return plan{}
 	}

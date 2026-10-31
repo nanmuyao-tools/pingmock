@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"net/netip"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // EchoRequest describes an echo request read from the TUN device.
@@ -19,7 +19,7 @@ const (
 	protoICMP   = 1
 	protoICMPv6 = 58
 
-	ipv4Header = 20 // without options, as pingmock sends them
+	ipv4Header = 20 // without options, as ghostwire sends them
 	ipv6Header = 40
 
 	icmpEchoReply    = 0

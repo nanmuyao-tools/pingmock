@@ -1,17 +1,17 @@
-// Package client talks to the control API of a running pingmock, to change
+// Package client talks to the control API of a running ghostwire, to change
 // rules and read statistics and history from Go code, typically tests.
 //
-// The simplest way to test Go code against pingmock is to run the whole
-// test binary inside "pingmock exec", which needs no root:
+// The simplest way to test Go code against ghostwire is to run the whole
+// test binary inside "ghostwire exec", which needs no root:
 //
-//	go test -exec 'pingmock exec -rule 10.99.0.1=50ms --' ./...
+//	go test -exec 'ghostwire exec -rule 10.99.0.1=50ms --' ./...
 //
 // and to connect to it from the tests with FromEnv:
 //
 //	func TestFailover(t *testing.T) {
 //		pm, err := client.FromEnv()
 //		if err != nil {
-//			t.Skip(err) // not running under pingmock exec
+//			t.Skip(err) // not running under ghostwire exec
 //		}
 //		ctx := context.Background()
 //		if err := pm.SetRule(ctx, "10.99.0.1", "500ms"); err != nil {
@@ -22,7 +22,7 @@
 //		// ...
 //	}
 //
-// Rules use the same text form as pingmock's -rule flag, such as "50ms",
+// Rules use the same text form as ghostwire's -rule flag, such as "50ms",
 // "delay=200ms,jitter=30ms,loss=5%", "unreachable" or
 // "20ms for 5 pings; timeout".
 package client
@@ -41,14 +41,14 @@ import (
 	"time"
 )
 
-// EnvAPI is the environment variable in which pingmock exec passes the
+// EnvAPI is the environment variable in which ghostwire exec passes the
 // API address to the command it runs.
-const EnvAPI = "PINGMOCK_API"
+const EnvAPI = "GHOSTWIRE_API"
 
-// DefaultURL is where pingmock listens unless told otherwise with -api.
+// DefaultURL is where ghostwire listens unless told otherwise with -api.
 const DefaultURL = "http://127.0.0.1:9100"
 
-// Client calls the pingmock control API.
+// Client calls the ghostwire control API.
 type Client struct {
 	baseURL string
 	http    *http.Client
@@ -56,7 +56,7 @@ type Client struct {
 
 // New returns a client for the API at baseURL, such as
 // "http://127.0.0.1:9100". If baseURL is empty, the address in
-// $PINGMOCK_API is used, and DefaultURL if that is empty too.
+// $GHOSTWIRE_API is used, and DefaultURL if that is empty too.
 func New(baseURL string) *Client {
 	if baseURL == "" {
 		baseURL = os.Getenv(EnvAPI)
@@ -67,12 +67,12 @@ func New(baseURL string) *Client {
 	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: &http.Client{Timeout: 10 * time.Second}}
 }
 
-// ErrNotUnderExec is returned by FromEnv outside of pingmock exec.
-var ErrNotUnderExec = errors.New("$" + EnvAPI + " is not set: not running under pingmock exec " +
-	"(run the tests with: go test -exec 'pingmock exec [flags] --' ./...)")
+// ErrNotUnderExec is returned by FromEnv outside of ghostwire exec.
+var ErrNotUnderExec = errors.New("$" + EnvAPI + " is not set: not running under ghostwire exec " +
+	"(run the tests with: go test -exec 'ghostwire exec [flags] --' ./...)")
 
-// FromEnv returns a client for the pingmock that runs this process through
-// pingmock exec, or ErrNotUnderExec if there is none. Tests can skip
+// FromEnv returns a client for the ghostwire that runs this process through
+// ghostwire exec, or ErrNotUnderExec if there is none. Tests can skip
 // themselves on that error.
 func FromEnv() (*Client, error) {
 	u := os.Getenv(EnvAPI)
@@ -92,7 +92,7 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("pingmock API: %s (HTTP %d)", e.Message, e.StatusCode)
+	return fmt.Sprintf("ghostwire API: %s (HTTP %d)", e.Message, e.StatusCode)
 }
 
 // IsNotFound reports whether err is an API response saying that the rule
@@ -131,7 +131,7 @@ type State struct {
 	// connection attempt, keyed as "10.99.0.1:5432" or "[fd99::1]:443".
 	TCP      []Rule              `json:"tcp"`
 	TCPStats map[string]TCPStats `json:"tcp_stats"`
-	// DNS rules, under pingmock exec, and the statistics of each name and
+	// DNS rules, under ghostwire exec, and the statistics of each name and
 	// query type that got a query, keyed as "api.example.com/AAAA".
 	DNS      []Rule              `json:"dns"`
 	DNSStats map[string]DNSStats `json:"dns_stats"`
@@ -139,16 +139,16 @@ type State struct {
 	// datagram, keyed as TCP's are.
 	UDP      []Rule              `json:"udp"`
 	UDPStats map[string]UDPStats `json:"udp_stats"`
-	// Routes are the targets routed to pingmock besides its own subnets,
+	// Routes are the targets routed to ghostwire besides its own subnets,
 	// such as "8.8.8.8/32": those the rules and paths need, which stop
 	// being routed once no rule needs them.
 	Routes []string `json:"routes"`
-	// Outside is the host's network that pingmock exec -outside gives the
+	// Outside is the host's network that ghostwire exec -outside gives the
 	// command; nil without it.
 	Outside *Outside `json:"outside,omitempty"`
 }
 
-// Outside describes the outside access of pingmock exec -outside: the
+// Outside describes the outside access of ghostwire exec -outside: the
 // command's address and gateway in it, and the host loopback ports the
 // command reaches, such as "5432/tcp".
 type Outside struct {
@@ -187,7 +187,7 @@ type TCPStats struct {
 	Refused     uint64 `json:"refused"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
-	// Accepted connections that pingmock then closed or reset (after=).
+	// Accepted connections that ghostwire then closed or reset (after=).
 	Closed uint64 `json:"closed"`
 	Reset  uint64 `json:"reset"`
 	Rule   string `json:"rule"`  // e.g. "tcp 10.99.0.1/32:5432"
@@ -264,7 +264,7 @@ func (c *Client) TCPStats(ctx context.Context, addrPort string) (TCPStats, error
 // for the same target, written as for SetTCP. rule says how they fail:
 // "refuse" (ICMP port unreachable), "unreachable", "timeout" or a
 // pattern of 'x', 'u' and 'r', such as "timeout for 2 requests; refuse";
-// pingmock sends no UDP answers.
+// ghostwire sends no UDP answers.
 func (c *Client) SetUDP(ctx context.Context, target, rule string) error {
 	return c.do(ctx, http.MethodPut, "/udp/"+escapeTarget(target), rule, nil)
 }
@@ -286,10 +286,10 @@ func (c *Client) UDPStats(ctx context.Context, addrPort string) (UDPStats, error
 }
 
 // SetDNS sets how the command's DNS queries for name are answered, under
-// pingmock exec, replacing any DNS rule for the name. rule is written as
+// ghostwire exec, replacing any DNS rule for the name. rule is written as
 // for SetRule, without unreachable and ttl, plus "nxdomain", "servfail"
 // and 'n' and 's' in a pattern, such as "nxdomain",
-// "servfail for 2 requests; 10ms" or "delay=2s". A name pingmock exec
+// "servfail for 2 requests; 10ms" or "delay=2s". A name ghostwire exec
 // put in the command's /etc/hosts needs a DNS rule from the start
 // (-dns NAME=0ms) for this to take effect, and the request fails if not.
 func (c *Client) SetDNS(ctx context.Context, name, rule string) error {
@@ -399,7 +399,7 @@ func (c *Client) ClearHistory(ctx context.Context) error {
 	return c.do(ctx, http.MethodDelete, "/history", "", nil)
 }
 
-// Reset puts pingmock back as it was at startup: the rules and the default
+// Reset puts ghostwire back as it was at startup: the rules and the default
 // from its command line and configuration file, no statistics and no
 // history. Targets restart their scenarios and their random sequences, so a
 // test that calls Reset first starts from the same state on every run.
@@ -407,7 +407,7 @@ func (c *Client) Reset(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/reset", "", nil)
 }
 
-// Version returns the version of the running pingmock, as "pingmock
+// Version returns the version of the running ghostwire, as "ghostwire
 // -version" prints it.
 func (c *Client) Version(ctx context.Context) (string, error) {
 	var resp struct {
@@ -426,12 +426,12 @@ func (c *Client) do(ctx context.Context, method, path, body string, out any) err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("pingmock API: %w", err)
+		return fmt.Errorf("ghostwire API: %w", err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
-		return fmt.Errorf("pingmock API: %w", err)
+		return fmt.Errorf("ghostwire API: %w", err)
 	}
 	if resp.StatusCode >= 300 {
 		var e struct {
@@ -445,7 +445,7 @@ func (c *Client) do(ctx context.Context, method, path, body string, out any) err
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
-			return fmt.Errorf("pingmock API: decoding %s %s: %w", method, path, err)
+			return fmt.Errorf("ghostwire API: decoding %s %s: %w", method, path, err)
 		}
 	}
 	return nil

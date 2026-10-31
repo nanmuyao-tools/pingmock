@@ -1,13 +1,13 @@
-# Runs the code under test in pingmock's network with Docker Compose:
+# Runs the code under test in ghostwire's network with Docker Compose:
 #
 #   docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
 #
-# Replace the app service with your own. It shares pingmock's network, so
+# Replace the app service with your own. It shares ghostwire's network, so
 # the addresses it pings are mocked and the control API is at
 # http://127.0.0.1:9100.
 services:
-  pingmock:
-    image: ${PINGMOCK_IMAGE:-ghcr.io/nanmuyao-tools/pingmock:latest}
+  ghostwire:
+    image: ${GHOSTWIRE_IMAGE:-ghcr.io/nanmuyao-tools/ghostwire:latest}
     cap_add: [NET_ADMIN]
     devices: [/dev/net/tun]
     command: ["-seed", "42", "-rule", "10.99.0.1=50ms", "-rule", "8.8.8.8=delay=120ms,jitter=10ms"]
@@ -20,8 +20,8 @@ services:
 
   app:
     image: alpine:3.22
-    network_mode: service:pingmock
+    network_mode: service:ghostwire
     depends_on:
-      pingmock:
+      ghostwire:
         condition: service_healthy
     command: ["sh", "-c", "ping -c 3 10.99.0.1 && ping -c 3 8.8.8.8"]

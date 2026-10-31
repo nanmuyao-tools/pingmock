@@ -5,15 +5,15 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/nanmuyao-tools/pingmock/client"
+	"github.com/nanmuyao-tools/ghostwire/client"
 )
 
-// TestUnderPingmockExec runs only inside pingmock exec, the way users are
-// meant to test with pingmock:
+// TestUnderGhostwireExec runs only inside ghostwire exec, the way users are
+// meant to test with ghostwire:
 //
-//	go build -o pingmock .
-//	go test -exec "$PWD/pingmock exec --" -run TestUnderPingmockExec ./client
-func TestUnderPingmockExec(t *testing.T) {
+//	go build -o ghostwire .
+//	go test -exec "$PWD/ghostwire exec --" -run TestUnderGhostwireExec ./client
+func TestUnderGhostwireExec(t *testing.T) {
 	pm, err := client.FromEnv()
 	if err != nil {
 		t.Skip(err)

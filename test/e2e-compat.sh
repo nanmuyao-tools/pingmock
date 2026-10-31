@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Compatibility check: common ping tools and libraries, run against pingmock,
+# Compatibility check: common ping tools and libraries, run against ghostwire,
 # get the delays, losses and unreachable errors its rules say. Run as root on
 # Linux with fping, Go and Python, with icmplib installed:
 #   make e2e-compat
-#   (or: go build -o pingmock . && pip install -r test/compat/requirements.txt &&
+#   (or: go build -o ghostwire . && pip install -r test/compat/requirements.txt &&
 #        sudo env "PATH=$PATH" test/e2e-compat.sh)
 # The libraries are tried both with a raw socket and with an unprivileged
 # ping socket, which the kernel delivers replies to differently.
@@ -35,14 +35,14 @@ fi
 
 (cd test/compat && go build -o "$WORK/probing" . && go build -o "$WORK/tcpdial" ./tcpdial)
 
-./pingmock -addr6= -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=20ms,pattern=.x \
+./ghostwire -addr6= -rule 10.99.0.1=50ms -rule 10.99.0.2=delay=20ms,pattern=.x \
   -rule 10.99.0.3=unreachable -rule 8.8.8.8=30ms \
   -tcp 10.99.0.11:80=200ms -tcp 10.99.0.12:80=refuse -tcp 10.99.0.13:80=timeout -tcp 10.99.0.14:80=unreachable \
   -tcp 10.99.0.15:80=after=close -tcp 10.99.0.16:80=after=reset -tcp '10.99.0.17:80=reply="hi"' \
-  >"$WORK/pingmock.log" 2>&1 &
+  >"$WORK/ghostwire.log" 2>&1 &
 PM=$!
 for _ in $(seq 50); do curl -sf localhost:9100/rules >/dev/null && break; sleep 0.1; done
-curl -sf localhost:9100/rules >/dev/null || { cat "$WORK/pingmock.log"; fail "pingmock did not start"; }
+curl -sf localhost:9100/rules >/dev/null || { cat "$WORK/ghostwire.log"; fail "ghostwire did not start"; }
 
 HOSTS="10.99.0.1 10.99.0.2 10.99.0.3 8.8.8.8"
 
@@ -91,7 +91,7 @@ check_all icmplib raw dgram
 
 # TCP rules, seen by the standard libraries of Go and Python: the error each
 # outcome gives, the connect time, and on an accepted connection what a
-# request gets: a read timeout under after=hang, on which pingmock never
+# request gets: a read timeout under after=hang, on which ghostwire never
 # sends anything, end of file under after=close, a reset under after=reset,
 # and the bytes of reply= under reply=.
 TARGETS="10.99.0.11:80 10.99.0.12:80 10.99.0.13:80 10.99.0.14:80 10.99.0.15:80 10.99.0.16:80 10.99.0.17:80"

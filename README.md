@@ -1,37 +1,37 @@
-# pingmock
+# ghostwire
 
-[![CI](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao-tools/pingmock/actions/workflows/ci.yml)
+[![CI](https://github.com/nanmuyao-tools/ghostwire/actions/workflows/ci.yml/badge.svg)](https://github.com/nanmuyao-tools/ghostwire/actions/workflows/ci.yml)
 
 English | [中文](README.zh-CN.md)
 
-**pingmock fakes the network for your tests.** Your program pings servers, connects to databases, looks up names, and decides things from what happens: it picks the fastest server, retries, fails over, shows "offline". Testing those decisions needs a network that is slow, broken or unreachable exactly when the test wants it. With pingmock you write rules such as "this server answers in 300 ms", "that database refuses connections" or "this name does not exist", and your program, unchanged, gets those answers.
+**ghostwire fakes the network for your tests.** Your program pings servers, connects to databases, looks up names, and decides things from what happens: it picks the fastest server, retries, fails over, shows "offline". Testing those decisions needs a network that is slow, broken or unreachable exactly when the test wants it. With ghostwire you write rules such as "this server answers in 300 ms", "that database refuses connections" or "this name does not exist", and your program, unchanged, gets those answers.
 
-It runs on Linux and mocks ping (ICMP and ICMPv6 Echo), TCP connections, the ICMP errors of UDP and, under `pingmock exec`, DNS: the **delay, jitter, packet loss, unreachable errors, refused connections and DNS failures** of each address, port and name, changed while your tests run. New to networking? [Network basics](docs/basics.md) explains ping, TCP and DNS with diagrams, and [First steps](#first-steps) tries them out one command at a time.
+It runs on Linux and mocks ping (ICMP and ICMPv6 Echo), TCP connections, the ICMP errors of UDP and, under `ghostwire exec`, DNS: the **delay, jitter, packet loss, unreachable errors, refused connections and DNS failures** of each address, port and name, changed while your tests run. New to networking? [Network basics](docs/basics.md) explains ping, TCP and DNS with diagrams, and [First steps](#first-steps) tries them out one command at a time.
 
-![A program that pings three servers and picks the fastest chooses a different one each time pingmock changes their latency](docs/demo/demo.svg)
+![A program that pings three servers and picks the fastest chooses a different one each time ghostwire changes their latency](docs/demo/demo.svg)
 
 The shortest example, with no root needed:
 
 ```bash
-pingmock exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
+ghostwire exec -rule 10.99.0.1=50ms -rule 10.99.0.2=unreachable -- ./my-app
 ```
 
-Connections work the same way, for programs that connect rather than ping: `pingmock exec -tcp 10.99.0.1:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app` makes the first database never answer and the second accept in 5ms, see [TCP connections](#tcp-connections).
+Connections work the same way, for programs that connect rather than ping: `ghostwire exec -tcp 10.99.0.1:5432=timeout -tcp 10.99.0.2:5432=5ms -- ./my-app` makes the first database never answer and the second accept in 5ms, see [TCP connections](#tcp-connections).
 
-Compared to `tc netem`, rules are set per **target address** rather than per interface, they can be **changed while the program runs** through an HTTP API, and `pingmock exec` needs **no root** and leaves the host network alone.
+Compared to `tc netem`, rules are set per **target address** rather than per interface, they can be **changed while the program runs** through an HTTP API, and `ghostwire exec` needs **no root** and leaves the host network alone.
 
-**Try it now with Docker**, with nothing to install. pingmock answers the first three pings to 10.99.0.1 in 20ms and the next ones in 300ms, and reports 10.99.0.2 unreachable:
+**Try it now with Docker**, with nothing to install. ghostwire answers the first three pings to 10.99.0.1 in 20ms and the next ones in 300ms, and reports 10.99.0.2 unreachable:
 
 <!-- docker-demo -->
 ```bash
-docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao-tools/pingmock -c '
-  pingmock -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
+docker run --rm --cap-add NET_ADMIN --device /dev/net/tun --entrypoint sh ghcr.io/nanmuyao-tools/ghostwire -c '
+  ghostwire -addr6= -rule "10.99.0.1=20ms for 3 pings; 300ms" -rule 10.99.0.2=unreachable &
   until wget -q -O /dev/null 127.0.0.1:9100/rules 2>/dev/null; do kill -0 $! 2>/dev/null || exit 1; sleep 0.1; done
   ping -c 6 -i 0.5 10.99.0.1; ping -c 2 -i 0.5 10.99.0.2'
 ```
 <!-- /docker-demo -->
 
-The output, shortened: pingmock logs its rules, the fourth ping takes 300ms instead of 20ms, and 10.99.0.2 is reported unreachable at once:
+The output, shortened: ghostwire logs its rules, the fourth ping takes 300ms instead of 20ms, and 10.99.0.2 is reported unreachable at once:
 
 ```
 2026/10/18 10:23:05 rule 10.99.0.1/32: delay=20ms for 3 pings; delay=300ms
@@ -48,94 +48,94 @@ From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
 From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
 ```
 
-This runs pingmock and `ping` in one container for brevity. To test your own program, run it under [`pingmock exec`](#running-without-root-pingmock-exec), or in pingmock's network with Docker Compose as in [`examples/compose-demo`](examples/compose-demo/).
+This runs ghostwire and `ping` in one container for brevity. To test your own program, run it under [`ghostwire exec`](#running-without-root-ghostwire-exec), or in ghostwire's network with Docker Compose as in [`examples/compose-demo`](examples/compose-demo/).
 
 ## How it works
 
-pingmock creates a TUN virtual network device and routes test subnets (`10.99.0.0/24` and `fd99::/64` by default), plus any addresses you choose, to it. The kernel hands every echo request sent to those addresses to pingmock, which waits according to the matching rule and then sends back a reply or a destination unreachable error, or drops the request.
+ghostwire creates a TUN virtual network device and routes test subnets (`10.99.0.0/24` and `fd99::/64` by default), plus any addresses you choose, to it. The kernel hands every echo request sent to those addresses to ghostwire, which waits according to the matching rule and then sends back a reply or a destination unreachable error, or drops the request.
 
 The software under test needs **no changes at all**: whether it runs the `ping` command or sends ICMP itself through a raw socket, it gets mocked. The request payload is echoed back unchanged, so tools like `ping` that put a timestamp in the payload report exactly the configured latency.
 
-Connection attempts travel the same way: pingmock reads the TCP SYN from the device and writes back the SYN-ACK, the reset or nothing, and the program's own kernel does the rest of the handshake. DNS queries never reach the device: under `pingmock exec`, the command's `resolv.conf` points at a small DNS server pingmock runs for it. [Network basics](docs/basics.md#8-how-pingmock-gets-in-the-middle) draws this, and the [code tour](docs/architecture.md#connections-and-dns-queries) shows the code.
+Connection attempts travel the same way: ghostwire reads the TCP SYN from the device and writes back the SYN-ACK, the reset or nothing, and the program's own kernel does the rest of the handshake. DNS queries never reach the device: under `ghostwire exec`, the command's `resolv.conf` points at a small DNS server ghostwire runs for it. [Network basics](docs/basics.md#8-how-ghostwire-gets-in-the-middle) draws this, and the [code tour](docs/architecture.md#connections-and-dns-queries) shows the code.
 
 ### When to use it, and when to use something else
 
-pingmock tests **programs that decide things from ping or from whether a connection opens**. It does not slow real traffic down, and it does not touch the data of TCP connections. Each of these tools has its place:
+ghostwire tests **programs that decide things from ping or from whether a connection opens**. It does not slow real traffic down, and it does not touch the data of TCP connections. Each of these tools has its place:
 
 | You want to | Use |
 |---|---|
-| Test a program that pings or connects: server selection, failover, "is the network up", a latency display, connect timeouts and refusals | **pingmock** |
+| Test a program that pings or connects: server selection, failover, "is the network up", a latency display, connect timeouts and refusals | **ghostwire** |
 | Slow down or lose real traffic on an interface, for every protocol: load tests, "how does the app feel on 3G" | [`tc netem`](https://man7.org/linux/man-pages/man8/tc-netem.8.html), the kernel's network emulator |
 | Slow down or break the data of TCP connections to one service: latency, bandwidth, resets in the middle of a stream, for a database or an API | [Toxiproxy](https://github.com/Shopify/toxiproxy), a TCP proxy with an API and client libraries |
-| Test a QUIC (HTTP/3) client falling back to TCP when UDP is blocked | a firewall rule that drops UDP to the server, such as `iptables -A OUTPUT -p udp --dport 443 -d SERVER -j DROP`: pingmock takes over the whole address, so it cannot fail UDP while TCP still reaches the real server |
-| Make names fail to resolve for the whole machine or a cluster, outside a test | a DNS server you point clients at, such as CoreDNS's `erratic` plugin, or a chaos tool; for one name, an `/etc/hosts` entry. pingmock's [DNS faults](#dns-faults) work per name, under `pingmock exec` |
+| Test a QUIC (HTTP/3) client falling back to TCP when UDP is blocked | a firewall rule that drops UDP to the server, such as `iptables -A OUTPUT -p udp --dport 443 -d SERVER -j DROP`: ghostwire takes over the whole address, so it cannot fail UDP while TCP still reaches the real server |
+| Make names fail to resolve for the whole machine or a cluster, outside a test | a DNS server you point clients at, such as CoreDNS's `erratic` plugin, or a chaos tool; for one name, an `/etc/hosts` entry. ghostwire's [DNS faults](#dns-faults) work per name, under `ghostwire exec` |
 
-netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. pingmock is **transparent**: the program keeps pinging and connecting to the addresses and ports it always uses, with no proxy to point it at, and `pingmock exec` needs **no root** and changes nothing outside the command it runs. On top of that it takes the test-oriented side of both: faults are declared **per target address, prefix and port** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, and rules change **while the program runs** through the API.
+netem works on an interface and queue, so one rule tends to catch all traffic, including your own SSH session, and it needs root. Toxiproxy sits between the application and one TCP service, so the application has to be pointed at the proxy. ghostwire is **transparent**: the program keeps pinging and connecting to the addresses and ports it always uses, with no proxy to point it at, and `ghostwire exec` needs **no root** and changes nothing outside the command it runs. On top of that it takes the test-oriented side of both: faults are declared **per target address, prefix and port** in a configuration file kept with the tests, the random loss and jitter are **reproducible** with a seed, and rules change **while the program runs** through the API.
 
 ### What you can rely on
 
-Four things hold for everything pingmock does:
+Four things hold for everything ghostwire does:
 
 | | What it means | How |
 |---|---|---|
-| **Transparent** | The program under test is not changed: no code, no configuration. It keeps pinging, connecting to and resolving the addresses, ports and names it always uses | A TUN device and routes catch the requests, and under `pingmock exec` a private DNS server answers the names; even the `ping` command works as it is |
-| **Per target** | Every target can have its own network conditions | Rules apply to an address or a prefix, for TCP also to a port, and under `pingmock exec` to a name |
+| **Transparent** | The program under test is not changed: no code, no configuration. It keeps pinging, connecting to and resolving the addresses, ports and names it always uses | A TUN device and routes catch the requests, and under `ghostwire exec` a private DNS server answers the names; even the `ping` command works as it is |
+| **Per target** | Every target can have its own network conditions | Rules apply to an address or a prefix, for TCP also to a port, and under `ghostwire exec` to a name |
 | **Reproducible** | The same setup gives the same results on every run | `-seed`, deterministic `pattern`, scenarios by count or time, `POST /reset` |
 | **Controllable and observable** | Conditions can change in the middle of a test, and afterwards you can see what the program really did | The HTTP API and the Go client, the request history and statistics |
 
 ## Installation
 
-pingmock is a single static binary and needs no other programs at runtime.
+ghostwire is a single static binary and needs no other programs at runtime.
 
-**Download a prebuilt binary** (no Go required) from the [Releases](https://github.com/nanmuyao-tools/pingmock/releases) page, for example:
+**Download a prebuilt binary** (no Go required) from the [Releases](https://github.com/nanmuyao-tools/ghostwire/releases) page, for example:
 
 ```bash
-curl -L -o pingmock https://github.com/nanmuyao-tools/pingmock/releases/latest/download/pingmock-linux-amd64
-chmod +x pingmock
+curl -L -o ghostwire https://github.com/nanmuyao-tools/ghostwire/releases/latest/download/ghostwire-linux-amd64
+chmod +x ghostwire
 ```
 
 **Install with Go** (Go 1.22+):
 
 ```bash
-go install github.com/nanmuyao-tools/pingmock@latest
+go install github.com/nanmuyao-tools/ghostwire@latest
 ```
 
 **Container image** (amd64 and arm64), see [Docker](#docker):
 
 ```bash
-docker pull ghcr.io/nanmuyao-tools/pingmock
+docker pull ghcr.io/nanmuyao-tools/ghostwire
 ```
 
 **Build from source:**
 
 ```bash
-git clone https://github.com/nanmuyao-tools/pingmock.git
-cd pingmock
-go build -o pingmock .
+git clone https://github.com/nanmuyao-tools/ghostwire.git
+cd ghostwire
+go build -o ghostwire .
 ```
 
-Programs installed with `go install` live in `$(go env GOPATH)/bin`. When pingmock runs as root, `sudo` may not find it on its `PATH`; use the full path instead, e.g. `sudo $(go env GOPATH)/bin/pingmock`.
+Programs installed with `go install` live in `$(go env GOPATH)/bin`. When ghostwire runs as root, `sudo` may not find it on its `PATH`; use the full path instead, e.g. `sudo $(go env GOPATH)/bin/ghostwire`.
 
 ## First steps
 
-Five commands, each showing one thing pingmock does. They use `pingmock exec`, which needs no root: it runs the command after `--` in a private network, so nothing on your machine changes. `-addr6=` turns IPv6 off to keep the output short. pingmock prints its rules first, in lines starting with `[pingmock]`; they are left out below.
+Five commands, each showing one thing ghostwire does. They use `ghostwire exec`, which needs no root: it runs the command after `--` in a private network, so nothing on your machine changes. `-addr6=` turns IPv6 off to keep the output short. ghostwire prints its rules first, in lines starting with `[ghostwire]`; they are left out below.
 
-**1. A server that answers in 200 ms.** pingmock pretends there is a machine at 10.99.0.1, and answers each ping after 200 ms:
+**1. A server that answers in 200 ms.** ghostwire pretends there is a machine at 10.99.0.1, and answers each ping after 200 ms:
 
 ```console
-$ pingmock exec -addr6= -rule 10.99.0.1=200ms -- ping -c 3 10.99.0.1
+$ ghostwire exec -addr6= -rule 10.99.0.1=200ms -- ping -c 3 10.99.0.1
 64 bytes from 10.99.0.1: icmp_seq=1 ttl=64 time=201 ms
 64 bytes from 10.99.0.1: icmp_seq=2 ttl=64 time=200 ms
 64 bytes from 10.99.0.1: icmp_seq=3 ttl=64 time=203 ms
 3 packets transmitted, 3 received, 0% packet loss, time 2005ms
 ```
 
-There is no machine at 10.99.0.1: `ping` is unchanged, and pingmock answers for it ([how](docs/basics.md#8-how-pingmock-gets-in-the-middle)). `time=` is the latency the rule set.
+There is no machine at 10.99.0.1: `ping` is unchanged, and ghostwire answers for it ([how](docs/basics.md#8-how-ghostwire-gets-in-the-middle)). `time=` is the latency the rule set.
 
 **2. A server that is down, two ways.** `unreachable` answers with an error at once; `timeout` never answers, so `ping` waits (here 1 second, `-W 1`) and gets nothing:
 
 ```console
-$ pingmock exec -addr6= -rule 10.99.0.2=unreachable -rule 10.99.0.3=timeout -- \
+$ ghostwire exec -addr6= -rule 10.99.0.2=unreachable -rule 10.99.0.3=timeout -- \
     sh -c 'ping -c 2 -W 1 10.99.0.2; ping -c 2 -W 1 10.99.0.3'
 From 10.99.0.2 icmp_seq=1 Destination Host Unreachable
 From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
@@ -145,10 +145,10 @@ From 10.99.0.2 icmp_seq=2 Destination Host Unreachable
 
 A program usually treats the two differently: an error is known at once, a timeout costs waiting ([why](docs/basics.md#4-when-there-is-no-answer-timeout-versus-unreachable)).
 
-**3. Change a rule while the program runs.** pingmock listens on `localhost:9100` for changes. The server is fast, then becomes slow:
+**3. Change a rule while the program runs.** ghostwire listens on `localhost:9100` for changes. The server is fast, then becomes slow:
 
 ```console
-$ pingmock exec -addr6= -rule 10.99.0.1=20ms -- sh -c '
+$ ghostwire exec -addr6= -rule 10.99.0.1=20ms -- sh -c '
     ping -c 2 -q 10.99.0.1 | tail -1
     curl -s -X PUT localhost:9100/rules/10.99.0.1 -d 300ms
     ping -c 2 -q 10.99.0.1 | tail -1'
@@ -165,7 +165,7 @@ This is how a test makes the network change in the middle: from the test code, w
 **4. A database that refuses connections, and one that never answers.** TCP rules work on an address and a port:
 
 ```console
-$ pingmock exec -addr6= -tcp 10.99.0.1:80=refuse -tcp 10.99.0.2:80=timeout -- \
+$ ghostwire exec -addr6= -tcp 10.99.0.1:80=refuse -tcp 10.99.0.2:80=timeout -- \
     sh -c 'curl -sS http://10.99.0.1/; curl -sS --connect-timeout 2 http://10.99.0.2/'
 curl: (7) Failed to connect to 10.99.0.1 port 80 after 0 ms: Couldn't connect to server
 curl: (28) Failed to connect to 10.99.0.2 port 80 after 2002 ms: Timeout was reached
@@ -176,26 +176,26 @@ The first is refused at once, the second times out after the 2 seconds curl was 
 **5. A name that does not exist.** DNS rules make lookups fail, here with "no such name" (NXDOMAIN); `getent` exits with 2, "not found":
 
 ```console
-$ pingmock exec -addr6= -dns api.example.com=nxdomain -- getent hosts api.example.com.
+$ ghostwire exec -addr6= -dns api.example.com=nxdomain -- getent hosts api.example.com.
 $ echo $?
 2
 ```
 
 The dot at the end of the name keeps the lookup from trying your network's search domains ([DNS basics](docs/basics.md#7-dns-from-a-name-to-an-address), [DNS faults](#dns-faults)).
 
-To test your own program, put it after `--` instead: `pingmock exec -rule 10.99.0.1=200ms -- ./my-app`. The rest of this README goes through each of these in detail.
+To test your own program, put it after `--` instead: `ghostwire exec -rule 10.99.0.1=200ms -- ./my-app`. The rest of this README goes through each of these in detail.
 
 ## Usage
 
-pingmock runs in one of two ways:
+ghostwire runs in one of two ways:
 
-- `sudo pingmock [flags]` mocks pings and connections for the whole machine until you stop it. This is what the rest of this section describes.
-- `pingmock exec [flags] -- CMD` runs a command in a private network where its pings, connections and name lookups are mocked. It needs **no root** and leaves the host network alone, which makes it the best fit for tests and CI. See [Running without root](#running-without-root-pingmock-exec).
+- `sudo ghostwire [flags]` mocks pings and connections for the whole machine until you stop it. This is what the rest of this section describes.
+- `ghostwire exec [flags] -- CMD` runs a command in a private network where its pings, connections and name lookups are mocked. It needs **no root** and leaves the host network alone, which makes it the best fit for tests and CI. See [Running without root](#running-without-root-ghostwire-exec).
 
-In the first mode, pingmock needs root privileges (or `CAP_NET_ADMIN`).
+In the first mode, ghostwire needs root privileges (or `CAP_NET_ADMIN`).
 
 ```bash
-sudo ./pingmock \
+sudo ./ghostwire \
   -rule 10.99.0.1=50ms \
   -rule 10.99.0.2=delay=200ms,jitter=30ms \
   -rule 10.99.0.3=loss=20% \
@@ -212,7 +212,7 @@ ping 10.99.0.4   # every request times out
 ping 10.99.0.9   # no rule, so the default applies (immediate reply)
 ```
 
-When you stop pingmock with Ctrl+C, the virtual device and its routes are removed automatically.
+When you stop ghostwire with Ctrl+C, the virtual device and its routes are removed automatically.
 
 ### Rule format
 
@@ -254,10 +254,10 @@ A rule can consist of several **phases** separated by `;`. Each phase lasts for 
 
 ```bash
 # Normal for 10 pings, then the link goes down for 5 seconds, then it recovers
-sudo ./pingmock -rule '10.99.0.1=30ms for 10 pings; timeout for 5s; 30ms'
+sudo ./ghostwire -rule '10.99.0.1=30ms for 10 pings; timeout for 5s; 30ms'
 
 # A flapping link: 20 seconds good, 10 seconds bad, forever
-sudo ./pingmock -rule '10.99.0.2=40ms for 20s; delay=400ms,jitter=100ms for 10s; repeat'
+sudo ./ghostwire -rule '10.99.0.2=40ms for 20s; delay=400ms,jitter=100ms for 10s; repeat'
 ```
 
 Time-based phases are measured from the moment the rule was set; request-based phases count the requests to each target address separately. Setting a rule again, for example through the API, restarts it from the first phase.
@@ -268,7 +268,7 @@ For tests that must give the same result every time, prefer request-based phases
 
 `loss` and `jitter` are random, but reproducible. Every target address gets its own random sequence derived from a **seed** and the address, so the requests to one target always get the same outcomes, no matter how requests to other targets interleave with them.
 
-Without `-seed`, pingmock picks a random seed and logs it at startup:
+Without `-seed`, ghostwire picks a random seed and logs it at startup:
 
 ```
 seed 4871203317 (pass -seed 4871203317 to reproduce this run)
@@ -281,52 +281,52 @@ When a test fails, rerun it with that seed to get exactly the same drops and del
 IPv6 works the same way. The virtual device gets `fd99::fe/64`, so `fd99::1`, `fd99::2` and so on are mocked hosts, and rules, the API and configuration files accept IPv6 addresses and prefixes:
 
 ```bash
-sudo ./pingmock -rule fd99::1=30ms -rule 'fd99::2=delay=10ms,pattern=..u' -rule 2001:db8::8888=timeout
+sudo ./ghostwire -rule fd99::1=30ms -rule 'fd99::2=delay=10ms,pattern=..u' -rule 2001:db8::8888=timeout
 ping -6 fd99::1
 ```
 
-If the kernel has no IPv6, pingmock logs `IPv6 is unavailable, continuing with IPv4 only` and runs with IPv4 alone; rules for IPv6 targets are then rejected. Passing `-addr6` explicitly makes a missing IPv6 an error instead, and `-addr6 ""` turns IPv6 off.
+If the kernel has no IPv6, ghostwire logs `IPv6 is unavailable, continuing with IPv4 only` and runs with IPv4 alone; rules for IPv6 targets are then rejected. Passing `-addr6` explicitly makes a missing IPv6 an error instead, and `-addr6 ""` turns IPv6 off.
 
 ### Mocking real addresses
 
 If the software under test pings a hard-coded real address such as `8.8.8.8` or `2001:4860:4860::8888`, just add a rule for it:
 
 ```bash
-sudo ./pingmock -rule 8.8.8.8=120ms
+sudo ./ghostwire -rule 8.8.8.8=120ms
 ```
 
-pingmock routes that address to its virtual device. **Note: while a rule needs the route, all traffic from this machine to that address is intercepted**, not only ping. Normal routing comes back when the last rule for the address is deleted through the API, or when pingmock exits. `GET /rules` lists the routed targets under `routes`. Running it on a test machine or in a container is recommended.
+ghostwire routes that address to its virtual device. **Note: while a rule needs the route, all traffic from this machine to that address is intercepted**, not only ping. Normal routing comes back when the last rule for the address is deleted through the API, or when ghostwire exits. `GET /rules` lists the routed targets under `routes`. Running it on a test machine or in a container is recommended.
 
-A rule can also cover a whole network the host is on, such as `192.168.20.0/24` on a VLAN interface. pingmock then routes it as two halves, `192.168.20.0/25` and `192.168.20.128/25`, which are more specific and so take the traffic, and leaves the host's own route for the network in place, so that the host is not cut off from it when pingmock exits. It logs when it does so. A single address that already has a route of its own cannot be split around: pingmock refuses it rather than replace that route. `pingmock exec` has none of this to worry about, since it never touches the host's routes.
+A rule can also cover a whole network the host is on, such as `192.168.20.0/24` on a VLAN interface. ghostwire then routes it as two halves, `192.168.20.0/25` and `192.168.20.128/25`, which are more specific and so take the traffic, and leaves the host's own route for the network in place, so that the host is not cut off from it when ghostwire exits. It logs when it does so. A single address that already has a route of its own cannot be split around: ghostwire refuses it rather than replace that route. `ghostwire exec` has none of this to worry about, since it never touches the host's routes.
 
 If the software pings a hostname, point that name at an address in the test subnet in `/etc/hosts`, e.g. `10.99.0.1 api.example.com`.
 
 ### Probes bound to an interface
 
-A probe bound to a network interface leaves through that interface whatever the main routing table says, so `ping -I eth0 8.8.8.8` bypasses pingmock. Multi-WAN tools such as OpenWrt's mwan3 track their links this way: they bind with `SO_BINDTODEVICE` and steer with a firewall mark into a routing table of their own. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) or to `pingmock0` is mocked as usual.
+A probe bound to a network interface leaves through that interface whatever the main routing table says, so `ping -I eth0 8.8.8.8` bypasses ghostwire. Multi-WAN tools such as OpenWrt's mwan3 track their links this way: they bind with `SO_BINDTODEVICE` and steer with a firewall mark into a routing table of their own. Binding to a source *address* (`ping -I 192.0.2.2 8.8.8.8`) or to `ghostwire0` is mocked as usual.
 
-A test can still bring bound probes to pingmock, without changing the program. Probes steered by a mark follow their own table, so add pingmock's prefix to it:
+A test can still bring bound probes to ghostwire, without changing the program. Probes steered by a mark follow their own table, so add ghostwire's prefix to it:
 
 ```bash
-sudo ip route add 10.99.0.0/24 dev pingmock0 table 100
+sudo ip route add 10.99.0.0/24 dev ghostwire0 table 100
 ```
 
-Probes bound to a device need a `tc` redirect from that device to pingmock's, and one back for the answers, keyed on the device's own address (here eth0's, 172.17.0.2) so that other answers are left alone:
+Probes bound to a device need a `tc` redirect from that device to ghostwire's, and one back for the answers, keyed on the device's own address (here eth0's, 172.17.0.2) so that other answers are left alone:
 
 ```bash
 sudo tc qdisc add dev eth0 clsact
 sudo tc filter add dev eth0 egress protocol ip u32 match ip dst 10.99.0.0/24 \
-  action mirred egress redirect dev pingmock0
-sudo tc qdisc add dev pingmock0 clsact
-sudo tc filter add dev pingmock0 ingress protocol ip u32 match ip dst 172.17.0.2/32 \
+  action mirred egress redirect dev ghostwire0
+sudo tc qdisc add dev ghostwire0 clsact
+sudo tc filter add dev ghostwire0 ingress protocol ip u32 match ip dst 172.17.0.2/32 \
   action mirred ingress redirect dev eth0
 ```
 
-Both were tried with iputils' `ping -I`, and the redirect with curl's `--interface`, over IPv4 in the [development container](.devcontainer/README.md); not with mwan3 itself. Under `pingmock exec`, the command can create dummy devices for its interfaces and the same redirects, without root. Rules are still per target, so one address cannot be down through one interface and up through another.
+Both were tried with iputils' `ping -I`, and the redirect with curl's `--interface`, over IPv4 in the [development container](.devcontainer/README.md); not with mwan3 itself. Under `ghostwire exec`, the command can create dummy devices for its interfaces and the same redirects, without root. Rules are still per target, so one address cannot be down through one interface and up through another.
 
 ### Configuration file
 
-With many rules, a configuration file is easier to maintain, and it can live next to the tests that use it. Configuration files are YAML, so they can have comments. See [`examples/pingmock.yaml`](examples/pingmock.yaml):
+With many rules, a configuration file is easier to maintain, and it can live next to the tests that use it. Configuration files are YAML, so they can have comments. See [`examples/ghostwire.yaml`](examples/ghostwire.yaml):
 
 ```yaml
 seed: 42           # same random loss and jitter on every run
@@ -350,10 +350,10 @@ rules:
 ```
 
 ```bash
-sudo ./pingmock -config examples/pingmock.yaml
+sudo ./ghostwire -config examples/ghostwire.yaml
 ```
 
-A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`, each phase a `spec` with either `for: 10s` or `count: 5` (requests). The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections), [`udp`](#udp-datagrams) and, for `pingmock exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `pingmock exec`, a rule's key may be a name. TCP rules take `refuse`, `after`, `send`, `reply`, `limit` and `wait` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`). In the mapping form, `send` and `reply` are text, with YAML's own escapes in double quotes (`reply: "HTTP/1.1 503 x\r\n\r\n"`); in the text form, write the rule in single quotes, so that YAML leaves the Go string to pingmock (`'reply="\xff\x00"'`).
+A rule is either the same text as `-rule`, a number of milliseconds, or a mapping with `delay`, `jitter`, `loss` (`0.05` or `5%`), `pattern`, `unreachable` and `ttl`, or with `phases` and `repeat`, each phase a `spec` with either `for: 10s` or `count: 5` (requests). The file can also set `dev`, `addr`, `addr6`, `api`, `history`, [`paths`](#paths-traceroute-and-mtr), [`tcp`](#tcp-connections), [`udp`](#udp-datagrams) and, for `ghostwire exec`, [`hosts`](#names) and [`dns`](#dns-faults); under `ghostwire exec`, a rule's key may be a name. TCP rules take `refuse`, `after`, `send`, `reply`, `limit` and `wait` in the mapping form too, and DNS rules `nxdomain` and `servfail` (`{delay: 5ms, after: reset}`, `{servfail: true}`). In the mapping form, `send` and `reply` are text, with YAML's own escapes in double quotes (`reply: "HTTP/1.1 503 x\r\n\r\n"`); in the text form, write the rule in single quotes, so that YAML leaves the Go string to ghostwire (`'reply="\xff\x00"'`).
 
 Mistakes are reported with their line, and unknown keys are rejected, so typos are caught at startup. JSON configuration files from earlier versions keep working unchanged, since JSON is valid YAML.
 
@@ -363,32 +363,32 @@ Flags given on the command line override the file, so one file can serve many te
 
 | Flag | Default | Description |
 |---|---|---|
-| `-rule` | | `TARGET=RULE`, repeatable; under `pingmock exec`, `TARGET` may be a [name](#names) |
+| `-rule` | | `TARGET=RULE`, repeatable; under `ghostwire exec`, `TARGET` may be a [name](#names) |
 | `-default` | `0ms` | Rule used for targets without a matching rule |
 | `-config` | | YAML configuration file |
 | `-seed` | random | Seed for `loss` and `jitter`; the same seed reproduces the same run |
 | `-addr` | `10.99.0.254/24` | IPv4 address and prefix of the virtual device. Every address in the subnet **except this one** is a mocked host |
 | `-addr6` | `fd99::fe/64` | IPv6 address and prefix of the virtual device; an empty string disables IPv6 |
-| `-dev` | `pingmock0` | Name of the virtual device |
+| `-dev` | `ghostwire0` | Name of the virtual device |
 | `-api` | `127.0.0.1:9100` | Listen address of the control API; an empty string disables it |
 | `-history` | `1000` | Number of recent requests kept for `GET /history`; `0` disables it |
-| `-host` | | `NAME=ADDR`, repeatable, `pingmock exec` only: the command resolves `NAME` to `ADDR`, see [Names](#names) |
+| `-host` | | `NAME=ADDR`, repeatable, `ghostwire exec` only: the command resolves `NAME` to `ADDR`, see [Names](#names) |
 | `-path` | | `TARGET=PATH`, repeatable: the route traceroute and mtr see to `TARGET`, see [Paths](#paths-traceroute-and-mtr) |
 | `-tcp` | | `TARGET=RULE`, repeatable: how TCP connections to `TARGET` (`ADDR[:PORT]`, `PREFIX[:PORT]`, `[IPv6]:PORT`) are answered, see [TCP connections](#tcp-connections) |
 | `-udp` | | `TARGET=RULE`, repeatable: how UDP datagrams to `TARGET` fail, see [UDP datagrams](#udp-datagrams) |
-| `-dns` | | `NAME=RULE`, repeatable, `pingmock exec` only: how the command's DNS queries for `NAME` are answered, see [DNS faults](#dns-faults) |
-| `-outside` | `false` | `pingmock exec` only: give the command the host's network through pasta, see [Outside access](#outside-access) |
-| `-outside-port` | | `PORT[/udp]`, repeatable, `pingmock exec` only: the command's `127.0.0.1:PORT` reaches the host's; implies `-outside` |
+| `-dns` | | `NAME=RULE`, repeatable, `ghostwire exec` only: how the command's DNS queries for `NAME` are answered, see [DNS faults](#dns-faults) |
+| `-outside` | `false` | `ghostwire exec` only: give the command the host's network through pasta, see [Outside access](#outside-access) |
+| `-outside-port` | | `PORT[/udp]`, repeatable, `ghostwire exec` only: the command's `127.0.0.1:PORT` reaches the host's; implies `-outside` |
 | `-v` | `false` | Log every request |
 
-`pingmock version` (or `-version`), as the only argument, prints the version and exits.
+`ghostwire version` (or `-version`), as the only argument, prints the version and exits.
 
 ## TCP connections
 
 Much software that checks the network also connects: to a database, an API, a port it watches. A **TCP rule** decides how connection attempts to an address and port are answered, so the program sees a slow connect, a refused one, or one that never completes, without any change to it:
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -tcp 10.99.0.1:5432=timeout \
   -tcp 10.99.0.2:5432=5ms \
   -tcp '10.99.0.3:443=refuse for 3 requests; 20ms' \
@@ -397,7 +397,7 @@ pingmock exec \
 
 Here the first database never answers, so `connect` times out and the program should fail over to the second, which accepts in 5ms. The third server refuses three connections (`ECONNREFUSED` at once), then accepts.
 
-The target is `ADDR:PORT`, `PREFIX:PORT` or, without a port, every port of `ADDR` or `PREFIX`. IPv6 is written in brackets, as in URLs: `[fd99::1]:443`, `[fd99::/64]:443`, `[fd99::1]`. Without them `fd99::1:443` would itself be an address, so it is rejected. Under `pingmock exec` the target may be a [name](#names), such as `db.example.com:5432`.
+The target is `ADDR:PORT`, `PREFIX:PORT` or, without a port, every port of `ADDR` or `PREFIX`. IPv6 is written in brackets, as in URLs: `[fd99::1]:443`, `[fd99::/64]:443`, `[fd99::1]`. Without them `fd99::1:443` would itself be an address, so it is rejected. Under `ghostwire exec` the target may be a [name](#names), such as `db.example.com:5432`.
 
 The rule is written as for `-rule`, and means:
 
@@ -416,13 +416,13 @@ The rule is written as for `-rule`, and means:
 
 Phases count connection attempts: `for 3 requests` (or `connections`). An attempt is counted once, however many times the client's kernel sends its SYN again while waiting, so `timeout for 2 requests` means two attempts whatever the kernel's retry timer. When several rules match, the most specific prefix wins, then a rule for the port over one for every port.
 
-As with ping rules, a TCP rule for a real address in root mode routes **all** traffic to that address to pingmock, see [Mocking real addresses](#mocking-real-addresses); `pingmock exec` affects only the command.
+As with ping rules, a TCP rule for a real address in root mode routes **all** traffic to that address to ghostwire, see [Mocking real addresses](#mocking-real-addresses); `ghostwire exec` affects only the command.
 
 ### After the connection opens
 
 An accepted connection is held open, and unless the rule [sends data](#sending-data) nothing is sent on it: a program that reads gets a read timeout, which tells it apart from a connect timeout. Ports without a TCP rule are not answered, as before, unless the address has a [path](#paths-traceroute-and-mtr), whose target accepts every port. The history still records each attempt on them, and each UDP datagram to a port without a UDP rule, with the result `ignored`, so a test can see that its program tried: `GET /history?target=10.99.0.1` lists the port and, for a SYN sent again, `repeat`.
 
-The same rule tests a **TLS handshake timeout**: the connection opens, the client sends its ClientHello and never gets an answer. `pingmock exec -tcp api.example.com:443=5ms -- ./my-app` makes every HTTPS request to that name hang in the handshake: Python's `ssl` reports "The handshake operation timed out", curl gives up with exit 28, and Go's `http.Transport` fails after its `TLSHandshakeTimeout`.
+The same rule tests a **TLS handshake timeout**: the connection opens, the client sends its ClientHello and never gets an answer. `ghostwire exec -tcp api.example.com:443=5ms -- ./my-app` makes every HTTPS request to that name hang in the handshake: Python's `ssl` reports "The handshake operation timed out", curl gives up with exit 28, and Go's `http.Transport` fails after its `TLSHandshakeTimeout`.
 
 `after=` says what happens next instead, to test how a program handles a server that drops it: `-tcp '10.99.0.1:5432=after=reset'` makes every query to that database fail with "connection reset by peer", and `-tcp '10.99.0.1:443=5ms,after=close for 2 requests; 5ms'` gives two empty replies before the server works (accepts, then holds the connection).
 
@@ -435,7 +435,7 @@ Data the program writes after the close gets a reset, as from a real server that
 A rule can also send fixed bytes on the connection, to test how a program handles what a server says, or the server that stops listening:
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -tcp '10.99.0.1:22=send="SSH-2.0-OpenSSH_9.6\r\n"' \
   -tcp '10.99.0.2:80=reply="HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",after=close' \
   -tcp '10.99.0.3:5432=limit=1000,after=reset' \
@@ -443,18 +443,18 @@ pingmock exec \
   -- ./my-app
 ```
 
-| Setting | What pingmock does |
+| Setting | What ghostwire does |
 |---|---|
 | `send="..."` | Sends the bytes as soon as the connection opens, as servers that speak first do: SSH, SMTP, FTP, MySQL |
 | `reply="..."` | Sends the bytes when the program first sends data: one fixed answer to the request, whatever it was |
 | `limit=1000` | Accepts 1000 bytes from the program, then ends the connection as `after=` says; it needs `after=close` or `after=reset` |
 | `wait=2s` | Waits that long before sending `send` or `reply`: a server that is slow to answer |
 
-The bytes are written as a Go string in double quotes, with `\r`, `\n`, `\t`, `\"`, `\\` and `\xff` for any byte, up to 16 KiB each. pingmock sends them as they are and never looks at what the program sends: it plays a server that always says the same thing, not a protocol. When the rule sends data or has a limit, pingmock acknowledges what the program sends, so its writes do not stall; without them, nothing is acknowledged, as above.
+The bytes are written as a Go string in double quotes, with `\r`, `\n`, `\t`, `\"`, `\\` and `\xff` for any byte, up to 16 KiB each. ghostwire sends them as they are and never looks at what the program sends: it plays a server that always says the same thing, not a protocol. When the rule sends data or has a limit, ghostwire acknowledges what the program sends, so its writes do not stall; without them, nothing is acknowledged, as above.
 
-`after=` decides what follows the data: with `after=close`, pingmock closes the connection once it has sent everything (after `reply` if there is one), so an HTTP client gets the reply and the end of the response; with `after=reset`, the program's next data or close gets a reset; with `after=hang`, the connection stays open and silent. With `limit`, `after=` applies at the limit instead. pingmock never sends anything twice: on a network that loses packets, use the rule's `delay` and `loss` for the connection attempts instead.
+`after=` decides what follows the data: with `after=close`, ghostwire closes the connection once it has sent everything (after `reply` if there is one), so an HTTP client gets the reply and the end of the response; with `after=reset`, the program's next data or close gets a reset; with `after=hang`, the connection stays open and silent. With `limit`, `after=` applies at the limit instead. ghostwire never sends anything twice: on a network that loses packets, use the rule's `delay` and `loss` for the connection attempts instead.
 
-`wait` delays only pingmock's data: the program's own data is acknowledged at once, as a slow server's kernel would, so the program waits for an answer rather than resending its request.
+`wait` delays only ghostwire's data: the program's own data is acknowledged at once, as a slow server's kernel would, so the program waits for an answer rather than resending its request.
 
 ### Configuration file, API and history
 
@@ -477,17 +477,17 @@ The Go client has `SetTCP`, `DeleteTCP` and `TCPStats`. `GET /rules` lists the T
 
 ## UDP datagrams
 
-UDP has no connections, so a program that sends to a UDP service (syslog, statsd, NTP, a game server) learns that it is down only from an ICMP error, or from silence. A **UDP rule** decides which, per address and port; pingmock never sends a UDP answer:
+UDP has no connections, so a program that sends to a UDP service (syslog, statsd, NTP, a game server) learns that it is down only from an ICMP error, or from silence. A **UDP rule** decides which, per address and port; ghostwire never sends a UDP answer:
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -udp 10.99.0.1:514=refuse \
   -udp '10.99.0.2:123=timeout for 2 requests; refuse' \
   -udp 10.99.0.3=unreachable=admin \
   -- ./my-app
 ```
 
-| Setting | What pingmock does | What a connected UDP socket sees on its next receive |
+| Setting | What ghostwire does | What a connected UDP socket sees on its next receive |
 |---|---|---|
 | `refuse` | ICMP port unreachable, as a host with nothing on the port sends | `ECONNREFUSED` ("Connection refused") |
 | `unreachable=admin` | ICMP administratively prohibited, as a firewall that rejects sends | `EHOSTUNREACH` over IPv4, `EACCES` over IPv6 |
@@ -496,7 +496,7 @@ pingmock exec \
 | `pattern=xxr` | datagrams in turn: `x` no answer, `u` unreachable, `r` refused | |
 | `delay=`, `jitter=`, `ttl=` | the delay and TTL of the ICMP error | |
 
-The target is written as for [TCP rules](#tcp-connections), with names under `pingmock exec`. Phases count datagrams: every datagram is a request. A rule must say how datagrams fail: `20ms` alone, with no error to delay, is rejected. A UDP rule for a target with a [path](#paths-traceroute-and-mtr) decides at the destination, and the hops still answer traceroute's probes on the way. The command's own DNS server under `pingmock exec` is not on the virtual device, so `-udp` does not reach it: use [DNS faults](#dns-faults).
+The target is written as for [TCP rules](#tcp-connections), with names under `ghostwire exec`. Phases count datagrams: every datagram is a request. A rule must say how datagrams fail: `20ms` alone, with no error to delay, is rejected. A UDP rule for a target with a [path](#paths-traceroute-and-mtr) decides at the destination, and the hops still answer traceroute's probes on the way. The command's own DNS server under `ghostwire exec` is not on the virtual device, so `-udp` does not reach it: use [DNS faults](#dns-faults).
 
 In a configuration file and through the API:
 
@@ -518,7 +518,7 @@ The Go client has `SetUDP`, `DeleteUDP` and `UDPStats`. `GET /rules` lists the U
 For software that looks at the route, not just the destination, a target can get a **path**: the routers between here and it, each answering probes whose TTL runs out there, as real routers do. traceroute and mtr then show the hops, in every probe mode (UDP, ICMP and TCP), and reach the target.
 
 ```bash
-sudo pingmock -rule 8.8.8.8=30ms \
+sudo ghostwire -rule 8.8.8.8=30ms \
   -path '8.8.8.8=192.168.1.1@2ms > 10.0.0.1@delay=15ms,jitter=3ms > * > 72.14.0.1@25ms'
 ```
 
@@ -541,7 +541,7 @@ A path is hops separated by `>`, each `ADDR@SETTINGS`, or `*` for a router that 
 | `cut=5%` | This hop loses 5% of everything going through it: the probes for later hops and the target, and the pings to the target. A lossy link looks like this: loss from that hop on |
 | `ttl=250` | TTL of this hop's answers (default 64) |
 
-The target's own rule still decides what the target answers: its delay and loss apply to pings as before, and to traceroute's last line. A target with a path also answers UDP probes with port unreachable and TCP probes with a SYN-ACK, on every port, which is how traceroute's UDP and TCP modes know they arrived; a [TCP rule](#tcp-connections) for the port takes precedence at the target. Targets without a path keep ignoring UDP, and TCP on ports without a TCP rule. The hops' addresses get routes to the virtual device, so the kernel accepts their answers under strict reverse-path filtering; inside `pingmock exec` this touches nothing outside the command. Randomness comes from the seed, per target, so `loss` and `cut` repeat exactly with `-seed`. The probes for the hops have a random stream of their own and are not requests to the target: they count under `hops` when a hop answers them, so they never change the pings' results or statistics. Probes that go past the last hop are requests to the target, as pings are: a traceroute that reaches the target moves the target's random sequence on, as that many more pings would. `traceroute -m` with the number of hops stops before the target.
+The target's own rule still decides what the target answers: its delay and loss apply to pings as before, and to traceroute's last line. A target with a path also answers UDP probes with port unreachable and TCP probes with a SYN-ACK, on every port, which is how traceroute's UDP and TCP modes know they arrived; a [TCP rule](#tcp-connections) for the port takes precedence at the target. Targets without a path keep ignoring UDP, and TCP on ports without a TCP rule. The hops' addresses get routes to the virtual device, so the kernel accepts their answers under strict reverse-path filtering; inside `ghostwire exec` this touches nothing outside the command. Randomness comes from the seed, per target, so `loss` and `cut` repeat exactly with `-seed`. The probes for the hops have a random stream of their own and are not requests to the target: they count under `hops` when a hop answers them, so they never change the pings' results or statistics. Probes that go past the last hop are requests to the target, as pings are: a traceroute that reaches the target moves the target's random sequence on, as that many more pings would. `traceroute -m` with the number of hops stops before the target.
 
 In a configuration file (quote a path that starts with `*`, which YAML would read as an alias) and through the API:
 
@@ -557,22 +557,22 @@ curl -X DELETE localhost:9100/paths/8.8.8.8
 
 The Go client has `SetPath` and `DeletePath`. `GET /rules` lists the paths, and the history records each probe with its `ttl`, the `hop` that answered or lost it and the address it answered `from`; a probe's `result` is `time-exceeded` from a hop, `port-unreachable` or `syn-ack` from the target.
 
-## Running without root: pingmock exec
+## Running without root: ghostwire exec
 
 ```bash
-pingmock exec [flags] -- CMD [ARGS...]
+ghostwire exec [flags] -- CMD [ARGS...]
 ```
 
-runs `CMD` in a **private network namespace** in which pingmock answers pings and connections, and, for `-dns` rules and names, DNS queries, with the same flags as above:
+runs `CMD` in a **private network namespace** in which ghostwire answers pings and connections, and, for `-dns` rules and names, DNS queries, with the same flags as above:
 
 ```bash
-pingmock exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
+ghostwire exec -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -- ./my-app --check-latency
 ```
 
-- **No root needed.** As an unprivileged user, pingmock also creates a user namespace in which it may set up the network. As root, it creates only the network namespace, unless root lacks `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`, as in a container: then it creates a user namespace too, see [Requirements](#requirements).
+- **No root needed.** As an unprivileged user, ghostwire also creates a user namespace in which it may set up the network. As root, it creates only the network namespace, unless root lacks `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`, as in a container: then it creates a user namespace too, see [Requirements](#requirements).
 - **The host network is not touched.** Mocking `8.8.8.8` affects only `CMD`, and several runs can happen at once, each with its own rules, device and API port.
-- **Ready before CMD starts.** Pings are answered and the API listens as soon as `CMD` runs. `CMD` finds the API address in `$PINGMOCK_API`.
-- **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, `127` if it was not found and `126` if it could not be run. When pingmock exec itself fails, with a bad flag or rule or a network it cannot set up, it exits with `125`, as `docker run` does, so that it is not taken for the command's own status. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
+- **Ready before CMD starts.** Pings are answered and the API listens as soon as `CMD` runs. `CMD` finds the API address in `$GHOSTWIRE_API`.
+- **Exits with CMD's status**, so it fits in scripts and CI: the exit status of `CMD`, `128+N` if signal `N` killed it, `127` if it was not found and `126` if it could not be run. When ghostwire exec itself fails, with a bad flag or rule or a network it cannot set up, it exits with `125`, as `docker run` does, so that it is not taken for the command's own status. `SIGTERM`, `SIGHUP` and `SIGQUIT` are passed on to `CMD`.
 - **Nothing is left behind.** When `CMD` exits, processes it started in the background are stopped too.
 
 Inside the private network, `CMD` reaches only the mocked targets and the API on `127.0.0.1`; it has no other network access, unless [`-outside`](#outside-access) gives it the host's. Without that, build programs before running them there: a `go run` (or `npm install`, `pip install`...) that needs to download dependencies fails with `network is unreachable`.
@@ -580,7 +580,7 @@ Inside the private network, `CMD` reaches only the mocked targets and the API on
 ### Outside access
 
 ```bash
-pingmock exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
+ghostwire exec -outside -outside-port 5432 -rule api.example.com=timeout -- go test ./...
 ```
 
 With `-outside`, the command gets the host's network through [pasta](https://passt.top), from the package `passt`. Real addresses and names work, so a test can download dependencies or reach a real service, while every mocked address, prefix and name still gets its rule. `-outside-port PORT` (repeatable; `PORT/udp` for UDP; it implies `-outside`) makes the command's `127.0.0.1:PORT` reach the host's, for example a database container published on the host's `127.0.0.1:5432`; the command then cannot listen on that port itself. In a configuration file:
@@ -591,7 +591,7 @@ outside:
 ```
 
 - **Off by default**, so that without it nothing about the command's network depends on the machine.
-- **pasta must be installed**: `sudo apt-get install passt` on Ubuntu and Debian, `apk add passt` on Alpine. Without it, pingmock exec fails with `125`. pingmock starts pasta with no forwarding but the ports asked for, so the command's API and DNS server are not published on the host, and stops it when the command exits.
+- **pasta must be installed**: `sudo apt-get install passt` on Ubuntu and Debian, `apk add passt` on Alpine. Without it, ghostwire exec fails with `125`. ghostwire starts pasta with no forwarding but the ports asked for, so the command's API and DNS server are not published on the host, and stops it when the command exits.
 - **The same on every host**: the command's address in that network is `10.0.2.15/24`, with the gateway `10.0.2.2`, rather than a copy of the host's, and outside access is IPv4 only. `GET /rules` reports it under `outside`, the Go client in `State.Outside`.
 - **Not observed**: outside traffic is not mocked, so it is in neither the history nor the statistics, and it is as reproducible as the real network is.
 - **As root**, the command runs in a user namespace that maps every user and group to itself, so that pasta can join its network. Its processes keep their users, with privileges over their own namespaces only.
@@ -599,19 +599,19 @@ outside:
 
 ### Names
 
-Much software pings a name rather than an address. Under `pingmock exec`, a rule can be written for a name:
+Much software pings a name rather than an address. Under `ghostwire exec`, a rule can be written for a name:
 
 ```bash
-pingmock exec -rule api.example.com=80ms -rule backup.example.com=timeout -- ./my-app
+ghostwire exec -rule api.example.com=80ms -rule backup.example.com=timeout -- ./my-app
 ```
 
 The command resolves `api.example.com` to a mocked address and gets the rule when it pings it. The address comes from the top of the subnet down (`10.99.0.253`, `10.99.0.252`, ...), the same one on every run, and the startup log says which: `rule api.example.com (10.99.0.253): delay=80ms`. To choose the address yourself, or to make a name resolve to an IPv6 address, use `-host NAME=ADDR`, repeatable:
 
 ```bash
-pingmock exec -host api.example.com=fd99::1 -rule api.example.com=80ms -- ./my-app
+ghostwire exec -host api.example.com=fd99::1 -rule api.example.com=80ms -- ./my-app
 ```
 
-How it works: in a mount namespace of its own, the command gets its **own `/etc/hosts`** (the system's, with the mocked names on top) and a **`resolv.conf` that points at a small DNS server** pingmock runs for it. That server answers for the mocked names, both ways (the address resolves back to the name), and forwards every other name to the host's resolver, so real names keep resolving even though their addresses are unreachable from the private network. It answers over UDP and TCP, which resolvers use for large answers, and each query on its own; when the host's resolver does not answer, neither does it, so the command times out as it would without pingmock, and when it cannot be reached at all, the command gets a failure at once. Everything that resolves names sees the same thing: `ping` and other programs using the C library, Go, Python... Where the host runs nscd, the name service cache, the command cannot reach it, since nscd would answer from the host's files and resolver. The system's files are not changed, nothing is left behind, and no root is needed. In a configuration file, the same is written as:
+How it works: in a mount namespace of its own, the command gets its **own `/etc/hosts`** (the system's, with the mocked names on top) and a **`resolv.conf` that points at a small DNS server** ghostwire runs for it. That server answers for the mocked names, both ways (the address resolves back to the name), and forwards every other name to the host's resolver, so real names keep resolving even though their addresses are unreachable from the private network. It answers over UDP and TCP, which resolvers use for large answers, and each query on its own; when the host's resolver does not answer, neither does it, so the command times out as it would without ghostwire, and when it cannot be reached at all, the command gets a failure at once. Everything that resolves names sees the same thing: `ping` and other programs using the C library, Go, Python... Where the host runs nscd, the name service cache, the command cannot reach it, since nscd would answer from the host's files and resolver. The system's files are not changed, nothing is left behind, and no root is needed. In a configuration file, the same is written as:
 
 ```yaml
 rules:
@@ -621,14 +621,14 @@ hosts:                            # only to choose the addresses
   api.example.com: fd99::1
 ```
 
-Names are for `pingmock exec` only. When pingmock runs for the whole machine with `sudo pingmock`, add the names to the machine's `/etc/hosts` and write the rules for the addresses.
+Names are for `ghostwire exec` only. When ghostwire runs for the whole machine with `sudo ghostwire`, add the names to the machine's `/etc/hosts` and write the rules for the addresses.
 
 ### DNS faults
 
-Software also breaks when names stop resolving: a DNS server that fails, a name that disappears, a lookup that hangs. Under `pingmock exec`, a **DNS rule** decides how the command's queries for a name are answered:
+Software also breaks when names stop resolving: a DNS server that fails, a name that disappears, a lookup that hangs. Under `ghostwire exec`, a **DNS rule** decides how the command's queries for a name are answered:
 
 ```bash
-pingmock exec \
+ghostwire exec \
   -dns api.example.com=nxdomain \
   -dns 'backup.example.com=servfail for 2 requests; 10ms' \
   -dns github.com=delay=2s \
@@ -672,40 +672,40 @@ curl -X DELETE localhost:9100/dns/api.example.com
 
 The Go client has `SetDNS`, `DeleteDNS` and `DNSStats`. Through the API, a rule can be set for any name not in the command's `/etc/hosts`; to change the answers for a mocked name later, give it a DNS rule from the start (`-dns api.example.com=0ms`). `GET /rules` lists the DNS rules under `dns`, and their statistics under `dns_stats`: requests, answered, nxdomain, servfail, dropped. Each query for a name with a rule is recorded in the history with `"probe": "dns"`, the `name`, the `qtype` and the result `answer`, `nxdomain`, `servfail` or `drop`; `GET /history?target=api.example.com` returns them. PTR queries are not affected. Randomness comes from the seed, per name and query type.
 
-DNS rules are for `pingmock exec` only: for the whole machine, pingmock cannot get between programs and the machine's resolver, so `sudo pingmock -dns` is refused.
+DNS rules are for `ghostwire exec` only: for the whole machine, ghostwire cannot get between programs and the machine's resolver, so `sudo ghostwire -dns` is refused.
 
 ### Requirements
 
-`pingmock exec` without root needs unprivileged user namespaces and a `/dev/net/tun` that everyone may open (`crw-rw-rw-`), which is the default on most distributions. If something is missing, pingmock says what and how to fix it.
+`ghostwire exec` without root needs unprivileged user namespaces and a `/dev/net/tun` that everyone may open (`crw-rw-rw-`), which is the default on most distributions. If something is missing, ghostwire says what and how to fix it.
 
-**In a container**, root usually lacks `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`, so `pingmock exec` creates a user namespace there as other users do. Docker's default seccomp profile forbids it: give the container the two capabilities, or a seccomp profile that allows user namespaces, and the TUN device either way:
+**In a container**, root usually lacks `CAP_SYS_ADMIN` and `CAP_NET_ADMIN`, so `ghostwire exec` creates a user namespace there as other users do. Docker's default seccomp profile forbids it: give the container the two capabilities, or a seccomp profile that allows user namespaces, and the TUN device either way:
 
 ```bash
-docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun IMAGE pingmock exec ...
+docker run --cap-add SYS_ADMIN --cap-add NET_ADMIN --device /dev/net/tun IMAGE ghostwire exec ...
 ```
 
-**Ubuntu 23.10 and later** restrict unprivileged user namespaces with AppArmor. Rather than lifting the restriction for every program, allow it for pingmock alone with the profile in [`contrib/apparmor/pingmock`](contrib/apparmor/pingmock), the way Ubuntu does for other programs that need it. Edit the path in it if pingmock is not installed as `/usr/local/bin/pingmock`, then:
+**Ubuntu 23.10 and later** restrict unprivileged user namespaces with AppArmor. Rather than lifting the restriction for every program, allow it for ghostwire alone with the profile in [`contrib/apparmor/ghostwire`](contrib/apparmor/ghostwire), the way Ubuntu does for other programs that need it. Edit the path in it if ghostwire is not installed as `/usr/local/bin/ghostwire`, then:
 
 ```bash
-sudo cp contrib/apparmor/pingmock /etc/apparmor.d/pingmock
-sudo apparmor_parser -r /etc/apparmor.d/pingmock
+sudo cp contrib/apparmor/ghostwire /etc/apparmor.d/ghostwire
+sudo apparmor_parser -r /etc/apparmor.d/ghostwire
 ```
 
 [`-outside`](#outside-access) needs pasta, from the package `passt`.
 
-On GitHub Actions' Ubuntu runners, do the same in a step before running tests; [`examples/github-actions`](examples/github-actions/) is a workflow ready to copy that installs pingmock and the profile.
+On GitHub Actions' Ubuntu runners, do the same in a step before running tests; [`examples/github-actions`](examples/github-actions/) is a workflow ready to copy that installs ghostwire and the profile.
 
 ## Docker
 
-The image `ghcr.io/nanmuyao-tools/pingmock` needs `NET_ADMIN` and the TUN device. Containers that share its network get their pings and connections mocked and reach the API at `127.0.0.1:9100`:
+The image `ghcr.io/nanmuyao-tools/ghostwire` needs `NET_ADMIN` and the TUN device. Containers that share its network get their pings and connections mocked and reach the API at `127.0.0.1:9100`:
 
 ```bash
-docker run -d --name pingmock --cap-add NET_ADMIN --device /dev/net/tun \
-  ghcr.io/nanmuyao-tools/pingmock -rule 10.99.0.1=50ms
-docker run --rm --network container:pingmock alpine ping -c 3 10.99.0.1
+docker run -d --name ghostwire --cap-add NET_ADMIN --device /dev/net/tun \
+  ghcr.io/nanmuyao-tools/ghostwire -rule 10.99.0.1=50ms
+docker run --rm --network container:ghostwire alpine ping -c 3 10.99.0.1
 ```
 
-With Docker Compose, put the code under test in pingmock's network with `network_mode: service:pingmock`. [`examples/docker-compose.yml`](examples/docker-compose.yml) shows a complete setup, including a health check so that the app starts only once pingmock is ready:
+With Docker Compose, put the code under test in ghostwire's network with `network_mode: service:ghostwire`. [`examples/docker-compose.yml`](examples/docker-compose.yml) shows a complete setup, including a health check so that the app starts only once ghostwire is ready:
 
 ```bash
 docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exit-code-from app
@@ -713,11 +713,11 @@ docker compose -f examples/docker-compose.yml up --abort-on-container-exit --exi
 
 [`examples/compose-demo`](examples/compose-demo/) goes further: a service under test reacting live to rules changed from the host, and tests run with `docker compose run`.
 
-Without arguments, the image runs `pingmock -api 0.0.0.0:9100`, so the API can be published with `-p 9100:9100`. The API has no authentication and anyone who reaches it can change the rules, so publish it on the loopback address only, `-p 127.0.0.1:9100:9100`, unless the network is your own; arguments replace that default, so add `-api 0.0.0.0:9100` to them to publish the API. The image runs pingmock for its network namespace, as `sudo pingmock` does for a machine, so names, `-host` and `-dns` are refused there: use addresses. Docker disables IPv6 in containers by default, so pingmock runs with IPv4 only unless IPv6 is enabled for the container.
+Without arguments, the image runs `ghostwire -api 0.0.0.0:9100`, so the API can be published with `-p 9100:9100`. The API has no authentication and anyone who reaches it can change the rules, so publish it on the loopback address only, `-p 127.0.0.1:9100:9100`, unless the network is your own; arguments replace that default, so add `-api 0.0.0.0:9100` to them to publish the API. The image runs ghostwire for its network namespace, as `sudo ghostwire` does for a machine, so names, `-host` and `-dns` are refused there: use addresses. Docker disables IPv6 in containers by default, so ghostwire runs with IPv4 only unless IPv6 is enabled for the container.
 
 ## Other systems: a WireGuard gateway
 
-pingmock runs on Linux, but the program under test does not have to: on macOS, Windows or a phone, it can send its pings and connections to the mocked addresses through a [WireGuard](https://www.wireguard.com/) tunnel to a Linux machine running pingmock. pingmock needs no changes for this; the machine forwards what comes out of the tunnel to pingmock's device, and its answers go back the same way. This was tested with Linux at both ends; the WireGuard apps for the other systems read the same configuration file.
+ghostwire runs on Linux, but the program under test does not have to: on macOS, Windows or a phone, it can send its pings and connections to the mocked addresses through a [WireGuard](https://www.wireguard.com/) tunnel to a Linux machine running ghostwire. ghostwire needs no changes for this; the machine forwards what comes out of the tunnel to ghostwire's device, and its answers go back the same way. This was tested with Linux at both ends; the WireGuard apps for the other systems read the same configuration file.
 
 On the Linux machine, the gateway, make a key pair for it and one for the device (`wg genkey | tee gateway.key | wg pubkey > gateway.pub`, the same for `device`), write `/etc/wireguard/wg0.conf`:
 
@@ -732,12 +732,12 @@ PublicKey = <device.pub>
 AllowedIPs = 10.13.13.2/32
 ```
 
-and start the tunnel and pingmock:
+and start the tunnel and ghostwire:
 
 ```bash
 sudo sysctl -w net.ipv4.ip_forward=1
 sudo wg-quick up wg0
-sudo pingmock -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -tcp 10.99.0.1:80=refuse
+sudo ghostwire -rule 10.99.0.1=50ms -rule 8.8.8.8=unreachable -tcp 10.99.0.1:80=refuse
 ```
 
 The device imports this file into its WireGuard app (`qrencode -t ansiutf8 < device.conf` shows it as a QR code for a phone):
@@ -755,11 +755,11 @@ AllowedIPs = 10.99.0.0/24, 8.8.8.8/32, 10.13.13.1/32
 
 Then `ping 10.99.0.1` on the device gets 50ms, 8.8.8.8 is unreachable and port 80 refuses connections, and the history on the gateway records the device's tunnel address as `src`. What to know:
 
-- **Only the mocked addresses go through the tunnel.** `AllowedIPs` lists pingmock's subnets and the real addresses with rules; everything else the device sends goes where it always did, so the gateway needs no NAT. An address given a rule later through the API reaches the gateway only once it is in `AllowedIPs` too. Sending all traffic through the tunnel needs NAT on the gateway, and then connection tracking loses some of traceroute's ICMP probes sent at the same time: exempt the mocked addresses from it (`notrack`), or keep the tunnel to the mocked addresses.
-- **The gateway is a hop.** traceroute shows the gateway's tunnel address first and the [path](#paths-traceroute-and-mtr)'s hops one place later, and replies arrive with a TTL one lower; the history records TTLs as pingmock received them. For traceroute, also put `10.13.13.1/32` and the hops' addresses in `AllowedIPs`: WireGuard drops answers from addresses that are not there, and those hops show as `*`.
-- **The delay includes the tunnel.** A 50ms rule measured 51–54ms between two containers; over Wi-Fi to a phone, add its round trip to the gateway. The seed decides pingmock's results, not the network's delay. Every device shares each target's random sequence.
-- **Forwarding must be allowed.** If the gateway's firewall drops forwarded packets, as it does where Docker is installed, allow them between the tunnel and pingmock: `sudo iptables -I FORWARD -i wg0 -o pingmock0 -j ACCEPT` and `sudo iptables -I FORWARD -i pingmock0 -o wg0 -j ACCEPT`.
-- **Use addresses.** `sudo pingmock` refuses names, `-host` and `-dns`, as in [Docker](#docker).
+- **Only the mocked addresses go through the tunnel.** `AllowedIPs` lists ghostwire's subnets and the real addresses with rules; everything else the device sends goes where it always did, so the gateway needs no NAT. An address given a rule later through the API reaches the gateway only once it is in `AllowedIPs` too. Sending all traffic through the tunnel needs NAT on the gateway, and then connection tracking loses some of traceroute's ICMP probes sent at the same time: exempt the mocked addresses from it (`notrack`), or keep the tunnel to the mocked addresses.
+- **The gateway is a hop.** traceroute shows the gateway's tunnel address first and the [path](#paths-traceroute-and-mtr)'s hops one place later, and replies arrive with a TTL one lower; the history records TTLs as ghostwire received them. For traceroute, also put `10.13.13.1/32` and the hops' addresses in `AllowedIPs`: WireGuard drops answers from addresses that are not there, and those hops show as `*`.
+- **The delay includes the tunnel.** A 50ms rule measured 51–54ms between two containers; over Wi-Fi to a phone, add its round trip to the gateway. The seed decides ghostwire's results, not the network's delay. Every device shares each target's random sequence.
+- **Forwarding must be allowed.** If the gateway's firewall drops forwarded packets, as it does where Docker is installed, allow them between the tunnel and ghostwire: `sudo iptables -I FORWARD -i wg0 -o ghostwire0 -j ACCEPT` and `sudo iptables -I FORWARD -i ghostwire0 -o wg0 -j ACCEPT`.
+- **Use addresses.** `sudo ghostwire` refuses names, `-host` and `-dns`, as in [Docker](#docker).
 - On the device: the WireGuard app for Windows imports configurations only for an administrator, and Android runs one VPN at a time.
 
 ## Runtime control API
@@ -770,7 +770,7 @@ Rules can be changed over HTTP at any time during a test, and changes take effec
 # Show the seed, the default, the rules, the paths and per-target statistics
 # (stats: requests, replied, dropped, unreachable, hops, rule, phase), and the
 # same for TCP rules (tcp, tcp_stats), UDP rules (udp, udp_stats) and DNS rules (dns, dns_stats);
-# routes lists the addresses routed to pingmock besides its own subnets
+# routes lists the addresses routed to ghostwire besides its own subnets
 curl localhost:9100/rules
 
 # Create or change a rule
@@ -780,7 +780,7 @@ curl -X PUT localhost:9100/rules/10.99.0.1 -d '50ms for 3 pings; timeout'
 curl -X PUT localhost:9100/rules/10.99.0.128/25 -d '{"delay":"80ms","jitter":"5ms","loss":0.02}'
 
 # Delete a rule (the default applies again). For an address outside
-# pingmock's subnets, the route that brought it to pingmock goes too, once
+# ghostwire's subnets, the route that brought it to ghostwire goes too, once
 # no other rule or path needs it, and its traffic goes where it did before
 curl -X DELETE localhost:9100/rules/10.99.0.1
 
@@ -793,7 +793,7 @@ curl -X DELETE localhost:9100/tcp/10.99.0.1:5432
 curl -X PUT localhost:9100/udp/10.99.0.1:514 -d refuse
 curl -X DELETE localhost:9100/udp/10.99.0.1:514
 
-# DNS rules, under pingmock exec: a name stops resolving, then resolves again
+# DNS rules, under ghostwire exec: a name stops resolving, then resolves again
 curl -X PUT localhost:9100/dns/api.example.com -d nxdomain
 curl -X DELETE localhost:9100/dns/api.example.com
 
@@ -818,7 +818,7 @@ curl -X DELETE localhost:9100/history
 # file, no statistics, no history. Targets restart their scenarios and random sequences.
 curl -X POST localhost:9100/reset
 
-# Which pingmock this is: {"version": "vX.Y.Z"}
+# Which ghostwire this is: {"version": "vX.Y.Z"}
 curl localhost:9100/version
 ```
 
@@ -844,14 +844,14 @@ All the fields an event can have:
 | `probe` | anything but a ping | `udp`, `tcp` or `dns` |
 | `ttl`, `hop`, `from` | UDP and TCP probes | the probe's TTL, the hop that answered or lost it (left out for the destination), the address the answer came from |
 | `port`, `repeat` | TCP and UDP | the destination port; `repeat` is `true` for a SYN sent again, not counted |
-| `bytes` | TCP, result `sent` | how many bytes of `send` or `reply` pingmock sent; `delay` is its `wait` |
+| `bytes` | TCP, result `sent` | how many bytes of `send` or `reply` ghostwire sent; `delay` is its `wait` |
 | `name`, `qtype` | DNS | the name asked for, and `A`, `AAAA`... |
 
 ## Using it in automated tests
 
 ### Tools and libraries known to work
 
-[`test/e2e-compat.sh`](test/e2e-compat.sh) checks these against pingmock in CI, on Ubuntu 24.04 and 26.04: delays, deterministic loss, unreachable errors and a hijacked real address all come out as the rules say.
+[`test/e2e-compat.sh`](test/e2e-compat.sh) checks these against ghostwire in CI, on Ubuntu 24.04 and 26.04: delays, deterministic loss, unreachable errors and a hijacked real address all come out as the rules say.
 
 | Tool or library | Sockets |
 |---|---|
@@ -864,23 +864,23 @@ traceroute and mtr show the hops of targets that have a [path](#paths-traceroute
 
 For [TCP rules](#tcp-connections), the same script connects with the standard libraries of Go (`net.Dial`) and Python (`socket`), and checks that each sees an accepted connection after the delay and then a read timeout, `ECONNREFUSED`, a connect timeout and `EHOSTUNREACH`. curl and bash's `/dev/tcp` are checked in the end-to-end tests.
 
-The easiest way is to run the tests themselves under `pingmock exec`: no root, no setup or teardown code, and every run is isolated. Fix the seed so random loss and jitter are the same on every run.
+The easiest way is to run the tests themselves under `ghostwire exec`: no root, no setup or teardown code, and every run is isolated. Fix the seed so random loss and jitter are the same on every run.
 
 ### Go
 
-Run the test binary inside pingmock with `go test -exec`, and control pingmock from the tests with the [`client`](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client) package:
+Run the test binary inside ghostwire with `go test -exec`, and control ghostwire from the tests with the [`client`](https://pkg.go.dev/github.com/nanmuyao-tools/ghostwire/client) package:
 
 ```bash
-go test -exec 'pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
+go test -exec 'ghostwire exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms --' ./...
 ```
 
 ```go
-import "github.com/nanmuyao-tools/pingmock/client"
+import "github.com/nanmuyao-tools/ghostwire/client"
 
 func TestPicksFastestServer(t *testing.T) {
 	pm, err := client.FromEnv()
 	if err != nil {
-		t.Skip(err) // not running under pingmock exec
+		t.Skip(err) // not running under ghostwire exec
 	}
 	ctx := context.Background()
 
@@ -907,14 +907,14 @@ func TestPicksFastestServer(t *testing.T) {
 }
 ```
 
-The client covers the whole API: rules (`SetRule`, `DeleteRule`, `SetDefault`), paths (`SetPath`, `DeletePath`), TCP, UDP and DNS rules (`SetTCP`, `DeleteTCP`, `SetUDP`, `DeleteUDP`, `SetDNS`, `DeleteDNS`), statistics (`State`, `Stats`, `TCPStats`, `UDPStats`, `DNSStats`, `ResetStats`), the history (`History`, `ClearHistory`), `Reset` to put everything back as at startup (for the beginning of each test) and `Version`; `New`, `FromEnv` and `URL` connect it, and `IsNotFound` tells a missing rule from other errors. See its [documentation](https://pkg.go.dev/github.com/nanmuyao-tools/pingmock/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
+The client covers the whole API: rules (`SetRule`, `DeleteRule`, `SetDefault`), paths (`SetPath`, `DeletePath`), TCP, UDP and DNS rules (`SetTCP`, `DeleteTCP`, `SetUDP`, `DeleteUDP`, `SetDNS`, `DeleteDNS`), statistics (`State`, `Stats`, `TCPStats`, `UDPStats`, `DNSStats`, `ResetStats`), the history (`History`, `ClearHistory`), `Reset` to put everything back as at startup (for the beginning of each test) and `Version`; `New`, `FromEnv` and `URL` connect it, and `IsNotFound` tells a missing rule from other errors. See its [documentation](https://pkg.go.dev/github.com/nanmuyao-tools/ghostwire/client). [`examples/go-demo`](examples/go-demo/) is a complete example to copy from: a program that picks servers by latency, with tests for timeouts, unreachable servers, loss, slowdowns and outages.
 
 ### Other languages
 
-Run the test command under `pingmock exec` and call the [control API](#runtime-control-api) at `$PINGMOCK_API`, for example with pytest:
+Run the test command under `ghostwire exec` and call the [control API](#runtime-control-api) at `$GHOSTWIRE_API`, for example with pytest:
 
 ```bash
-pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
+ghostwire exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
 ```
 
 [`examples/python-demo`](examples/python-demo/) is a complete example, with a pytest fixture you can copy.
@@ -922,7 +922,7 @@ pingmock exec -seed 42 -rule 10.99.0.1=20ms -rule 10.99.0.2=200ms -- pytest
 ```python
 import os, requests
 
-API = os.environ["PINGMOCK_API"]
+API = os.environ["GHOSTWIRE_API"]
 
 def test_picks_fastest_server():
     assert my_app.pick_fastest(["10.99.0.1", "10.99.0.2"]) == "10.99.0.1"
@@ -940,7 +940,7 @@ def test_retries():
     assert [e["result"] for e in events] == ["drop", "drop", "reply"]
 ```
 
-If the tests cannot run under `pingmock exec`, start `sudo pingmock` before them instead, or use the [container image](#docker).
+If the tests cannot run under `ghostwire exec`, start `sudo ghostwire` before them instead, or use the [container image](#docker).
 
 ### This repository's tests
 
@@ -948,9 +948,9 @@ The unit tests do not need root; the end-to-end checks in [`test/`](test/) mostl
 
 ```bash
 make test         # go vet and unit tests with the race detector
-make e2e          # builds pingmock and runs test/e2e.sh with sudo
-make e2e-exec     # pingmock exec, rootless and as root
-make e2e-compat   # ping, fping, pro-bing, icmplib, and Go's and Python's TCP clients against pingmock (needs fping and icmplib)
+make e2e          # builds ghostwire and runs test/e2e.sh with sudo
+make e2e-exec     # ghostwire exec, rootless and as root
+make e2e-compat   # ping, fping, pro-bing, icmplib, and Go's and Python's TCP clients against ghostwire (needs fping and icmplib)
 make e2e-all      # the three above at the same time, in about 25 seconds
 make e2e-docker   # the container image and the Compose example
 ```
@@ -961,12 +961,12 @@ On a Mac, or wherever there is no Linux, the [development container](.devcontain
 
 ## Limitations
 
-- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `pingmock exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. On a TCP connection pingmock sends only the fixed bytes of a rule's `send` and `reply`, never sends anything twice and never reads what the program sends: the only service it runs is the DNS server it gives a command under `pingmock exec`. Other TCP traffic gets no response, and UDP gets an ICMP error only from a [UDP rule](#udp-datagrams) or, for traceroute and mtr, a path; pingmock never sends a UDP answer.
-- Probes bound to a network interface, as `ping -I eth0` and OpenWrt's mwan3 send them, bypass pingmock unless the test redirects them, and rules cannot tell interfaces apart: see [Probes bound to an interface](#probes-bound-to-an-interface).
+- Ping (ICMP and ICMPv6 Echo) is mocked, and TCP connections to ports with a [TCP rule](#tcp-connections) are accepted, refused or left unanswered, and accepted ones can be closed or reset. Under `ghostwire exec`, DNS queries for names with a [DNS rule](#dns-faults) get the rule's answer. On a TCP connection ghostwire sends only the fixed bytes of a rule's `send` and `reply`, never sends anything twice and never reads what the program sends: the only service it runs is the DNS server it gives a command under `ghostwire exec`. Other TCP traffic gets no response, and UDP gets an ICMP error only from a [UDP rule](#udp-datagrams) or, for traceroute and mtr, a path; ghostwire never sends a UDP answer.
+- Probes bound to a network interface, as `ping -I eth0` and OpenWrt's mwan3 send them, bypass ghostwire unless the test redirects them, and rules cannot tell interfaces apart: see [Probes bound to an interface](#probes-bound-to-an-interface).
 - Without a [path](#paths-traceroute-and-mtr), a target looks one hop away to traceroute and mtr: its pings are answered, its TCP probes only on ports with a TCP rule, and its UDP probes not at all. With a path, UDP and TCP probes get the answers that mean "reached", on every port, unless a TCP rule for the port decides otherwise.
 - Latency is accurate to within 1ms (a 50ms rule measures about 50.4ms); the extra fraction of a millisecond comes from kernel and scheduling overhead.
 - Fragmented requests (e.g. `ping -s 2000`) and IPv6 requests with extension headers are not supported and are ignored.
-- Linux only; programs on other systems can reach it through a [WireGuard gateway](#other-systems-a-wireguard-gateway). `pingmock exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).
+- Linux only; programs on other systems can reach it through a [WireGuard gateway](#other-systems-a-wireguard-gateway). `ghostwire exec` without root needs unprivileged user namespaces (see [Requirements](#requirements)).
 
 ## License
 

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/icmp"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/icmp"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // repeatWindow is how long a connection attempt is remembered, so that
@@ -30,7 +30,7 @@ type TCPStats struct {
 	Refused     uint64 `json:"refused"`
 	Dropped     uint64 `json:"dropped"`
 	Unreachable uint64 `json:"unreachable"`
-	// Accepted connections that pingmock then closed or reset (after=).
+	// Accepted connections that ghostwire then closed or reset (after=).
 	Closed uint64 `json:"closed"`
 	Reset  uint64 `json:"reset"`
 }
@@ -74,7 +74,7 @@ type conn struct {
 // Where an accepted connection with after=close or after=reset is.
 const (
 	connOpen    = iota // accepted, nothing done yet
-	connClosing        // pingmock sent its FIN
+	connClosing        // ghostwire sent its FIN
 	connDone           // closed or reset; later segments get the answers of a closed port
 )
 
@@ -92,7 +92,7 @@ type connState struct {
 	send, reply []byte
 	wait        time.Duration
 	limit       int
-	snd         uint32    // pingmock's next sequence number
+	snd         uint32    // ghostwire's next sequence number
 	rcv         uint32    // the next byte expected from the client
 	got         int       // bytes the client sent so far
 	started     bool      // the handshake's last ACK has come
@@ -123,7 +123,7 @@ func newTCPState() tcpState {
 }
 
 // ignored is the decision for a TCP or UDP probe that no rule or path
-// covers: no answer, as before pingmock, but an event in the history, so a
+// covers: no answer, as before ghostwire, but an event in the history, so a
 // test sees that its program tried. A SYN sent again is marked Repeat, as
 // for ports with a rule. It touches no target's state or random sequence.
 func (rs *RuleSet) ignored(p icmp.Probe) Decision {
@@ -286,7 +286,7 @@ func (rs *RuleSet) pruneTCP(now time.Time) {
 	}
 }
 
-// TCPSegment is a segment pingmock sends on a connection, with data or
+// TCPSegment is a segment ghostwire sends on a connection, with data or
 // without.
 type TCPSegment struct {
 	Flags    byte
@@ -319,14 +319,14 @@ type SegmentAnswer struct {
 // DecideSegment decides how to answer a segment p, other than a SYN, of a
 // connection accepted under after=close or after=reset, or under a rule
 // that exchanges data. It reports false for every other segment, which
-// gets no answer, as under after=hang without data: pingmock
+// gets no answer, as under after=hang without data: ghostwire
 // acknowledges nothing and sends nothing.
 //
 // Without data, after=close sends a FIN as soon as the client completes
 // the handshake. after=reset waits for the client's first data or FIN: a
 // reset on the handshake's final ACK would race with the client's
 // connect, which then fails in some runs and succeeds in others. Data
-// after pingmock's FIN gets a reset, as from a real server that closed
+// after ghostwire's FIN gets a reset, as from a real server that closed
 // its socket.
 func (rs *RuleSet) DecideSegment(p icmp.Probe) (SegmentAnswer, bool) {
 	rs.mu.Lock()
@@ -336,7 +336,7 @@ func (rs *RuleSet) DecideSegment(p icmp.Probe) (SegmentAnswer, bool) {
 		return SegmentAnswer{}, false
 	}
 	if p.TCPFlags&icmp.FlagACK == 0 || p.TCPAck-(icmp.SynAckSeq+1) > cs.snd+1-(icmp.SynAckSeq+1) {
-		return SegmentAnswer{}, false // not acknowledging what pingmock sent: another connection
+		return SegmentAnswer{}, false // not acknowledging what ghostwire sent: another connection
 	}
 	now := rs.now()
 	cs.at = now
@@ -387,7 +387,7 @@ func (rs *RuleSet) DecideSegment(p icmp.Probe) (SegmentAnswer, bool) {
 }
 
 // talk answers a segment of a connection whose rule exchanges data:
-// pingmock acknowledges what the client sends, sends send= once the
+// ghostwire acknowledges what the client sends, sends send= once the
 // handshake completes and reply= on the client's first data, after wait=,
 // and ends the connection as after= says, at limit= bytes if there is a
 // limit, once it has sent all it has to send otherwise. Callers hold
@@ -404,7 +404,7 @@ func (rs *RuleSet) talk(cs *connState, p icmp.Probe, now time.Time, a *SegmentAn
 	ack := func() { a.Now = append(a.Now, TCPSegment{Flags: icmp.FlagACK, Seq: ackSeq(), Ack: cs.rcv}) }
 	data := func(b []byte) {
 		if cs.wait > 0 {
-			ack() // at once, so that the client does not send it again while pingmock waits
+			ack() // at once, so that the client does not send it again while ghostwire waits
 			cs.pendingFrom, cs.pendingTill = cs.snd, now.Add(cs.wait)
 			a.Delay = cs.wait
 		}
@@ -446,7 +446,7 @@ func (rs *RuleSet) talk(cs *connState, p icmp.Probe, now time.Time, a *SegmentAn
 			ack() // the client's FIN again: our ACK was lost
 		}
 		return
-	case connClosing: // pingmock sent its FIN
+	case connClosing: // ghostwire sent its FIN
 		switch {
 		case old:
 			ack()
@@ -505,7 +505,7 @@ func (rs *RuleSet) talk(cs *connState, p icmp.Probe, now time.Time, a *SegmentAn
 			ack()
 		}
 	}
-	if fin && cs.stage == connClosing { // pingmock's FIN just went out: acknowledge the client's after it
+	if fin && cs.stage == connClosing { // ghostwire's FIN just went out: acknowledge the client's after it
 		cs.rcv++
 		cs.stage = connDone
 		a.Ordered = append(a.Ordered, TCPSegment{Flags: icmp.FlagACK, Seq: cs.snd, Ack: cs.rcv})
@@ -520,7 +520,7 @@ func (rs *RuleSet) talk(cs *connState, p icmp.Probe, now time.Time, a *SegmentAn
 			end(rule.Closed)
 			cs.stage = connDone // both sides have closed
 		default:
-			ack() // a half close: pingmock's side stays open, as under hang
+			ack() // a half close: ghostwire's side stays open, as under hang
 		}
 	}
 }

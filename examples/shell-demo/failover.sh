@@ -3,8 +3,8 @@
 # backup when it does not, and the primary again once it has recovered.
 #
 # This is the code under test in this example. It knows nothing about
-# pingmock and runs the system's ping, as monitoring scripts do; test.sh
-# tests it against pingmock.
+# ghostwire and runs the system's ping, as monitoring scripts do; test.sh
+# tests it against ghostwire.
 #
 #   failover.sh [-s STATE_FILE] PRIMARY BACKUP
 #

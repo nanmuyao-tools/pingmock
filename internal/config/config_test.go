@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 func writeFile(t *testing.T, name, content string) string {
@@ -84,7 +84,7 @@ rules:
 }
 
 func TestLoadExample(t *testing.T) {
-	cfg, rules, err := Load("../../examples/pingmock.yaml")
+	cfg, rules, err := Load("../../examples/ghostwire.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,11 +115,11 @@ func TestLoadJSON(t *testing.T) {
 		"8.8.8.8": "timeout"
 	}
 }`
-	j, jr, err := Load(writeFile(t, "pingmock.json", legacy))
+	j, jr, err := Load(writeFile(t, "ghostwire.json", legacy))
 	if err != nil {
 		t.Fatal(err)
 	}
-	y, yr, err := Load("../../examples/pingmock.yaml")
+	y, yr, err := Load("../../examples/ghostwire.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestLoadDNS(t *testing.T) {
 
 // The bytes of send= and reply= in both forms of a configuration file:
 // the mapping takes text, with YAML's escapes in double quotes, and the
-// text form in single quotes reaches pingmock as written.
+// text form in single quotes reaches ghostwire as written.
 func TestLoadTCPData(t *testing.T) {
 	cfg, _, err := Load(writeFile(t, "d.yaml", `tcp:
   10.99.0.1:80:

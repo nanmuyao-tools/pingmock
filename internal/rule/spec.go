@@ -29,7 +29,7 @@ type Spec struct {
 	// After is what happens to a connection once it is accepted: it
 	// stays open (the default), is closed or is reset. TCP rules only.
 	After After
-	// Send is what pingmock sends as soon as a connection is accepted,
+	// Send is what ghostwire sends as soon as a connection is accepted,
 	// and Reply what it sends when the client first sends data: fixed
 	// bytes, such as a banner or an error reply. Wait delays them. TCP
 	// rules only.
@@ -252,7 +252,7 @@ func (sp Spec) validateFor(kind proto) error {
 		}
 	}
 	if kind == protoUDP && !sp.Refuse && sp.Unreachable == UnreachNone && sp.Loss < 1 && sp.Pattern == "" {
-		return fmt.Errorf("a UDP rule says how datagrams fail: refuse, unreachable, timeout or a pattern of x, u and r; pingmock sends no UDP answers")
+		return fmt.Errorf("a UDP rule says how datagrams fail: refuse, unreachable, timeout or a pattern of x, u and r; ghostwire sends no UDP answers")
 	}
 	if kind == protoDNS {
 		switch {
@@ -269,7 +269,7 @@ func (sp Spec) validateFor(kind proto) error {
 func (sp Spec) sends() bool { return len(sp.Send) > 0 || len(sp.Reply) > 0 }
 
 // Talks reports whether connections accepted under the spec exchange
-// data: pingmock sends bytes or counts the client's, and so acknowledges
+// data: ghostwire sends bytes or counts the client's, and so acknowledges
 // what the client sends. Under a spec that does not, an accepted
 // connection gets nothing after the handshake but what After sends.
 func (sp Spec) Talks() bool { return sp.sends() || sp.Limit > 0 }
@@ -349,7 +349,7 @@ func parsePatternFor(s string, kind proto) (string, error) {
 	}
 	if kind == protoUDP {
 		if strings.Trim(s, "xur") != "" {
-			return "", fmt.Errorf("pattern %q may only contain 'x' (no answer), 'u' (unreachable) and 'r' (refuse): pingmock sends no UDP answers", s)
+			return "", fmt.Errorf("pattern %q may only contain 'x' (no answer), 'u' (unreachable) and 'r' (refuse): ghostwire sends no UDP answers", s)
 		}
 		return s, nil
 	}

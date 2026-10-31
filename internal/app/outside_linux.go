@@ -11,9 +11,9 @@ import (
 	"syscall"
 )
 
-// Outside access: with -outside, pingmock exec gives the command's network
+// Outside access: with -outside, ghostwire exec gives the command's network
 // a way out through pasta (https://passt.top), which the parent attaches to
-// the child's namespaces. Mocked targets keep winning, because pingmock's
+// the child's namespaces. Mocked targets keep winning, because ghostwire's
 // routes for them are more specific than pasta's default route, and the
 // child adds them only once pasta is done.
 
@@ -69,7 +69,7 @@ func pastaArgs(ports []string, root bool, pid int, pidFile string) []string {
 // stop is called: recent versions quit when the namespaces are gone, but
 // older ones, such as Debian 12's, keep running.
 func attachPasta(pasta string, ports []string, root bool, pid int) (stop func(), err error) {
-	f, err := os.CreateTemp("", "pingmock-pasta-*.pid")
+	f, err := os.CreateTemp("", "ghostwire-pasta-*.pid")
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (s *settings) apiFacts() map[string]any {
 func waitOutside(ports []string) error {
 	f := os.NewFile(outsideFD, "outside")
 	if f == nil {
-		return fmt.Errorf("outside access: the pipe from pingmock exec is missing")
+		return fmt.Errorf("outside access: the pipe from ghostwire exec is missing")
 	}
 	defer f.Close()
 	var b [1]byte

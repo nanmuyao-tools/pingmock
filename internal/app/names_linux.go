@@ -7,10 +7,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/nanmuyao-tools/pingmock/internal/config"
-	"github.com/nanmuyao-tools/pingmock/internal/dns"
-	"github.com/nanmuyao-tools/pingmock/internal/engine"
-	"github.com/nanmuyao-tools/pingmock/internal/rule"
+	"github.com/nanmuyao-tools/ghostwire/internal/config"
+	"github.com/nanmuyao-tools/ghostwire/internal/dns"
+	"github.com/nanmuyao-tools/ghostwire/internal/engine"
+	"github.com/nanmuyao-tools/ghostwire/internal/rule"
 )
 
 // dnsRule returns the DNS server's Rule: the decision of rs, recorded in
@@ -54,7 +54,7 @@ const dnsAddr = "127.0.0.1:53"
 const relayFD = 3
 
 // setupNames gives the command the files that make the names resolve:
-// its own /etc/hosts, a resolv.conf pointing at pingmock's DNS server,
+// its own /etc/hosts, a resolv.conf pointing at ghostwire's DNS server,
 // and, if needed, an nsswitch.conf that does not bypass it; nscd, which
 // would bypass both, is hidden. It runs in the child's mount namespace.
 func setupNames(hosts []config.Host, dnsNames []string) error {

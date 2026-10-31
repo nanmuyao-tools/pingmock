@@ -1,10 +1,10 @@
-# Contributing to pingmock
+# Contributing to ghostwire
 
 Thanks for your interest! Bug reports, ideas and pull requests are welcome. For anything larger than a small fix, please open an issue first so we can agree on the approach.
 
 ## Design principles
 
-pingmock has four core values. Every feature has to keep all four, and so does **every protocol pingmock comes to support**:
+ghostwire has four core values. Every feature has to keep all four, and so does **every protocol ghostwire comes to support**:
 
 - **Transparent**: the program under test is not changed, neither its code nor its configuration. It keeps talking to the addresses, names and ports it always does.
 - **Per target**: every target (an address or prefix, and for other protocols a name or a port) can have its own conditions.
@@ -22,11 +22,11 @@ You need Linux and Go 1.22 or later. The end-to-end checks also need root, iprou
 Without Linux at hand, for example on a Mac, use the [development container](.devcontainer/README.md): it has all of it, and runs the checks the way CI does.
 
 ```bash
-make build        # build ./pingmock
+make build        # build ./ghostwire
 make test         # go vet and unit tests with the race detector (no root needed)
 make e2e          # build and run test/e2e.sh with sudo
-make e2e-exec     # pingmock exec, rootless and as root
-make e2e-compat   # fping, pro-bing and icmplib against pingmock (needs fping and icmplib)
+make e2e-exec     # ghostwire exec, rootless and as root
+make e2e-compat   # fping, pro-bing and icmplib against ghostwire (needs fping and icmplib)
 make e2e-all      # e2e, e2e-exec and e2e-compat at the same time, in about 25 seconds
 make e2e-docker   # the container image and the Compose example (needs Docker)
 make lint         # gofmt, go vet and shellcheck
@@ -36,12 +36,12 @@ CI runs `make lint`-equivalent checks, the unit tests and the end-to-end checks 
 
 ## How the code is organized
 
-[docs/basics.md](docs/basics.md) ([中文](docs/basics.zh-CN.md)) explains the networking pingmock relies on, for newcomers; [docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to pingmock and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. [docs/roadmap.md](docs/roadmap.md) ([中文](docs/roadmap.zh-CN.md)) is the roadmap at a glance, with how pingmock compares with its competitors, and [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on. In short:
+[docs/basics.md](docs/basics.md) ([中文](docs/basics.zh-CN.md)) explains the networking ghostwire relies on, for newcomers; [docs/packet-path.md](docs/packet-path.md) ([中文](docs/packet-path.zh-CN.md)) follows one ping through the kernel to ghostwire and back, [docs/packets.md](docs/packets.md) ([中文](docs/packets.zh-CN.md)) takes the packets apart byte by byte, and [docs/architecture.md](docs/architecture.md) ([中文](docs/architecture.zh-CN.md)) is a tour of the code: the packages, the journey of one ping through them, the core types, and where to make common changes. [docs/roadmap.md](docs/roadmap.md) ([中文](docs/roadmap.zh-CN.md)) is the roadmap at a glance, with how ghostwire compares with its competitors, and [docs/planning.md](docs/planning.md) ([中文](docs/planning.zh-CN.md)) explains how the roadmap in TODO.md is worked out, and the evidence it rests on. In short:
 
 ```
 main.go                  entry point; calls internal/app
 internal/
-  app/                   the command: flags and configuration, starting up, pingmock exec
+  app/                   the command: flags and configuration, starting up, ghostwire exec
   tun/                   TUN device, addresses and routes (Linux only)
   responder/             reads packets from the device and answers them
   icmp/                  parsing pings, UDP and TCP probes; building replies, ICMP errors,
@@ -50,9 +50,9 @@ internal/
   rule/                  rule types and their text and JSON forms
   api/                   HTTP control API
   config/                YAML configuration files (-config)
-  dns/                   the DNS server pingmock exec runs for its command, with DNS rules
+  dns/                   the DNS server ghostwire exec runs for its command, with DNS rules
 client/                  public Go client for the control API
-contrib/apparmor/        AppArmor profile for pingmock exec on Ubuntu 23.10+
+contrib/apparmor/        AppArmor profile for ghostwire exec on Ubuntu 23.10+
 docs/                    network basics, the code tour, the packet path, the packet anatomy,
                          the roadmap, and how it is planned
 examples/                example configuration, Compose file, complete examples in Go, Python
@@ -71,7 +71,7 @@ Code under `internal/` is not part of the public API and may change at any time.
 ## Guidelines
 
 - Keep pull requests focused on one change, and include tests for it. Bug fixes should come with a test that fails without the fix.
-- pingmock depends only on the Go standard library and `go.yaml.in/yaml/v3` (for configuration files, in `internal/config`); please discuss before adding a dependency. The `client` package uses the standard library alone, so programs that import it pull in nothing else.
+- ghostwire depends only on the Go standard library and `go.yaml.in/yaml/v3` (for configuration files, in `internal/config`); please discuss before adding a dependency. The `client` package uses the standard library alone, so programs that import it pull in nothing else.
 - Change both languages together when behavior visible to users changes: `README.md` and `README.zh-CN.md`, every document in `docs/`, and both READMEs of every example. If you can only write one language, say so in the pull request and the other will be updated.
 - Seeded random sequences are part of the behavior users rely on: with the same seed and rules, a target must keep getting the same results across versions. Changes that alter them need a good reason and a note in the release.
 
@@ -84,6 +84,6 @@ git tag -a v0.3.0 --cleanup=whitespace -F notes.txt
 git push origin v0.3.0
 ```
 
-The release workflow runs the tests, builds static binaries for linux/amd64 and linux/arm64, creates the GitHub release, and pushes the container image to `ghcr.io/nanmuyao-tools/pingmock`.
+The release workflow runs the tests, builds static binaries for linux/amd64 and linux/arm64, creates the GitHub release, and pushes the container image to `ghcr.io/nanmuyao-tools/ghostwire`.
 
-After a release, update the examples that name a version, so users who copy them get the new one: `PINGMOCK_VERSION` in `examples/github-actions/pingmock-tests.yml`, and the `require` line in `examples/go-demo/go.mod` and `examples/pinglib-demo/go.mod` (then `go mod tidy` in each). CI's `workflow-example` job runs the workflow example against that release. Tags with a hyphen, such as `v0.3.0-rc.1`, become prereleases.
+After a release, update the examples that name a version, so users who copy them get the new one: `GHOSTWIRE_VERSION` in `examples/github-actions/ghostwire-tests.yml`, and the `require` line in `examples/go-demo/go.mod` and `examples/pinglib-demo/go.mod` (then `go mod tidy` in each). CI's `workflow-example` job runs the workflow example against that release. Tags with a hyphen, such as `v0.3.0-rc.1`, become prereleases.

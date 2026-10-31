@@ -32,7 +32,7 @@ func u32(v uint32) []byte {
 }
 
 func TestMatchRoutes(t *testing.T) {
-	name := func(i uint32) string { return map[uint32]string{2: "eth0", 3: "pingmock0", 4: "vlan20"}[i] }
+	name := func(i uint32) string { return map[uint32]string{2: "eth0", 3: "ghostwire0", 4: "vlan20"}[i] }
 	// struct rtnexthop for devices 2 and 4, each 8 bytes with no attributes.
 	multipath := []byte{8, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 4, 0, 0, 0}
 	dump := []syscall.NetlinkMessage{
@@ -50,9 +50,9 @@ func TestMatchRoutes(t *testing.T) {
 	}
 	cases := map[string][]string{
 		"0.0.0.0/0":       {"dev eth0"},
-		"192.168.20.0/24": {"dev vlan20", "dev pingmock0"},
-		"192.168.20.1/24": {"dev vlan20", "dev pingmock0"},
-		"192.168.20.0/25": {"dev pingmock0"},
+		"192.168.20.0/24": {"dev vlan20", "dev ghostwire0"},
+		"192.168.20.1/24": {"dev vlan20", "dev ghostwire0"},
+		"192.168.20.0/25": {"dev ghostwire0"},
 		"192.168.20.0/23": nil,
 		"172.31.0.0/16":   {"type unreachable"},
 		"10.1.0.0/16":     {"dev eth0,vlan20"},

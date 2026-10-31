@@ -140,12 +140,12 @@ func TestBuildSegment(t *testing.T) {
 	if tcpChecksum(out[8:24], out[24:40], out[40:]) != 0 || out[40+13] != 0x14 || binary.BigEndian.Uint32(out[40+8:]) != 20 {
 		t.Errorf("v6: flags %#x ack %d or bad checksum", out[40+13], binary.BigEndian.Uint32(out[40+8:]))
 	}
-	// What pingmock sends must never come back in as a segment to answer.
+	// What ghostwire sends must never come back in as a segment to answer.
 	if p, ok := ParseProbe(out); ok {
 		t.Errorf("the reset parsed as %+v", p)
 	}
 	// With data: the lengths grow by it, and the checksum covers it.
-	data := []byte("SSH-2.0-pingmock\r\n")
+	data := []byte("SSH-2.0-ghostwire\r\n")
 	out = BuildSegment(req, 64, FlagPSH|FlagACK, SynAckSeq+1, 8, data)
 	if len(out) != 60+len(data) || int(binary.BigEndian.Uint16(out[4:6])) != 20+len(data) ||
 		tcpChecksum(out[8:24], out[24:40], out[40:]) != 0 || string(out[60:]) != string(data) {

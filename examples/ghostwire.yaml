@@ -1,7 +1,7 @@
-# Example pingmock configuration. Run it with:
-#   sudo pingmock -config examples/pingmock.yaml
+# Example ghostwire configuration. Run it with:
+#   sudo ghostwire -config examples/ghostwire.yaml
 # or, without root:
-#   pingmock exec -config examples/pingmock.yaml -- ./my-app
+#   ghostwire exec -config examples/ghostwire.yaml -- ./my-app
 #
 # Every setting is optional, and flags given on the command line override
 # this file.
@@ -38,7 +38,7 @@ rules:
   10.99.0.6: delay=25ms,ttl=128
 
   # A real address, mocked: nothing on this machine reaches the real 8.8.8.8
-  # while pingmock runs.
+  # while ghostwire runs.
   8.8.8.8: timeout
 
 # The route traceroute and mtr see to a target: hops separated by ">",
