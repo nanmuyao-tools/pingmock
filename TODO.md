@@ -2,9 +2,25 @@
 
 已发布 v0.20.0（见 [Releases](https://github.com/nanmuyao-tools/pingmock/releases)）：v0.9.0 TCP 连接、v0.10.0 `after=`、v0.11.0 DNS 故障、v0.12.0 连接上发送数据、v0.13.0 UDP 规则、v0.14.0 冻结前的整理、v0.15.0 `exec` 访问外网、v0.15.1 路由跟着规则走、v0.16.0 没有规则的连接记进历史、v0.17.0 用 netlink 替代 `ip` 命令、v0.18.0 路径的中间跳和 ping 分开、v0.19.0 容器里没有权限的 root 也能用 `exec`、v0.20.0 搬到 nanmuyao-tools 并写了 WireGuard 网关，详见下面的「多协议」。更早的：v0.2–v0.4 的规划全部完成，v0.5 改用了 YAML 配置文件；v0.5.1 没有改变任何行为，加入了代码结构重构、3 份技术文档（[往返之旅](docs/packet-path.zh-CN.md)、[数据包详解](docs/packets.zh-CN.md)、[代码导读](docs/architecture.zh-CN.md)）、5 个[完整示例](examples/README.zh-CN.md)，以及在 Ubuntu 26.04 上的测试；v0.5.2 修复了 root 模式会替换本机所在网络路由的 bug。
 
-接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。
+接下来的重点不是继续加功能，而是**让真实用户用起来**，再根据反馈决定方向。现在 0 issue、0 PR、0 star，"按用户数量排优先级"这条规则本身没有用户可排——所以推广这件事（见下面「现在最优先」）排在任何新功能之前。
 
-## v0.5 的收尾（已完成，推广暂缓）
+## 推广帖子，由作者本人发布
+
+**现在最优先**：素材都已经现成（演示、中英文文档、竞品对比表），一直以「先专注项目本身」为理由暂缓；文档阶段已经完成、CI 也是绿的，这个理由不再成立，不应该继续放在下面的「最低优先级」里。
+
+查过三个社区的规定：Hacker News、Reddit r/golang 和 V2EX 都禁止 AI 生成的帖子或回复，所以帖子和回复都要由作者本人来写；AI 可以准备素材、核对事实、帮作者弄懂读者的技术问题。
+
+每个社区先读一遍发帖规则；发帖后作者本人在评论区回答问题。
+
+- [ ] **V2EX**：「分享创造」节点，用中文介绍
+- [ ] **Reddit r/golang**：英文，强调 Go 实现、依赖极少、`go test -exec` 的用法
+- [ ] **Hacker News**：标题用 `Show HN: Pingmock – mock ping latency, loss and unreachable errors on Linux` 这样的格式
+- [ ] 投几个精选列表：awesome-go、awesome-testing、某个混沌工程相关列表，几乎零成本
+- [ ] （可选）掘金、Go 中文社区、Twitter / X
+
+发帖之后：把收到的需求记在[技术路线](#技术路线)的「之后：等需求再决定」里，按**有多少人需要**排优先级，不要再凭空猜。
+
+## v0.5 的收尾（已完成）
 
 接下来的工作见[技术路线](#技术路线)。
 
@@ -386,18 +402,9 @@ README 只描述已经实现的功能：定位已随 TCP 连接更新为「从 p
 - [x] 示例里用上 TCP 和 DNS 规则（文档审查发现，2026-10-21；2026-10-25 完成：go-demo 加 `Connect`，连接超时或被拒时换下一台，两个测试；python-demo 加 `reach`，分出名字不存在、连接被拒、连接超时，四个测试，fixture 补上 `set_tcp`、`set_dns`。开发容器里都通过；变异：超时当成被拒、去掉 DNS 规则、不换下一台，各自让测试失败。顺带看到 API 不接受名字作 TCP 目标，示例用 `hosts:` 固定地址，并在 README 里写明）：README 开头就有 `-tcp`、`-dns`，但没有一个示例用到。候选：go-demo 加一个连接超时后切换的测试，python-demo 加一个连接被拒绝或 NXDOMAIN 的测试；python-demo 的 fixture 也补上 `set_tcp`、`set_dns`
 - [ ] 用 Java、Node.js 客户端验证 TCP 规则（含 `after=`）：现在验证过的是 curl、bash `/dev/tcp`、Go `net`、Python `socket`
 
-### 推广帖子，由作者本人发布
+### （已移到最前面）推广帖子，由作者本人发布
 
-**暂缓**：先专注项目本身，见上面的[技术路线](#技术路线)。另外，查过三个社区的规定：Hacker News、Reddit r/golang 和 V2EX 都禁止 AI 生成的帖子或回复，所以帖子和回复都要由作者本人来写；AI 可以准备素材、核对事实、帮作者弄懂读者的技术问题。
-
-每个社区先读一遍发帖规则；发帖后作者本人在评论区回答问题。
-
-- [ ] **V2EX**：「分享创造」节点，用中文介绍
-- [ ] **Reddit r/golang**：英文，强调 Go 实现、依赖极少、`go test -exec` 的用法
-- [ ] **Hacker News**：标题用 `Show HN: Pingmock – mock ping latency, loss and unreachable errors on Linux` 这样的格式
-- [ ] （可选）掘金、Go 中文社区、Twitter / X
-
-发帖之后：把收到的需求记在上面的[之后：等需求再决定](#之后等需求再决定)里，按**有多少人需要**排优先级。
+见文档开头的[推广帖子，由作者本人发布](#推广帖子由作者本人发布)。
 
 ### 学习进度
 

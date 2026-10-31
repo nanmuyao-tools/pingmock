@@ -2,7 +2,7 @@
 
 English | [中文](roadmap.zh-CN.md)
 
-Where pingmock stands, what comes next, and why, as of 25 October 2026. The steps, with what was verified at each one, are tracked in [TODO.md](../TODO.md#通往-v10) (in Chinese). The evidence behind this page, including the competitor analysis, is in [planning, round seven](planning.md#a-seventh-round-competitors-and-direction-after-v10-23-october-2026), and the later ones in [round eight](planning.md#an-eighth-round-what-next-after-v0150-25-october-2026).
+Where pingmock stands, what comes next, and why, as of 31 October 2026. The steps, with what was verified at each one, are tracked in [TODO.md](../TODO.md#通往-v10) (in Chinese). The evidence behind this page, including the competitor analysis, is in [planning, round seven](planning.md#a-seventh-round-competitors-and-direction-after-v10-23-october-2026), and the later ones in [round eight](planning.md#an-eighth-round-what-next-after-v0150-25-october-2026).
 
 The common protocols are now supported, and the documentation stage is done. The v1.0 compatibility promise is deferred: the project is still in internal development, so changes need not stay compatible (the maintainer, 23 October 2026). A new feature waits until a user asks for it, and features are ordered by the number of users they serve. Of the 34 competitors studied, none keeps all four [core values](../CONTRIBUTING.md#design-principles): transparent, per target, reproducible, and controllable and observable.
 
@@ -27,7 +27,8 @@ The common protocols are now supported, and the documentation stage is done. The
 
 ```mermaid
 flowchart LR
-    A["Done: documentation"] --> C["Next: when a user asks"]
+    A["Done: documentation"] --> G["Now: get first users"]
+    G --> C["Next: when a user asks"]
     C --> B["v1.0, deferred<br/>compatibility promise"]
     N["Not planned"]
 ```
@@ -61,16 +62,25 @@ Done on 23 October 2026, in both languages.
 - Check off the items in TODO.md that were decided but not marked.
 - The README's Docker section says that the API has no authentication, and to publish it on loopback only.
 
+### Now: get the first real users
+
+pingmock has zero issues, pull requests, stars or forks. The ordering rule just below it — order by the number of users a direction would serve — has no users to order by yet, so every entry in "Next" is still a guess, not a priority. The promotional post in [TODO.md](../TODO.md#推广帖子由作者本人发布) has been ready since 23 October 2026 (the demo, the bilingual docs and the competitor comparison already exist) but was deferred in favor of polishing the project first. Documentation is done and CI is green, so that reason no longer holds; distribution is now the higher-priority item, ahead of any new feature below.
+
+- Publish the post, by the maintainer and not AI-generated (each community's rule): V2EX, Reddit r/golang, Hacker News.
+- Submit pingmock to a few curated lists (awesome-go, awesome-testing, a chaos-engineering list): near-zero cost, a standing channel, not attempted yet.
+- Only once real feedback arrives, re-rank "Next" below using it, instead of the guesses it currently rests on.
+
 ### Next: when a user asks
 
-These are ordered by the number of users they would serve, but none starts without a user asking.
+These are ordered by the number of users they would serve, but none starts without a user asking, and none has one yet (see "Now" above).
 
 | Direction | For | State |
 |---|---|---|
 | Rules per interface or source address (multi-WAN, mwan3) | operations staff | Designed and tried by experiment, also without root inside `exec`. Postponed by the maintainer on 2026-10-25 as too complex for a need no user has raised. Medium cost: `rule`, `engine`, `tun`, `app`, `api`, `client` |
-| Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages, and toxiproxy-python 25,000 downloads a month. Round eight recommended it next; the maintainer keeps it at lowest priority |
+| Python client, standard library only, with a pytest fixture | application developers | Toxiproxy has clients in 10 languages, and toxiproxy-python 25,000 downloads a month — that is Toxiproxy's own adoption, not evidence of demand for pingmock's client, and should be treated as a weak signal until a user actually asks. Round eight recommended it next; the maintainer keeps it at lowest priority |
 | Testcontainers module | application developers | Useful only when the code under test runs in a container |
-| ICMP Packet Too Big, DNS in root mode, replaying recorded latency, IPv6 for outside access | — | No evidence of users yet |
+
+Parked, not part of active planning (no evidence of demand, revisit only if a user asks): ICMP Packet Too Big, DNS in root mode, replaying recorded latency, IPv6 for outside access.
 
 ### v1.0: the compatibility promise, deferred
 
