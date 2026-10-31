@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  GHOSTWIRE_VERSION: v0.20.0
+  GHOSTWIRE_VERSION: v0.21.0
 
 jobs:
   test:

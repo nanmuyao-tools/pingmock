@@ -9,7 +9,7 @@ import (
 	"time"
 
 	fastest "example.com/go-demo"
-	"github.com/nanmuyao-tools/pingmock/client"
+	"github.com/nanmuyao-tools/ghostwire/client"
 )
 
 // These tests run inside ghostwire exec, which mocks the pings they cause:
